@@ -1,4 +1,7 @@
 import os
+import hashlib
+import base64
+from os import urandom
 from datetime import datetime, timezone
 
 try:
@@ -11,6 +14,27 @@ import requests as _req
 import streamlit as st
 from supabase import create_client, Client
 from types import SimpleNamespace
+
+
+# ─── 비밀번호 해시 유틸 (표준 라이브러리만 사용) ─────────────────────────────
+
+def hash_password(password: str) -> str:
+    """PBKDF2-HMAC-SHA256으로 해시. salt(16B) + digest를 base64 인코딩하여 반환."""
+    salt = urandom(16)
+    dk   = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+    return base64.b64encode(salt + dk).decode()
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """hash_password()로 생성된 해시와 입력 비밀번호를 비교."""
+    try:
+        raw  = base64.b64decode(stored.encode())
+        salt = raw[:16]
+        dk   = raw[16:]
+        new_dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
+        return new_dk == dk
+    except Exception:
+        return False
 
 
 @st.cache_resource
@@ -129,6 +153,36 @@ def exchange_oauth_code(auth_code: str, code_verifier: str | None = None):
 def get_brands() -> list[dict]:
     res = get_supabase().table("brands").select("*").order("name").execute()
     return res.data or []
+
+
+def get_brand_by_id(brand_id: str) -> dict:
+    res = get_supabase().table("brands").select("*").eq("id", brand_id).limit(1).execute()
+    return res.data[0] if res.data else {}
+
+
+def get_brand_access_password_hash(brand_id: str) -> str | None:
+    res = get_supabase().table("brands").select("access_password_hash").eq("id", brand_id).limit(1).execute()
+    if res.data:
+        return res.data[0].get("access_password_hash") or None
+    return None
+
+
+def set_brand_access_password(brand_id: str, password: str) -> None:
+    get_supabase().table("brands").update({"access_password_hash": hash_password(password)}).eq("id", brand_id).execute()
+
+
+def get_campaign_if_owned(campaign_id: str, brand_id: str) -> dict | None:
+    """campaign_id + brand_id 동시 일치 시에만 반환 — 소유권 검증용."""
+    res = (
+        get_supabase()
+        .table("campaigns")
+        .select("*")
+        .eq("id", campaign_id)
+        .eq("brand_id", brand_id)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
 
 
 def create_brand(data: dict) -> None:

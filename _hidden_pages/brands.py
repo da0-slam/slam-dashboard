@@ -1,6 +1,9 @@
 import streamlit as st
 from utils.auth import require_auth, sidebar_user_info
-from utils.supabase_client import get_brands, create_brand, update_brand, delete_brand
+from utils.supabase_client import (
+    get_brands, create_brand, update_brand, delete_brand,
+    set_brand_access_password,
+)
 
 st.set_page_config(page_title="브랜드사 관리", page_icon="🏢", layout="wide")
 
@@ -49,7 +52,7 @@ with tab_list:
         for brand in brands:
             bid = brand["id"]
             with st.container(border=True):
-                c1, c2, c3 = st.columns([5, 1, 1])
+                c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
                 with c1:
                     cat = f" · {brand['category']}" if brand.get("category") else ""
                     st.markdown(f"**{brand['name']}**{cat}")
@@ -64,12 +67,18 @@ with tab_list:
                         st.caption(f"📝 {brand['notes']}")
                 with c2:
                     if st.button("✏️ 수정", key=f"edit_{bid}", use_container_width=True):
-                        st.session_state.editing_brand = brand
+                        st.session_state.editing_brand  = brand
                         st.session_state.confirm_delete = None
+                        st.session_state.pop(f"reset_pw_{bid}", None)
                 with c3:
+                    if st.button("🔑 비번", key=f"pw_{bid}", use_container_width=True):
+                        st.session_state[f"reset_pw_{bid}"] = True
+                        st.session_state.editing_brand  = None
+                        st.session_state.confirm_delete = None
+                with c4:
                     if st.button("🗑️ 삭제", key=f"del_{bid}", use_container_width=True):
                         st.session_state.confirm_delete = bid
-                        st.session_state.editing_brand = None
+                        st.session_state.editing_brand  = None
 
                 # 삭제 확인
                 if st.session_state.confirm_delete == bid:
@@ -111,6 +120,32 @@ with tab_list:
                         with ec2:
                             if st.form_submit_button("취소", use_container_width=True):
                                 st.session_state.editing_brand = None
+                                st.rerun()
+
+                # 캠페인 관리 비밀번호 재설정 폼
+                if st.session_state.get(f"reset_pw_{bid}"):
+                    st.divider()
+                    st.caption("🔑 캠페인 관리 비밀번호 재설정")
+                    with st.form(f"reset_pw_form_{bid}"):
+                        new_pw  = st.text_input("새 비밀번호", type="password")
+                        new_pw2 = st.text_input("비밀번호 확인", type="password")
+                        r1, r2  = st.columns(2)
+                        with r1:
+                            if st.form_submit_button("🔑 재설정", type="primary", use_container_width=True):
+                                if not new_pw:
+                                    st.error("비밀번호를 입력하세요.")
+                                elif new_pw != new_pw2:
+                                    st.error("비밀번호가 일치하지 않습니다.")
+                                elif len(new_pw) < 4:
+                                    st.error("비밀번호는 4자 이상이어야 합니다.")
+                                else:
+                                    set_brand_access_password(bid, new_pw)
+                                    st.session_state.pop(f"reset_pw_{bid}", None)
+                                    st.success("캠페인 관리 비밀번호가 재설정되었습니다.")
+                                    st.rerun()
+                        with r2:
+                            if st.form_submit_button("취소", use_container_width=True):
+                                st.session_state.pop(f"reset_pw_{bid}", None)
                                 st.rerun()
 
 # ─── 새 브랜드 추가 ──────────────────────────────────────────────────────────
