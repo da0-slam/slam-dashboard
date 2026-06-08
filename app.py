@@ -210,6 +210,9 @@ else:
                             err = str(e)
                             if "already registered" in err or "User already registered" in err:
                                 st.error("이미 가입된 이메일입니다.")
+                            elif "confirmation email" in err or "sending" in err.lower() or "email" in err.lower():
+                                st.error("이메일 발송에 실패했습니다.")
+                                st.info("Supabase 대시보드 → Authentication → Providers → Email → **Confirm email** 을 OFF로 설정하면 이메일 인증 없이 가입할 수 있습니다.")
                             elif "header value" in err or "whitespace" in err:
                                 st.error("서버 설정 오류입니다. 관리자에게 문의하세요.")
                             else:
