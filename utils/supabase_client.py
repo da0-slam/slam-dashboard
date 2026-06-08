@@ -255,7 +255,12 @@ def upsert_user_profile(user_id: str, role: str = "brand_user", brand_id: str | 
 
 
 def setup_brand_user(user_id: str, brand_name: str) -> str:
-    """신규 가입 시 브랜드 + 유저 프로필 + 브랜드 멤버 자동 생성. brand_id 반환."""
+    """신규 가입 시 브랜드 + 유저 프로필 + 브랜드 멤버 자동 생성. brand_id 반환.
+    이미 brand_id가 연결된 경우 기존 값을 그대로 반환 (중복 생성 방지)."""
+    existing = get_user_profile(user_id)
+    if existing.get("brand_id"):
+        return existing["brand_id"]
+
     sb = get_supabase()
     brand_res = sb.table("brands").insert({"name": brand_name}).execute()
     brand_id  = brand_res.data[0]["id"]

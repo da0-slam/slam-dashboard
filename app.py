@@ -122,6 +122,13 @@ else:
                             st.session_state.user         = res.user
                             st.session_state.access_token = res.session.access_token
                             save_session(res.session.access_token, res.session.refresh_token)
+                            # 이메일 인증 후 첫 로그인 시 브랜드 자동 연결
+                            pending_brand = st.session_state.pop("pending_brand_name", None)
+                            if pending_brand and res.user:
+                                from utils.supabase_client import get_user_profile, setup_brand_user
+                                profile = get_user_profile(res.user.id)
+                                if not profile.get("brand_id"):
+                                    setup_brand_user(res.user.id, pending_brand)
                             st.rerun()
                         except Exception as e:
                             err = str(e)
@@ -181,9 +188,22 @@ else:
                     with st.spinner("회원가입 중..."):
                         try:
                             res = sign_up(su_email, su_password)
-                            if res.user and res.user.identities:
-                                setup_brand_user(res.user.id, su_brand)
-                                st.success(f"'{su_brand}' 브랜드로 가입되었습니다. 로그인하세요.")
+                            if res.user:
+                                if res.user.identities:
+                                    # 이메일 인증 비활성화 환경 — 즉시 사용 가능
+                                    setup_brand_user(res.user.id, su_brand)
+                                    st.success(f"'{su_brand}' 브랜드로 가입이 완료되었습니다. 로그인하세요.")
+                                else:
+                                    # 이메일 인증 필요 — 브랜드는 인증 완료 후 로그인 시 연결
+                                    st.info("📧 인증 이메일이 발송되었습니다.")
+                                    st.markdown(
+                                        f"**{su_email}** 받은편지함을 확인하고 "
+                                        "**'Confirm your mail'** 링크를 클릭하세요.  \n"
+                                        "스팸함도 확인해보세요.  \n"
+                                        "인증 완료 후 이 페이지로 돌아와 로그인하시면 됩니다."
+                                    )
+                                    # 브랜드명을 세션에 저장 → 첫 로그인 시 자동 연결
+                                    st.session_state["pending_brand_name"] = su_brand
                             else:
                                 st.warning("이미 가입된 이메일입니다.")
                         except Exception as e:
