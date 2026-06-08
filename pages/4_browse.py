@@ -1,15 +1,16 @@
 import streamlit as st
 from utils.auth import require_auth, sidebar_user_info
 from utils.supabase_client import (
-    get_brands, get_campaigns,
+    get_brands, get_brand_by_id, get_campaigns,
     get_browse_contents,
     get_brand_selection_map, get_campaign_selection_map,
     select_influencer, update_selection_status, remove_selection,
     add_to_campaign, update_campaign_selection, remove_campaign_selection,
+    get_user_profile,
 )
 
 st.set_page_config(page_title="KOC Intelligence Viewer", page_icon="🎬", layout="wide")
-require_auth()
+user = require_auth()
 sidebar_user_info()
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
@@ -35,23 +36,42 @@ div[data-testid="stHorizontalBlock"] > div {padding: 0 4px;}
 </style>
 """, unsafe_allow_html=True)
 
-# ─── 헤더 ─────────────────────────────────────────────────────────────────────
-brands = get_brands()
-if not brands:
-    st.warning("먼저 브랜드사를 등록하세요.")
+# ─── 사용자 프로필 및 브랜드 확인 ────────────────────────────────────────────
+profile       = get_user_profile(user.id)
+user_brand_id = profile.get("brand_id")
+user_role     = profile.get("role", "brand_user")
+is_admin      = user_role == "admin"
+
+if not user_brand_id and not is_admin:
+    st.error("브랜드 계정이 연결되지 않았습니다. 관리자에게 문의하세요.")
     st.stop()
 
-brand_options = {b["name"]: b["id"] for b in brands}
-
+# ─── 헤더 ─────────────────────────────────────────────────────────────────────
 col_logo, col_brand, col_camp = st.columns([3, 2, 2])
 with col_logo:
     st.markdown("### 🎯 BRANDSLAM · KOC Intelligence Viewer")
+
 with col_brand:
-    sel_brand_name = st.selectbox("브랜드사", list(brand_options.keys()), label_visibility="collapsed")
-    sel_brand_id   = brand_options[sel_brand_name]
+    if is_admin:
+        brands = get_brands()
+        if not brands:
+            st.warning("먼저 브랜드사를 등록하세요.")
+            st.stop()
+        brand_options  = {b["name"]: b["id"] for b in brands}
+        sel_brand_name = st.selectbox("브랜드사", list(brand_options.keys()), label_visibility="collapsed")
+        sel_brand_id   = brand_options[sel_brand_name]
+    else:
+        brand = get_brand_by_id(user_brand_id)
+        if not brand:
+            st.error("브랜드 정보를 불러올 수 없습니다.")
+            st.stop()
+        sel_brand_id   = user_brand_id
+        sel_brand_name = brand.get("name", "")
+        st.markdown(f"**{sel_brand_name}**")
+
 with col_camp:
-    campaigns    = get_campaigns(sel_brand_id)
-    camp_opts    = {"── 즐겨찾기 모드 ──": None} | {c["name"]: c["id"] for c in campaigns}
+    campaigns     = get_campaigns(sel_brand_id)
+    camp_opts     = {"── 즐겨찾기 모드 ──": None} | {c["name"]: c["id"] for c in campaigns}
     sel_camp_name = st.selectbox("캠페인", list(camp_opts.keys()), label_visibility="collapsed")
     sel_camp_id   = camp_opts[sel_camp_name]
 
