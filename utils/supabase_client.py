@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 @st.cache_resource
 def get_supabase() -> Client:
-    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
-    key = os.environ.get("SUPABASE_KEY", "")
+    url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.environ.get("SUPABASE_KEY", "").strip()
     if not url or not key:
         st.error("환경변수 SUPABASE_URL, SUPABASE_KEY를 설정하세요.")
         st.stop()
@@ -29,7 +29,7 @@ def _aurl(path: str) -> str:
     return f"{os.environ.get('SUPABASE_URL', '').rstrip('/')}/auth/v1{path}"
 
 def _aheaders() -> dict:
-    return {"apikey": os.environ.get("SUPABASE_KEY", ""), "Content-Type": "application/json"}
+    return {"apikey": os.environ.get("SUPABASE_KEY", "").strip(), "Content-Type": "application/json"}
 
 def _wrap(data: dict):
     """Supabase auth REST 응답 dict → .user/.session 속성 객체로 변환."""

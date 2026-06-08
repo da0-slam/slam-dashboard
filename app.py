@@ -125,8 +125,10 @@ else:
                             st.rerun()
                         except Exception as e:
                             err = str(e)
-                            if "Invalid login credentials" in err:
+                            if "Invalid login credentials" in err or "invalid_grant" in err:
                                 st.error("이메일 또는 비밀번호가 올바르지 않습니다.")
+                            elif "header value" in err or "whitespace" in err:
+                                st.error("서버 설정 오류입니다. 관리자에게 문의하세요.")
                             else:
                                 st.error(f"로그인 실패: {err}")
 
@@ -188,5 +190,7 @@ else:
                             err = str(e)
                             if "already registered" in err or "User already registered" in err:
                                 st.error("이미 가입된 이메일입니다.")
+                            elif "header value" in err or "whitespace" in err:
+                                st.error("서버 설정 오류입니다. 관리자에게 문의하세요.")
                             else:
                                 st.error(f"회원가입 실패: {err}")
