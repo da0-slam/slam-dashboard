@@ -1,0 +1,342 @@
+import os
+from datetime import datetime, timezone
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+import streamlit as st
+from supabase import create_client, Client
+
+
+@st.cache_resource
+def get_supabase() -> Client:
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    key = os.environ.get("SUPABASE_KEY", "")
+    if not url or not key:
+        st.error("환경변수 SUPABASE_URL, SUPABASE_KEY를 설정하세요.")
+        st.stop()
+    return create_client(url, key)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ─── Auth ────────────────────────────────────────────────────────────────────
+
+def sign_in(email: str, password: str):
+    return get_supabase().auth.sign_in_with_password({"email": email, "password": password})
+
+
+def sign_up(email: str, password: str):
+    return get_supabase().auth.sign_up({"email": email, "password": password})
+
+
+def sign_out() -> None:
+    try:
+        get_supabase().auth.sign_out()
+    except Exception:
+        pass
+
+
+def get_oauth_url(provider: str, redirect_to: str) -> tuple[str, str | None]:
+    """OAuth 로그인 URL 생성. (oauth_url, pkce_code_verifier) 반환."""
+    res = get_supabase().auth.sign_in_with_oauth({
+        "provider": provider,
+        "options": {
+            "redirect_to": redirect_to,
+            "skip_browser_redirect": True,
+        },
+    })
+    return res.url, getattr(res, "pkce_code_verifier", None)
+
+
+def exchange_oauth_code(auth_code: str, code_verifier: str | None = None):
+    """OAuth 인가 코드를 세션으로 교환."""
+    params: dict = {"auth_code": auth_code}
+    if code_verifier:
+        params["code_verifier"] = code_verifier
+    return get_supabase().auth.exchange_code_for_session(params)
+
+
+# ─── Brands ──────────────────────────────────────────────────────────────────
+
+def get_brands() -> list[dict]:
+    res = get_supabase().table("brands").select("*").order("name").execute()
+    return res.data or []
+
+
+def create_brand(data: dict) -> None:
+    clean = {k: v for k, v in data.items() if v}
+    get_supabase().table("brands").insert(clean).execute()
+
+
+def update_brand(brand_id: str, data: dict) -> None:
+    data["updated_at"] = _now()
+    get_supabase().table("brands").update(data).eq("id", brand_id).execute()
+
+
+def delete_brand(brand_id: str) -> None:
+    get_supabase().table("brands").delete().eq("id", brand_id).execute()
+
+
+# ─── Influencers ─────────────────────────────────────────────────────────────
+
+def get_influencers(search: str = "", limit: int = 200) -> list[dict]:
+    q = get_supabase().table("influencer_master").select(
+        "influencer_id,account_url,platform,apify_status"
+    )
+    if search:
+        q = q.ilike("influencer_id", f"%{search}%")
+    return (q.order("influencer_id").limit(limit).execute()).data or []
+
+
+def get_brand_selections(brand_id: str, status: str | None = None) -> list[dict]:
+    q = (
+        get_supabase()
+        .table("brand_selections")
+        .select("id,influencer_id,status,note,selected_at,influencer_master(influencer_id,account_url,platform,apify_status)")
+        .eq("brand_id", brand_id)
+    )
+    if status:
+        q = q.eq("status", status)
+    return (q.order("selected_at", desc=True).execute()).data or []
+
+
+def select_influencer(brand_id: str, influencer_id: str) -> None:
+    get_supabase().table("brand_selections").upsert(
+        {"brand_id": brand_id, "influencer_id": influencer_id, "status": "candidate"},
+        on_conflict="brand_id,influencer_id",
+    ).execute()
+
+
+def update_selection_status(selection_id: str, status: str, note: str | None = None) -> None:
+    data: dict = {"status": status, "updated_at": _now()}
+    if note is not None:
+        data["note"] = note
+    get_supabase().table("brand_selections").update(data).eq("id", selection_id).execute()
+
+
+def remove_selection(selection_id: str) -> None:
+    get_supabase().table("brand_selections").delete().eq("id", selection_id).execute()
+
+
+# ─── User Profile ────────────────────────────────────────────────────────────
+
+def get_user_profile(user_id: str) -> dict:
+    res = get_supabase().table("user_profiles").select("*").eq("user_id", user_id).limit(1).execute()
+    return res.data[0] if res.data else {}
+
+
+def upsert_user_profile(user_id: str, role: str = "brand_user", brand_id: str | None = None) -> None:
+    data: dict = {"user_id": user_id, "role": role}
+    if brand_id:
+        data["brand_id"] = brand_id
+    get_supabase().table("user_profiles").upsert(data, on_conflict="user_id").execute()
+
+
+def setup_brand_user(user_id: str, brand_name: str) -> str:
+    """신규 가입 시 브랜드 + 유저 프로필 + 브랜드 멤버 자동 생성. brand_id 반환."""
+    sb = get_supabase()
+    brand_res = sb.table("brands").insert({"name": brand_name}).execute()
+    brand_id  = brand_res.data[0]["id"]
+    sb.table("user_profiles").upsert(
+        {"user_id": user_id, "role": "brand_user", "brand_id": brand_id},
+        on_conflict="user_id",
+    ).execute()
+    sb.table("brand_members").insert(
+        {"brand_id": brand_id, "user_id": user_id, "role": "owner"}
+    ).execute()
+    return brand_id
+
+
+# ─── Campaigns ───────────────────────────────────────────────────────────────
+
+def get_campaigns(brand_id: str) -> list[dict]:
+    return (
+        get_supabase()
+        .table("campaigns")
+        .select("*")
+        .eq("brand_id", brand_id)
+        .order("created_at", desc=True)
+        .execute()
+    ).data or []
+
+
+def create_campaign(brand_id: str, name: str, description: str = "") -> dict:
+    res = (
+        get_supabase()
+        .table("campaigns")
+        .insert({"brand_id": brand_id, "name": name, "description": description})
+        .execute()
+    )
+    return res.data[0] if res.data else {}
+
+
+def update_campaign(campaign_id: str, data: dict) -> None:
+    data["updated_at"] = _now()
+    get_supabase().table("campaigns").update(data).eq("id", campaign_id).execute()
+
+
+def delete_campaign(campaign_id: str) -> None:
+    get_supabase().table("campaigns").delete().eq("id", campaign_id).execute()
+
+
+def get_campaign_selections(campaign_id: str, status: str | None = None) -> list[dict]:
+    q = (
+        get_supabase()
+        .table("campaign_selections")
+        .select("id,influencer_id,status,note,selected_at")
+        .eq("campaign_id", campaign_id)
+    )
+    if status:
+        q = q.eq("status", status)
+    return (q.order("selected_at", desc=True).execute()).data or []
+
+
+def add_to_campaign(campaign_id: str, influencer_id: str) -> None:
+    get_supabase().table("campaign_selections").upsert(
+        {"campaign_id": campaign_id, "influencer_id": influencer_id, "status": "candidate"},
+        on_conflict="campaign_id,influencer_id",
+    ).execute()
+
+
+def update_campaign_selection(selection_id: str, status: str, note: str | None = None) -> None:
+    data: dict = {"status": status, "updated_at": _now()}
+    if note is not None:
+        data["note"] = note
+    get_supabase().table("campaign_selections").update(data).eq("id", selection_id).execute()
+
+
+def remove_campaign_selection(selection_id: str) -> None:
+    get_supabase().table("campaign_selections").delete().eq("id", selection_id).execute()
+
+
+def get_campaign_selection_map(campaign_id: str) -> dict[str, dict]:
+    rows = (
+        get_supabase()
+        .table("campaign_selections")
+        .select("influencer_id,id,status")
+        .eq("campaign_id", campaign_id)
+        .execute()
+    ).data or []
+    return {r["influencer_id"]: r for r in rows}
+
+
+# ─── Browse ──────────────────────────────────────────────────────────────────
+
+def get_browse_contents(platform: str | None = None, limit: int = 400) -> list[dict]:
+    sb = get_supabase()
+
+    # 콘텐츠 (조회수 순)
+    contents = (
+        sb.table("koc_contents")
+        .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,save_count,caption,posted_at")
+        .order("play_count", desc=True)
+        .limit(limit)
+        .execute()
+    ).data or []
+
+    # 인플루언서 메타
+    inf_rows = sb.table("influencer_master").select("influencer_id,account_url,platform,apify_status").execute().data or []
+    inf_map  = {r["influencer_id"]: r for r in inf_rows}
+
+    # 인플루언서별 최고 조회수 영상 1개만 (중복 제거)
+    seen: set[str] = set()
+    result = []
+    for r in contents:
+        iid = r["influencer_id"]
+        if iid in seen:
+            continue
+        inf = inf_map.get(iid, {})
+        if platform and inf.get("platform") != platform:
+            continue
+        seen.add(iid)
+        r["influencer_master"] = inf
+        result.append(r)
+    return result
+
+
+def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
+    if not influencer_ids:
+        return {}
+    rows = (
+        get_supabase()
+        .table("koc_contents")
+        .select("influencer_id,thumbnail_url,video_url,play_count")
+        .in_("influencer_id", influencer_ids)
+        .order("play_count", desc=True)
+        .limit(len(influencer_ids) * 5)
+        .execute()
+    ).data or []
+    result: dict[str, dict] = {}
+    for r in rows:
+        iid = r["influencer_id"]
+        if iid not in result:
+            result[iid] = {
+                "thumbnail": r.get("thumbnail_url") or "",
+                "video_url": r.get("video_url") or "",
+            }
+    return result
+
+
+def get_brand_selection_map(brand_id: str) -> dict[str, dict]:
+    rows = (
+        get_supabase()
+        .table("brand_selections")
+        .select("influencer_id,id,status")
+        .eq("brand_id", brand_id)
+        .execute()
+    ).data or []
+    return {r["influencer_id"]: r for r in rows}
+
+
+# ─── Dashboard ───────────────────────────────────────────────────────────────
+
+def get_pipeline_stats() -> dict[str, int]:
+    supabase = get_supabase()
+    counts: dict[str, int] = {}
+    for status in ("done", "pending", "failed", "no_content"):
+        res = (
+            supabase.table("influencer_master")
+            .select("influencer_id", count="exact")
+            .eq("apify_status", status)
+            .limit(1)
+            .execute()
+        )
+        counts[status] = res.count or 0
+    res = (
+        supabase.table("influencer_master")
+        .select("influencer_id", count="exact")
+        .is_("apify_status", "null")
+        .limit(1)
+        .execute()
+    )
+    counts["미수집"] = res.count or 0
+    return counts
+
+
+def get_total_content_count() -> int:
+    res = (
+        get_supabase()
+        .table("koc_contents")
+        .select("influencer_id", count="exact")
+        .limit(1)
+        .execute()
+    )
+    return res.count or 0
+
+
+def get_top_contents(limit: int = 20) -> list[dict]:
+    res = (
+        get_supabase()
+        .table("koc_contents")
+        .select("influencer_id,video_url,play_count,like_count,comment_count,share_count,save_count,posted_at")
+        .order("play_count", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return res.data or []
