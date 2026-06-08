@@ -7,8 +7,9 @@ try:
 except ImportError:
     pass
 
+import httpx
 import streamlit as st
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 
 
 @st.cache_resource
@@ -18,7 +19,11 @@ def get_supabase() -> Client:
     if not url or not key:
         st.error("환경변수 SUPABASE_URL, SUPABASE_KEY를 설정하세요.")
         st.stop()
-    return create_client(url, key)
+    # HTTP/2 StreamReset 방지 (Railway 환경)
+    return create_client(
+        url, key,
+        options=ClientOptions(http_client=httpx.Client(http2=False)),
+    )
 
 
 def _now() -> str:
