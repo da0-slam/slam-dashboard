@@ -23,9 +23,9 @@ def restore_session() -> bool:
         return False
 
     try:
-        from utils.supabase_client import get_supabase
-        res = get_supabase().auth.set_session(data["access"], data["refresh"])
-        if res.user:
+        from utils.supabase_client import refresh_session
+        res = refresh_session(data["access"], data["refresh"])
+        if res and res.user:
             st.session_state.user         = res.user
             st.session_state.access_token = res.session.access_token
             _store()[sid]["access"]        = res.session.access_token

@@ -7,9 +7,10 @@ try:
 except ImportError:
     pass
 
-import httpx
+import requests as _req
 import streamlit as st
-from supabase import create_client, Client, ClientOptions
+from supabase import create_client, Client
+from types import SimpleNamespace
 
 
 @st.cache_resource
@@ -19,11 +20,30 @@ def get_supabase() -> Client:
     if not url or not key:
         st.error("환경변수 SUPABASE_URL, SUPABASE_KEY를 설정하세요.")
         st.stop()
-    # HTTP/2 StreamReset 방지 (Railway 환경)
-    return create_client(
-        url, key,
-        options=ClientOptions(http_client=httpx.Client(http2=False)),
+    return create_client(url, key)
+
+
+# ─── Auth 헬퍼 (requests 직접 사용 — Railway HTTP/2 우회) ─────────────────────
+
+def _aurl(path: str) -> str:
+    return f"{os.environ.get('SUPABASE_URL', '').rstrip('/')}/auth/v1{path}"
+
+def _aheaders() -> dict:
+    return {"apikey": os.environ.get("SUPABASE_KEY", ""), "Content-Type": "application/json"}
+
+def _wrap(data: dict):
+    """Supabase auth REST 응답 dict → .user/.session 속성 객체로 변환."""
+    user_data = data.get("user") or (data if data.get("id") else {})
+    user = SimpleNamespace(
+        id=user_data.get("id", ""),
+        email=user_data.get("email", ""),
+        identities=user_data.get("identities") or [],
+    ) if user_data.get("id") else None
+    session = SimpleNamespace(
+        access_token=data.get("access_token", ""),
+        refresh_token=data.get("refresh_token", ""),
     )
+    return SimpleNamespace(user=user, session=session)
 
 
 def _now() -> str:
@@ -33,18 +53,49 @@ def _now() -> str:
 # ─── Auth ────────────────────────────────────────────────────────────────────
 
 def sign_in(email: str, password: str):
-    return get_supabase().auth.sign_in_with_password({"email": email, "password": password})
+    r = _req.post(
+        _aurl("/token?grant_type=password"),
+        headers=_aheaders(),
+        json={"email": email, "password": password},
+        timeout=30,
+    )
+    data = r.json()
+    if not r.ok:
+        raise Exception(data.get("error_description") or data.get("msg") or data.get("error") or r.text)
+    return _wrap(data)
 
 
 def sign_up(email: str, password: str):
-    return get_supabase().auth.sign_up({"email": email, "password": password})
+    r = _req.post(
+        _aurl("/signup"),
+        headers=_aheaders(),
+        json={"email": email, "password": password},
+        timeout=30,
+    )
+    data = r.json()
+    if not r.ok:
+        raise Exception(data.get("error_description") or data.get("msg") or data.get("error") or r.text)
+    return _wrap(data)
 
 
 def sign_out() -> None:
     try:
-        get_supabase().auth.sign_out()
+        _req.post(_aurl("/logout"), headers=_aheaders(), timeout=10)
     except Exception:
         pass
+
+
+def refresh_session(access_token: str, refresh_token: str):
+    """세션 복원용 — refresh_token으로 새 access_token 발급."""
+    r = _req.post(
+        _aurl("/token?grant_type=refresh_token"),
+        headers=_aheaders(),
+        json={"refresh_token": refresh_token},
+        timeout=30,
+    )
+    if not r.ok:
+        return None
+    return _wrap(r.json())
 
 
 def get_oauth_url(provider: str, redirect_to: str) -> tuple[str, str | None]:
