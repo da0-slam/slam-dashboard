@@ -14,9 +14,15 @@ from types import SimpleNamespace
 
 
 @st.cache_resource
+def _clean_env(name: str) -> str:
+    """env var에 개행이 섞인 경우 첫 번째 줄만 사용."""
+    return os.environ.get(name, "").split("\n")[0].strip()
+
+
+@st.cache_resource
 def get_supabase() -> Client:
-    url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
-    key = os.environ.get("SUPABASE_KEY", "").strip()
+    url = _clean_env("SUPABASE_URL").rstrip("/")
+    key = _clean_env("SUPABASE_KEY")
     if not url or not key:
         st.error("환경변수 SUPABASE_URL, SUPABASE_KEY를 설정하세요.")
         st.stop()
@@ -29,7 +35,7 @@ def _aurl(path: str) -> str:
     return f"{os.environ.get('SUPABASE_URL', '').rstrip('/')}/auth/v1{path}"
 
 def _aheaders() -> dict:
-    return {"apikey": os.environ.get("SUPABASE_KEY", "").strip(), "Content-Type": "application/json"}
+    return {"apikey": _clean_env("SUPABASE_KEY"), "Content-Type": "application/json"}
 
 def _wrap(data: dict):
     """Supabase auth REST 응답 dict → .user/.session 속성 객체로 변환."""
