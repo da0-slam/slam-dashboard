@@ -52,7 +52,22 @@ if not brand_id:
     st.warning("브랜드가 연결되지 않은 계정입니다. 관리자에게 문의하세요.")
     st.stop()
 
-campaigns = get_campaigns(brand_id)
+@st.cache_data(ttl=600, show_spinner=False)
+def _load_campaigns(brand_id: str):
+    return get_campaigns(brand_id)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_participants(campaign_id: str, brand_id: str):
+    return get_campaign_participants_info(campaign_id, brand_id)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_all(brand_id: str) -> list[dict]:
+    return get_campaign_posts(brand_id=brand_id)
+
+
+campaigns = _load_campaigns(brand_id)
 campaign_map: dict[str, str] = {c["id"]: c["name"] for c in campaigns}
 campaign_name_to_id: dict[str, str] = {c["name"]: c["id"] for c in campaigns}
 
@@ -89,23 +104,38 @@ sort_by = sort_options[sort_label]
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _load(brand_id, campaign_id, platform, s_date, e_date, name, url, col):
-    db_col = col if col != "engagement_rate" else "views"
-    return get_campaign_posts(
-        brand_id=brand_id,
-        campaign_id=campaign_id,
-        platform=platform,
-        start_date=str(s_date) if s_date else None,
-        end_date=str(e_date) if e_date else None,
-        search_name=name or None,
-        search_url=url or None,
-        sort_by=db_col,
-    )
+all_posts_raw = _load_all(brand_id)
 
+# Python-side 필터링 (DB 재쿼리 없이 처리)
+raw = all_posts_raw
+if filter_campaign_id:
+    raw = [p for p in raw if p.get("campaign_id") == filter_campaign_id]
+if filter_platform:
+    raw = [p for p in raw if p.get("platform") == filter_platform]
+if filter_start:
+    s = str(filter_start)
+    raw = [p for p in raw if (p.get("upload_date") or "") >= s]
+if filter_end:
+    e = str(filter_end)
+    raw = [p for p in raw if (p.get("upload_date") or "") <= e]
+if filter_name:
+    nl = filter_name.lower()
+    raw = [p for p in raw if nl in (p.get("influencer_name") or "").lower()]
+if filter_url:
+    ul = filter_url.lower()
+    raw = [p for p in raw if ul in (p.get("post_url") or "").lower()]
 
-raw = _load(brand_id, filter_campaign_id, filter_platform,
-            filter_start, filter_end, filter_name, filter_url, sort_by)
+_SORT_KEY: dict = {
+    "upload_date":    lambda p: p.get("upload_date") or "",
+    "views":          lambda p: p.get("views") or 0,
+    "likes":          lambda p: p.get("likes") or 0,
+    "saves":          lambda p: p.get("saves") or 0,
+    "comments":       lambda p: p.get("comments") or 0,
+    "shares":         lambda p: p.get("shares") or 0,
+    "engagement_rate": lambda _: 0,  # engagement_rate는 아래서 재정렬
+}
+if sort_by != "engagement_rate" and sort_by in _SORT_KEY:
+    raw = sorted(raw, key=_SORT_KEY[sort_by], reverse=True)
 
 
 def _er(p: dict) -> float:
@@ -446,7 +476,7 @@ with tab4:
                 if ok:
                     st.success("수정되었습니다.")
                     st.session_state.cp_editing_post = None
-                    _load.clear()
+                    _load_all.clear()
                     st.rerun()
                 else:
                     st.error("수정에 실패했습니다.")
@@ -474,7 +504,7 @@ with tab4:
             form_platform = fa2.selectbox("플랫폼 *", ["instagram", "tiktok"])
 
             # 인플루언서 선택
-            participants = get_campaign_participants_info(form_campaign_id, brand_id)
+            participants = _load_participants(form_campaign_id, brand_id)
             part_labels = ["직접 입력"] + [p["display_name"] for p in participants if p.get("display_name")]
             fb1, fb2 = st.columns(2)
             sel_participant = fb1.selectbox("캠페인 참여자 선택", part_labels)
@@ -526,7 +556,7 @@ with tab4:
                 })
                 if result:
                     st.success(f"게시물이 추가되었습니다. ({form_platform.upper()} · {form_name})")
-                    _load.clear()
+                    _load_all.clear()
                     st.rerun()
                 else:
                     st.error("게시물 추가에 실패했습니다.")
@@ -565,7 +595,7 @@ with tab4:
                     if mg3.button("⚠️확인", key=f"del_ok_{pid}", use_container_width=True):
                         delete_campaign_post(pid, brand_id)
                         st.session_state.pop(del_key, None)
-                        _load.clear()
+                        _load_all.clear()
                         st.rerun()
                 else:
                     if mg3.button("🗑️", key=f"del_{pid}", use_container_width=True):
@@ -697,7 +727,7 @@ with tab4:
                             with st.expander(f"경고 / 건너뜀 ({len(errors)}건)"):
                                 for e in errors:
                                     st.warning(e)
-                        _load.clear()
+                        _load_all.clear()
                         st.rerun()
 
             except Exception as ex:
