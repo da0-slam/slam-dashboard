@@ -78,7 +78,8 @@ with col_camp:
 st.divider()
 
 # ─── 데이터 로드 + 지표 계산 ─────────────────────────────────────────────────
-all_contents = get_browse_contents()
+with st.spinner("데이터 로딩 중..."):
+    all_contents = get_browse_contents()
 
 
 def calc_er(r):

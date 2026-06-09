@@ -349,6 +349,7 @@ def get_campaign_selection_map(campaign_id: str) -> dict[str, dict]:
 
 # ─── Browse ──────────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=600, show_spinner=False)
 def get_browse_contents(platform: str | None = None) -> list[dict]:
     sb = get_supabase()
 
@@ -365,7 +366,7 @@ def get_browse_contents(platform: str | None = None) -> list[dict]:
     while True:
         page = (
             sb.table("koc_contents")
-            .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,save_count,caption,posted_at")
+            .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,share_count,save_count,caption,posted_at")
             .order("play_count", desc=True)
             .range(offset, offset + page_size - 1)
             .execute()
@@ -388,11 +389,12 @@ def get_browse_contents(platform: str | None = None) -> list[dict]:
     return result
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def get_influencer_contents(influencer_id: str) -> list[dict]:
     return (
         get_supabase()
         .table("koc_contents")
-        .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,save_count,caption,posted_at")
+        .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,share_count,save_count,caption,posted_at")
         .eq("influencer_id", influencer_id)
         .order("play_count", desc=True)
         .execute()
