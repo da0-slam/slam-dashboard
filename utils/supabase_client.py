@@ -650,21 +650,14 @@ def migrate_google_sheet_rows(
 ) -> tuple[int, list[str]]:
     """Google Sheet 형식의 rows를 campaign_posts로 이관합니다.
 
-    row 형식:
-        name       : 인플루언서 표시 이름
-        ig_url     : Instagram 게시물 URL (없으면 빈 문자열)
-        tt_url     : TikTok 게시물 URL (없으면 빈 문자열)
-        upload_day : 업로드 날짜 (YYYY/MM/DD 또는 YYYY-MM-DD)
-        views      : 조회수
-        likes      : 좋아요
-        comments   : 댓글
-        saves      : 저장
-        shares     : 공유
-
-    성과 지표 매핑 규칙:
-        - TikTok URL이 있으면 → TikTok 행에 지표 적용, Instagram 행은 0
-        - TikTok URL만 있으면 → TikTok 행에 지표 적용
-        - Instagram URL만 있으면 → Instagram 행에 지표 적용
+    row 형식 (플랫폼별 지표 분리):
+        name         : 인플루언서 표시 이름
+        ig_url       : Instagram 게시물 URL
+        tt_url       : TikTok 게시물 URL
+        upload_day   : 업로드 날짜 (YYYY/MM/DD 또는 YYYY-MM-DD)
+        tt_views/tt_likes/tt_comments/tt_saves/tt_shares : TikTok 지표
+        ig_views/ig_likes/ig_comments/ig_saves/ig_shares : Instagram 지표
+        views/likes/comments/saves/shares : 단일 지표 (하위 호환, tt_ 없을 때 TikTok에 적용)
     """
     import re
     campaign = get_campaign_if_owned(campaign_id, brand_id)
@@ -675,13 +668,19 @@ def migrate_google_sheet_rows(
         if not val:
             return None
         val = str(val).strip()
-        # YYYY/MM/DD → YYYY-MM-DD
         val = re.sub(r"(\d{4})[/.](\d{1,2})[/.](\d{1,2})", r"\1-\2-\3", val)
         try:
             from datetime import datetime as _dt
             return str(_dt.strptime(val, "%Y-%m-%d").date())
         except Exception:
             return None
+
+    def _int(v) -> int:
+        try:
+            s = str(v).strip()
+            return int(float(s)) if s and s.lower() not in ("", "nan", "none", "-") else 0
+        except Exception:
+            return 0
 
     created = 0
     errors: list[str] = []
@@ -695,37 +694,57 @@ def migrate_google_sheet_rows(
         ig_url = str(row.get("ig_url") or "").strip()
         tt_url = str(row.get("tt_url") or "").strip()
 
+        # URL 정리 (nan/None 문자열 제거)
+        ig_url = "" if ig_url.lower() in ("nan", "none", "-") else ig_url
+        tt_url = "" if tt_url.lower() in ("nan", "none", "-") else tt_url
+
         if not ig_url and not tt_url:
             errors.append(f"Row {i} ({name}): URL 없음 → 건너뜀")
             continue
 
-        metrics = {
-            "views":    int(row.get("views")    or 0),
-            "likes":    int(row.get("likes")    or 0),
-            "comments": int(row.get("comments") or 0),
-            "saves":    int(row.get("saves")    or 0),
-            "shares":   int(row.get("shares")   or 0),
-        }
-        zero = {"views": 0, "likes": 0, "comments": 0, "saves": 0, "shares": 0}
         upload_date = _parse_date(str(row.get("upload_day") or ""))
 
-        # 플랫폼별 지표 매핑
+        # TikTok 지표: tt_* 컬럼 우선, 없으면 공통 컬럼 fallback
+        tt_metrics = {
+            "views":    _int(row.get("tt_views")    or row.get("views")),
+            "likes":    _int(row.get("tt_likes")    or row.get("likes")),
+            "comments": _int(row.get("tt_comments") or row.get("comments")),
+            "saves":    _int(row.get("tt_saves")    or row.get("saves")),
+            "shares":   _int(row.get("tt_shares")   or row.get("shares")),
+        }
+        # Instagram 지표: ig_* 컬럼 우선, 없으면 0 (TT URL 없을 때만 공통 컬럼 fallback)
+        has_ig_specific = any(row.get(k) for k in ("ig_views", "ig_likes", "ig_comments", "ig_saves"))
+        ig_metrics = {
+            "views":    _int(row.get("ig_views")),
+            "likes":    _int(row.get("ig_likes")),
+            "comments": _int(row.get("ig_comments")),
+            "saves":    _int(row.get("ig_saves")),
+            "shares":   _int(row.get("ig_shares")),
+        }
+        # IG URL만 있고 ig_* 컬럼도 없으면 공통 지표를 IG에 적용
+        if ig_url and not tt_url and not has_ig_specific:
+            ig_metrics = {
+                "views":    _int(row.get("views")),
+                "likes":    _int(row.get("likes")),
+                "comments": _int(row.get("comments")),
+                "saves":    _int(row.get("saves")),
+                "shares":   _int(row.get("shares")),
+            }
+
         to_create: list[dict] = []
         if tt_url:
-            to_create.append({"platform": "tiktok",    "post_url": tt_url, **metrics})
-            if ig_url:
-                to_create.append({"platform": "instagram", "post_url": ig_url, **zero})
-        elif ig_url:
-            to_create.append({"platform": "instagram", "post_url": ig_url, **metrics})
+            to_create.append({"platform": "tiktok",    "post_url": tt_url, **tt_metrics})
+        if ig_url:
+            to_create.append({"platform": "instagram", "post_url": ig_url, **ig_metrics})
 
         for post_data in to_create:
             if post_url_exists(post_data["post_url"]):
                 errors.append(f"Row {i} ({name}): URL 중복 → 건너뜀 ({post_data['post_url'][:60]})")
                 continue
             result = create_campaign_post(brand_id, {
-                "campaign_id":    campaign_id,
+                "campaign_id":     campaign_id,
                 "influencer_name": name,
-                "upload_date":    upload_date,
+                "upload_date":     upload_date,
                 **post_data,
             })
             if result:
