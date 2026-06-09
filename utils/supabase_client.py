@@ -187,12 +187,20 @@ def get_campaign_if_owned(campaign_id: str, brand_id: str) -> dict | None:
 
 def create_brand(data: dict) -> None:
     clean = {k: v for k, v in data.items() if v}
-    get_supabase().table("brands").insert(clean).execute()
+    try:
+        get_supabase().table("brands").insert(clean).execute()
+    except Exception:
+        # 스키마에 없는 컬럼이 있으면 name만 저장
+        get_supabase().table("brands").insert({"name": clean["name"]}).execute()
 
 
 def update_brand(brand_id: str, data: dict) -> None:
-    data["updated_at"] = _now()
-    get_supabase().table("brands").update(data).eq("id", brand_id).execute()
+    payload = {**data, "updated_at": _now()}
+    try:
+        get_supabase().table("brands").update(payload).eq("id", brand_id).execute()
+    except Exception:
+        # 스키마에 없는 컬럼 제외하고 name만 저장
+        get_supabase().table("brands").update({"name": data["name"], "updated_at": _now()}).eq("id", brand_id).execute()
 
 
 def delete_brand(brand_id: str) -> None:
