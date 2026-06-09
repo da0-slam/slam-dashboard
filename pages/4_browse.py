@@ -2,7 +2,7 @@ import streamlit as st
 from utils.auth import require_auth, sidebar_user_info
 from utils.supabase_client import (
     get_brands, get_brand_by_id, get_campaigns,
-    get_browse_contents,
+    get_browse_contents, get_influencer_contents,
     get_brand_selection_map, get_campaign_selection_map,
     select_influencer, update_selection_status, remove_selection,
     add_to_campaign, update_campaign_selection, remove_campaign_selection,
@@ -157,6 +157,51 @@ def _fmt(n):
     if n >= 1_000:         return f"{n/1_000:.1f}K"
     return str(n)
 
+@st.dialog("인플루언서 영상 전체보기", width="large")
+def show_influencer_videos(inf_id: str):
+    videos = get_influencer_contents(inf_id)
+    if not videos:
+        st.info("영상 데이터가 없습니다.")
+        return
+
+    total_plays = sum(v.get("play_count") or 0 for v in videos)
+    avg_er_val  = sum(
+        (sum(v.get(k) or 0 for k in ("like_count","comment_count","share_count","save_count"))
+         / (v.get("play_count") or 1) * 100)
+        for v in videos
+    ) / len(videos)
+
+    st.markdown(f"### @{inf_id}")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("총 영상 수", len(videos))
+    m2.metric("총 조회수",  _fmt(total_plays))
+    m3.metric("평균 ER",   f"{avg_er_val:.1f}%")
+    st.divider()
+
+    COLS = 3
+    for chunk_start in range(0, len(videos), COLS):
+        row_vids = videos[chunk_start:chunk_start + COLS]
+        cols = st.columns(COLS)
+        for col, v in zip(cols, row_vids):
+            play      = v.get("play_count") or 0
+            eng       = sum(v.get(k) or 0 for k in ("like_count","comment_count","share_count","save_count"))
+            er        = eng / play * 100 if play else 0.0
+            thumbnail = v.get("thumbnail_url") or ""
+            video_url = v.get("video_url") or ""
+            posted    = (v.get("posted_at") or "")[:10]
+            caption   = v.get("caption") or ""
+
+            with col:
+                if thumbnail and video_url:
+                    st.markdown(f'<a href="{video_url}" target="_blank"><img src="{thumbnail}" style="width:100%;border-radius:8px;"></a>', unsafe_allow_html=True)
+                elif thumbnail:
+                    st.image(thumbnail, use_container_width=True)
+                else:
+                    st.markdown('<div style="background:#1a1a2e;aspect-ratio:9/16;display:flex;align-items:center;justify-content:center;font-size:2rem;border-radius:8px;">🎬</div>', unsafe_allow_html=True)
+                st.caption(f"👁 {_fmt(play)}  ·  ER {er:.1f}%  ·  {posted}")
+                if caption:
+                    st.caption(caption[:60] + ("…" if len(caption) > 60 else ""))
+
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Showing",     len(contents))
 m2.metric("S Grade",     s_cnt)
@@ -202,7 +247,11 @@ for chunk_start in range(0, len(contents), n_cols):
         fav       = fav_map.get(inf_id)
         in_camp   = camp_map.get(inf_id)
 
-        img_tag = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-placeholder">🎬</div>'
+        img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-placeholder">🎬</div>'
+        if video_url:
+            img_tag = f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{img_inner}</a>'
+        else:
+            img_tag = img_inner
 
         with col:
             st.markdown(f"""
@@ -217,8 +266,8 @@ for chunk_start in range(0, len(contents), n_cols):
 </div>
 """, unsafe_allow_html=True)
 
-            if video_url:
-                st.markdown(f"[↗ 영상 보기]({video_url})", unsafe_allow_html=False)
+            if st.button("🎬 전체 영상 보기", key=f"detail_{inf_id}", use_container_width=True):
+                show_influencer_videos(inf_id)
 
             # 캠페인 모드
             if sel_camp_id:

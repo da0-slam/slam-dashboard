@@ -352,18 +352,19 @@ def get_campaign_selection_map(campaign_id: str) -> dict[str, dict]:
 def get_browse_contents(platform: str | None = None, limit: int = 400) -> list[dict]:
     sb = get_supabase()
 
-    # 콘텐츠 (조회수 순)
+    # 인플루언서 메타 (전체)
+    inf_rows = sb.table("influencer_master").select("influencer_id,account_url,platform,apify_status").execute().data or []
+    if platform:
+        inf_rows = [r for r in inf_rows if r.get("platform") == platform]
+    inf_map = {r["influencer_id"]: r for r in inf_rows}
+
+    # 콘텐츠 전체 (limit 없이) — 인플루언서별 최고 조회수 영상 1개 선택
     contents = (
         sb.table("koc_contents")
         .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,save_count,caption,posted_at")
         .order("play_count", desc=True)
-        .limit(limit)
         .execute()
     ).data or []
-
-    # 인플루언서 메타
-    inf_rows = sb.table("influencer_master").select("influencer_id,account_url,platform,apify_status").execute().data or []
-    inf_map  = {r["influencer_id"]: r for r in inf_rows}
 
     # 인플루언서별 최고 조회수 영상 1개만 (중복 제거)
     seen: set[str] = set()
@@ -372,13 +373,21 @@ def get_browse_contents(platform: str | None = None, limit: int = 400) -> list[d
         iid = r["influencer_id"]
         if iid in seen:
             continue
-        inf = inf_map.get(iid, {})
-        if platform and inf.get("platform") != platform:
-            continue
         seen.add(iid)
-        r["influencer_master"] = inf
+        r["influencer_master"] = inf_map.get(iid, {})
         result.append(r)
     return result
+
+
+def get_influencer_contents(influencer_id: str) -> list[dict]:
+    return (
+        get_supabase()
+        .table("koc_contents")
+        .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,save_count,caption,posted_at")
+        .eq("influencer_id", influencer_id)
+        .order("play_count", desc=True)
+        .execute()
+    ).data or []
 
 
 def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
