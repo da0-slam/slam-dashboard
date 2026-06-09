@@ -358,11 +358,12 @@ def get_browse_contents(platform: str | None = None, limit: int = 400) -> list[d
         inf_rows = [r for r in inf_rows if r.get("platform") == platform]
     inf_map = {r["influencer_id"]: r for r in inf_rows}
 
-    # 콘텐츠 전체 (limit 없이) — 인플루언서별 최고 조회수 영상 1개 선택
+    # 콘텐츠 전체 — PostgREST 기본 row limit(1000) 우회하기 위해 큰 limit 명시
     contents = (
         sb.table("koc_contents")
         .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,save_count,caption,posted_at")
         .order("play_count", desc=True)
+        .limit(100000)
         .execute()
     ).data or []
 
