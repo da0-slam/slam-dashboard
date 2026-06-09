@@ -614,13 +614,13 @@ with tab4:
                     "upload_day":  ["upload_day", "upload day", "uploadday", "날짜", "date", "visit date"],
                     # TikTok 지표 (tt_* 우선, 없으면 공통 컬럼 fallback)
                     "tt_views":    ["tt_views", "views", "view", "조회수", "재생수"],
-                    "tt_likes":    ["tt_likes", "likes", "likes▼", "like", "좋아요"],
+                    "tt_likes":    ["tt_likes", "likes", "likes▼", "likes♥", "like", "좋아요"],
                     "tt_comments": ["tt_comments", "comments", "comment", "댓글"],
                     "tt_saves":    ["tt_saves", "saves", "save", "저장"],
                     "tt_shares":   ["tt_shares", "shares", "share", "공유"],
                     # Instagram 지표 (없으면 0)
                     "ig_views":    ["ig_views", "views(ig)", "views_ig"],
-                    "ig_likes":    ["ig_likes", "likes(ig)", "likes▼(ig)", "likes_ig"],
+                    "ig_likes":    ["ig_likes", "likes(ig)", "likes▼(ig)", "likes♥(ig)", "likes_ig"],
                     "ig_comments": ["ig_comments", "comments(ig)", "comments_ig"],
                     "ig_saves":    ["ig_saves", "saves(ig)", "saves_ig"],
                     "ig_shares":   ["ig_shares", "shares(ig)", "shares_ig"],
