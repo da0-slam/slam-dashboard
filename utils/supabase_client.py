@@ -277,15 +277,32 @@ def setup_brand_user(user_id: str, brand_name: str) -> str:
         return existing["brand_id"]
 
     sb = get_supabase()
-    brand_res = sb.table("brands").insert({"name": brand_name}).execute()
-    brand_id  = brand_res.data[0]["id"]
+
+    # 동일 브랜드명이 이미 존재하면 새로 만들지 않고 기존 브랜드에 연결
+    existing_brand = sb.table("brands").select("id").eq("name", brand_name).execute().data
+    if existing_brand:
+        brand_id = existing_brand[0]["id"]
+    else:
+        brand_res = sb.table("brands").insert({"name": brand_name}).execute()
+        brand_id  = brand_res.data[0]["id"]
+
     sb.table("user_profiles").upsert(
         {"user_id": user_id, "role": "brand_user", "brand_id": brand_id},
         on_conflict="user_id",
     ).execute()
-    sb.table("brand_members").insert(
-        {"brand_id": brand_id, "user_id": user_id, "role": "owner"}
-    ).execute()
+    # brand_members는 중복 삽입 방지
+    already_member = (
+        sb.table("brand_members")
+        .select("id")
+        .eq("brand_id", brand_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    if not already_member:
+        sb.table("brand_members").insert(
+            {"brand_id": brand_id, "user_id": user_id, "role": "owner"}
+        ).execute()
     return brand_id
 
 
