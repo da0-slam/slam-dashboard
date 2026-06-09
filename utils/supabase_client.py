@@ -370,6 +370,30 @@ def delete_campaign(campaign_id: str) -> None:
     get_supabase().table("campaigns").delete().eq("id", campaign_id).execute()
 
 
+def get_or_create_invite_token(campaign_id: str) -> str | None:
+    """캠페인 초대 토큰 반환 (없으면 새로 생성). campaigns.invite_token 컬럼 필요."""
+    import uuid as _uuid
+    sb = get_supabase()
+    try:
+        row = sb.table("campaigns").select("invite_token").eq("id", campaign_id).execute().data
+        if row and row[0].get("invite_token"):
+            return row[0]["invite_token"]
+        token = _uuid.uuid4().hex[:20]
+        sb.table("campaigns").update({"invite_token": token}).eq("id", campaign_id).execute()
+        return token
+    except Exception:
+        return None
+
+
+def get_campaign_by_invite_token(token: str) -> dict | None:
+    """초대 토큰으로 캠페인 조회."""
+    try:
+        res = get_supabase().table("campaigns").select("*").eq("invite_token", token).execute()
+        return res.data[0] if res.data else None
+    except Exception:
+        return None
+
+
 def get_campaign_selections(campaign_id: str, status: str | None = None) -> list[dict]:
     q = (
         get_supabase()

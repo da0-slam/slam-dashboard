@@ -2,6 +2,7 @@ import io
 import pandas as pd
 import streamlit as st
 from utils.auth import require_auth, sidebar_user_info
+import os
 from utils.supabase_client import (
     get_brands, get_brand_by_id, get_influencers,
     get_campaigns, create_campaign, update_campaign, delete_campaign,
@@ -10,11 +11,25 @@ from utils.supabase_client import (
     get_campaign_if_owned, get_brand_access_password_hash,
     set_brand_access_password, verify_password,
     bulk_add_to_campaign,
+    get_or_create_invite_token, get_campaign_by_invite_token,
 )
 
 st.set_page_config(page_title="캠페인 관리", page_icon="📋", layout="wide")
 user = require_auth()
 sidebar_user_info()
+
+# ─── 초대링크 처리 (페이지 로드 시 invite 쿼리 파라미터 확인) ────────────────────
+_invite_token = st.query_params.get("invite")
+if _invite_token:
+    _inv_camp = get_campaign_by_invite_token(_invite_token)
+    if _inv_camp:
+        # 초대 토큰으로 해당 브랜드 접근 자동 허용
+        st.session_state[f"brand_access_{_inv_camp['brand_id']}"] = True
+        # 해당 캠페인 바로 열기
+        if not st.session_state.get("selected_campaign"):
+            st.session_state.selected_campaign = _inv_camp
+        st.query_params.clear()
+        st.rerun()
 
 st.title("📋 캠페인 관리")
 
@@ -102,8 +117,8 @@ if st.session_state.get("selected_campaign"):
         st.session_state.selected_campaign = None
         st.stop()
 
-    # ── Step 2: 관리 비밀번호 게이트 ─────────────────────────────────────────
-    access_key = f"campaign_access_{camp_id}"
+    # ── Step 2: 관리 비밀번호 게이트 (브랜드 단위 — 한 번 인증하면 전체 캠페인 유지)
+    access_key = f"brand_access_{selected_brand_id}"
     if not st.session_state.get(access_key):
         col_back, _ = st.columns([1, 8])
         with col_back:
@@ -118,7 +133,6 @@ if st.session_state.get("selected_campaign"):
         pw_hash = get_brand_access_password_hash(selected_brand_id)
 
         if pw_hash is None:
-            # 비밀번호 미설정 → 최초 설정 유도
             st.warning("이 브랜드의 캠페인 관리 비밀번호가 아직 설정되지 않았습니다.")
             st.info("아래에서 관리 비밀번호를 설정하면 캠페인에 접근할 수 있습니다.")
             with st.form("set_pw_form"):
@@ -136,7 +150,6 @@ if st.session_state.get("selected_campaign"):
                         st.session_state[access_key] = True
                         st.rerun()
         else:
-            # 비밀번호 입력 폼
             with st.form("campaign_auth_form"):
                 entered = st.text_input("관리 비밀번호", type="password", placeholder="비밀번호를 입력하세요")
                 if st.form_submit_button("인증", type="primary", use_container_width=True):
@@ -174,6 +187,22 @@ if st.session_state.get("selected_campaign"):
             st.session_state.selected_campaign = {**camp, "name": new_name, "status": new_status}
             st.success("저장했습니다.")
             st.rerun()
+
+        st.divider()
+        st.markdown("**🔗 초대 링크**")
+        st.caption("초대 링크로 접속한 사람은 비밀번호 없이 이 캠페인을 관리할 수 있습니다.")
+        if st.button("초대 링크 생성 / 확인", key="gen_invite"):
+            token = get_or_create_invite_token(camp["id"])
+            if token:
+                site = os.environ.get("SITE_URL", "http://localhost:8501").rstrip("/")
+                invite_url = f"{site}/campaigns?invite={token}"
+                st.session_state["_invite_url"] = invite_url
+            else:
+                st.error("초대 링크 생성 실패. campaigns 테이블에 invite_token 컬럼을 추가해주세요.")
+                st.code("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS invite_token text UNIQUE;")
+        if st.session_state.get("_invite_url"):
+            st.text_input("초대 링크 (복사하세요)", value=st.session_state["_invite_url"],
+                          key="invite_url_display")
 
     with st.expander("📥 인플루언서 일괄 등록 (CSV)"):
         st.markdown("""
