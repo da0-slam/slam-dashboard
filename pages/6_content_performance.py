@@ -26,7 +26,7 @@ sidebar_user_info()
 # ── 사용자 / 브랜드 컨텍스트 ─────────────────────────────────────────────────
 
 user = st.session_state["user"]
-profile = get_user_profile(user["id"])
+profile = get_user_profile(user.id)
 if not profile:
     st.error("사용자 프로필을 찾을 수 없습니다.")
     st.stop()
