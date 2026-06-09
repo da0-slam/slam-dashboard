@@ -34,9 +34,9 @@ if is_admin:
     if not brands:
         st.warning("먼저 브랜드사를 등록하세요.")
         st.stop()
-    brand_options       = {b["name"]: b["id"] for b in brands}
-    selected_brand_name = st.selectbox("브랜드사", list(brand_options.keys()))
-    selected_brand_id   = brand_options[selected_brand_name]
+    brand_options       = {f"{b['name']}  [{b['id'][:8]}]": b["id"] for b in brands}
+    selected_brand_label = st.selectbox("브랜드사", list(brand_options.keys()))
+    selected_brand_id   = brand_options[selected_brand_label]
 else:
     brand = get_brand_by_id(user_brand_id)
     if not brand:

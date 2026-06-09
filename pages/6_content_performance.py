@@ -39,9 +39,11 @@ if is_admin:
     if not brands:
         st.warning("등록된 브랜드가 없습니다.")
         st.stop()
-    brand_map = {b["name"]: b["id"] for b in brands}
-    sel_brand_name = st.sidebar.selectbox("브랜드 (관리자)", list(brand_map.keys()), key="cp_brand_sel")
-    brand_id = brand_map[sel_brand_name]
+    # 동일 이름 브랜드 중복 방지: id를 포함한 고유 레이블 사용
+    brand_options = {f"{b['name']}  [{b['id'][:8]}]": b["id"] for b in brands}
+    sel_brand_label = st.sidebar.selectbox("브랜드 (관리자)", list(brand_options.keys()), key="cp_brand_sel")
+    brand_id = brand_options[sel_brand_label]
+    brand_map = {v: v for v in brand_options.values()}  # id→id (하위 호환)
     if "cp_prev_brand" not in st.session_state:
         st.session_state.cp_prev_brand = brand_id
     if st.session_state.cp_prev_brand != brand_id:
@@ -52,7 +54,7 @@ if not brand_id:
     st.warning("브랜드가 연결되지 않은 계정입니다. 관리자에게 문의하세요.")
     st.stop()
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _load_campaigns(brand_id: str):
     return get_campaigns(brand_id)
 
