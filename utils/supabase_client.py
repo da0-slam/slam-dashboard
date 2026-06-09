@@ -325,6 +325,51 @@ def add_to_campaign(campaign_id: str, influencer_id: str) -> None:
     ).execute()
 
 
+def bulk_add_to_campaign(
+    campaign_id: str,
+    entries: list[dict],
+) -> tuple[int, int, list[str]]:
+    """CSV 등에서 인플루언서를 일괄 추가합니다.
+
+    entries: [{"influencer_id": str, "status": str, "note": str}, ...]
+    returns: (added, skipped, errors)
+    """
+    sb = get_supabase()
+    existing = {
+        r["influencer_id"]
+        for r in (
+            sb.table("campaign_selections")
+            .select("influencer_id")
+            .eq("campaign_id", campaign_id)
+            .execute()
+        ).data or []
+    }
+
+    to_insert = []
+    skipped = 0
+    errors: list[str] = []
+
+    for e in entries:
+        iid = str(e.get("influencer_id") or "").strip().lstrip("@")
+        if not iid:
+            errors.append(f"빈 influencer_id → 건너뜀")
+            continue
+        if iid in existing:
+            skipped += 1
+            continue
+        to_insert.append({
+            "campaign_id":   campaign_id,
+            "influencer_id": iid,
+            "status":        e.get("status", "candidate"),
+            "note":          e.get("note") or None,
+        })
+
+    if to_insert:
+        sb.table("campaign_selections").insert(to_insert).execute()
+
+    return len(to_insert), skipped, errors
+
+
 def update_campaign_selection(selection_id: str, status: str, note: str | None = None) -> None:
     data: dict = {"status": status, "updated_at": _now()}
     if note is not None:

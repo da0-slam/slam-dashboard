@@ -1,3 +1,5 @@
+import io
+import pandas as pd
 import streamlit as st
 from utils.auth import require_auth, sidebar_user_info
 from utils.supabase_client import (
@@ -7,6 +9,7 @@ from utils.supabase_client import (
     get_influencer_thumbnails, get_user_profile,
     get_campaign_if_owned, get_brand_access_password_hash,
     set_brand_access_password, verify_password,
+    bulk_add_to_campaign,
 )
 
 st.set_page_config(page_title="캠페인 관리", page_icon="📋", layout="wide")
@@ -170,6 +173,72 @@ if st.session_state.get("selected_campaign"):
             st.session_state.selected_campaign = {**camp, "name": new_name, "status": new_status}
             st.success("저장했습니다.")
             st.rerun()
+
+    with st.expander("📥 인플루언서 일괄 등록 (CSV)"):
+        st.markdown("""
+**CSV 형식 안내** — 헤더 행 필수
+
+| influencer_id | status | note |
+|---------------|--------|------|
+| ___sarah101 | candidate | 방문형 |
+| oreo_leo | confirmed | |
+
+- `influencer_id`: TikTok/IG 유저명 (`@` 제외, 필수)
+- `status`: `candidate` / `confirmed` / `rejected` (생략 시 `candidate`)
+- `note`: 메모 (선택)
+- 이미 등록된 인플루언서는 자동으로 건너뜁니다.
+
+**Google Sheet에서 복사할 때**: Full Name 컬럼 대신 TikTok 유저명(@제외) 컬럼을 `influencer_id`로 사용하세요.
+""")
+
+        uploaded_csv = st.file_uploader("CSV 파일 업로드", type=["csv"], key=f"bulk_csv_{camp_id}")
+
+        if uploaded_csv:
+            try:
+                df_csv = pd.read_csv(io.StringIO(uploaded_csv.getvalue().decode("utf-8-sig")))
+                df_csv.columns = [c.strip().lower() for c in df_csv.columns]
+
+                # 컬럼명 유연하게 인식
+                id_col = next((c for c in df_csv.columns if c in (
+                    "influencer_id", "username", "tiktok_id", "tiktok", "id", "유저명", "아이디"
+                )), df_csv.columns[0])
+
+                status_col = next((c for c in df_csv.columns if "status" in c), None)
+                note_col   = next((c for c in df_csv.columns if c in ("note", "memo", "notes", "메모")), None)
+
+                entries = []
+                for _, row in df_csv.iterrows():
+                    iid = str(row.get(id_col) or "").strip().lstrip("@")
+                    if not iid or iid.lower() in ("nan", "none", ""):
+                        continue
+                    status = str(row[status_col]).strip() if status_col else "candidate"
+                    if status not in ("candidate", "confirmed", "rejected"):
+                        status = "candidate"
+                    note = str(row[note_col]).strip() if note_col else ""
+                    note = "" if note.lower() in ("nan", "none") else note
+                    entries.append({"influencer_id": iid, "status": status, "note": note})
+
+                if not entries:
+                    st.warning("유효한 influencer_id 행이 없습니다.")
+                else:
+                    st.markdown(f"**미리보기** — {len(entries)}명")
+                    st.dataframe(
+                        pd.DataFrame(entries).head(10),
+                        use_container_width=True, hide_index=True,
+                    )
+
+                    if st.button(f"✅ {len(entries)}명 캠페인에 추가", key=f"bulk_run_{camp_id}", type="primary"):
+                        with st.spinner("등록 중..."):
+                            added, skipped, errs = bulk_add_to_campaign(camp_id, entries)
+                        st.success(f"등록 완료: **{added}명** 추가, {skipped}명 중복 건너뜀")
+                        if errs:
+                            with st.expander(f"오류 {len(errs)}건"):
+                                for e in errs:
+                                    st.warning(e)
+                        st.rerun()
+
+            except Exception as ex:
+                st.error(f"CSV 파싱 오류: {ex}")
 
     st.divider()
 
