@@ -2,12 +2,21 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from utils.auth import require_auth, sidebar_user_info
-from utils.supabase_client import get_pipeline_stats, get_total_content_count, get_top_contents
+from utils.supabase_client import (
+    get_pipeline_stats, get_total_content_count, get_top_contents,
+    get_all_user_profiles, get_brands, assign_user_to_brand, get_user_profile,
+)
 
 st.set_page_config(page_title="수집 데이터 대시보드", page_icon="📊", layout="wide")
 
-require_auth()
+user = require_auth()
 sidebar_user_info()
+
+# admin 전용 페이지
+profile = get_user_profile(user.id)
+if profile.get("role") != "admin":
+    st.error("관리자 전용 페이지입니다.")
+    st.stop()
 
 st.title("📊 수집 데이터 대시보드")
 
@@ -130,3 +139,44 @@ if top_contents:
                 "좋아요": st.column_config.NumberColumn(format="%d"),
             },
         )
+
+# ─── 유저 관리 ────────────────────────────────────────────────────────────────
+st.divider()
+st.subheader("👤 유저 브랜드 배정 관리")
+
+all_profiles = get_all_user_profiles()
+all_brands   = get_brands()
+brand_id_to_name = {b["id"]: b["name"] for b in all_brands}
+brand_name_to_id = {b["name"]: b["id"] for b in all_brands}
+
+if not all_profiles:
+    st.info("등록된 유저가 없습니다.")
+else:
+    df_users = pd.DataFrame(all_profiles)
+    df_users["brand_name"] = df_users["brand_id"].map(brand_id_to_name).fillna("미배정")
+    display_cols = [c for c in ["user_id", "role", "brand_name", "brand_id"] if c in df_users.columns]
+    st.dataframe(
+        df_users[display_cols].rename(columns={
+            "user_id": "User ID", "role": "역할",
+            "brand_name": "브랜드명", "brand_id": "Brand ID",
+        }),
+        use_container_width=True, hide_index=True,
+    )
+
+    st.markdown("#### 브랜드 재배정")
+    col1, col2, col3 = st.columns(3)
+
+    user_options = {p["user_id"]: f"{p['user_id'][:20]}… ({brand_id_to_name.get(p.get('brand_id',''), '미배정')})"
+                   for p in all_profiles}
+    sel_user_id = col1.selectbox("유저 선택", list(user_options.keys()),
+                                  format_func=lambda x: user_options[x], key="assign_user")
+    sel_brand_name = col2.selectbox("배정할 브랜드", list(brand_name_to_id.keys()), key="assign_brand")
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("배정 저장", type="primary", use_container_width=True, key="assign_save"):
+            ok = assign_user_to_brand(sel_user_id, brand_name_to_id[sel_brand_name])
+            if ok:
+                st.success(f"✅ 유저 `{sel_user_id[:20]}…`를 **{sel_brand_name}** 브랜드에 배정했습니다.")
+                st.rerun()
+            else:
+                st.error("배정에 실패했습니다. Supabase RLS 정책을 확인하세요.")

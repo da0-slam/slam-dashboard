@@ -254,6 +254,21 @@ def upsert_user_profile(user_id: str, role: str = "brand_user", brand_id: str | 
     get_supabase().table("user_profiles").upsert(data, on_conflict="user_id").execute()
 
 
+def get_all_user_profiles() -> list[dict]:
+    return get_supabase().table("user_profiles").select("*").execute().data or []
+
+
+def assign_user_to_brand(user_id: str, brand_id: str) -> bool:
+    res = (
+        get_supabase()
+        .table("user_profiles")
+        .update({"brand_id": brand_id})
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return bool(res.data)
+
+
 def setup_brand_user(user_id: str, brand_name: str) -> str:
     """신규 가입 시 브랜드 + 유저 프로필 + 브랜드 멤버 자동 생성. brand_id 반환.
     이미 brand_id가 연결된 경우 기존 값을 그대로 반환 (중복 생성 방지)."""
