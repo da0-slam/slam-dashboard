@@ -112,12 +112,12 @@ if st.session_state.user:
             with st.container(border=True):
                 st.markdown("### 📊 어드민 대시보드")
                 st.caption("수집 현황 및 유저 계정 관리")
-                st.page_link("_hidden_pages/dashboard.py", label="이동 →")
+                st.page_link("pages/_dashboard.py", label="이동 →")
         with ac2:
             with st.container(border=True):
                 st.markdown("### 🏢 브랜드 관리")
                 st.caption("브랜드 생성 및 설정")
-                st.page_link("_hidden_pages/brands.py", label="이동 →")
+                st.page_link("pages/_brands.py", label="이동 →")
 
 # ─── 로그아웃 상태: 로그인 / 회원가입 폼 ────────────────────────────────────
 else:

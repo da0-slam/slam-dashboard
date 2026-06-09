@@ -18,8 +18,8 @@ def sidebar_user_info() -> None:
         profile = get_user_profile(user.id)
         if profile.get("role") == "admin":
             st.markdown("**🔧 관리자 메뉴**")
-            st.page_link("_hidden_pages/dashboard.py", label="📊 어드민 대시보드", use_container_width=True)
-            st.page_link("_hidden_pages/brands.py",   label="🏢 브랜드 관리",     use_container_width=True)
+            st.page_link("pages/_dashboard.py", label="📊 어드민 대시보드", use_container_width=True)
+            st.page_link("pages/_brands.py",   label="🏢 브랜드 관리",     use_container_width=True)
             st.divider()
 
         st.caption(f"👤 {user.email}")
