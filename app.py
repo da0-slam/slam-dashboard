@@ -79,7 +79,7 @@ if st.session_state.user:
     st.markdown("사이드바 메뉴에서 원하는 기능을 선택하세요.")
     st.divider()
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         with st.container(border=True):
             st.markdown("### 🎬 탐색")
@@ -95,6 +95,11 @@ if st.session_state.user:
             st.markdown("### 👥 즐겨찾기")
             st.caption("브랜드별 즐겨찾기 인플루언서")
             st.page_link("pages/2_influencers.py", label="이동 →")
+    with col4:
+        with st.container(border=True):
+            st.markdown("### 📊 콘텐츠 성과")
+            st.caption("게시물별 업로드 성과 관리")
+            st.page_link("pages/6_content_performance.py", label="이동 →")
 
 # ─── 로그아웃 상태: 로그인 / 회원가입 폼 ────────────────────────────────────
 else:
