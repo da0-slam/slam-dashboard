@@ -31,8 +31,8 @@ if not profile:
     st.error("사용자 프로필을 찾을 수 없습니다.")
     st.stop()
 
-is_admin = profile.role == "admin"
-brand_id: str | None = profile.brand_id
+is_admin = profile.get("role") == "admin"
+brand_id: str | None = profile.get("brand_id")
 
 if is_admin:
     brands = get_brands()
