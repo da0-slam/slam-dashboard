@@ -146,6 +146,18 @@ elif sort_by == "Date (최신순)":
 elif sort_by == "Date (오래된순)":
     contents.sort(key=lambda r: r.get("posted_at") or "")
 
+# ─── 페이지네이션 상태 ────────────────────────────────────────────────────────
+PAGE_SIZE = 48  # 4열×12행 or 3열×16행
+
+_filter_sig = (tuple(grade_filter), year_filter, search_kw, sort_by, sel_camp_id)
+if st.session_state.get("_browse_filter_sig") != _filter_sig:
+    st.session_state["_browse_filter_sig"] = _filter_sig
+    st.session_state["browse_page"] = 0
+
+page        = st.session_state.get("browse_page", 0)
+total_pages = max(1, (len(contents) + PAGE_SIZE - 1) // PAGE_SIZE)
+page        = min(page, total_pages - 1)
+
 # ─── 상단 통계 ────────────────────────────────────────────────────────────────
 total_views = sum(r.get("play_count") or 0 for r in contents)
 avg_er      = (sum(r["er"] for r in contents) / len(contents)) if contents else 0
@@ -232,11 +244,38 @@ if not contents:
     st.info("조건에 맞는 인플루언서가 없습니다.")
     st.stop()
 
-for chunk_start in range(0, len(contents), n_cols):
-    row_items = contents[chunk_start:chunk_start + n_cols]
+# 페이지 네비게이션 렌더링 함수
+def _page_nav(suffix: str):
+    c_prev, c_info, c_next = st.columns([1, 4, 1])
+    with c_prev:
+        if st.button("◀ 이전", disabled=(page == 0), key=f"prev_{suffix}", use_container_width=True):
+            st.session_state["browse_page"] = page - 1
+            st.rerun()
+    with c_info:
+        st.markdown(
+            f"<div style='text-align:center;padding:6px 0;color:#666;'>"
+            f"<b>{page+1}</b> / {total_pages} 페이지 &nbsp;·&nbsp; 총 <b>{len(contents):,}</b>명"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with c_next:
+        if st.button("다음 ▶", disabled=(page >= total_pages - 1), key=f"next_{suffix}", use_container_width=True):
+            st.session_state["browse_page"] = page + 1
+            st.rerun()
+
+_page_nav("top")
+st.markdown("")
+
+# 현재 페이지 항목만 슬라이스
+page_offset   = page * PAGE_SIZE
+page_contents = contents[page_offset : page_offset + PAGE_SIZE]
+
+for chunk_start in range(0, len(page_contents), n_cols):
+    row_items = page_contents[chunk_start:chunk_start + n_cols]
     cols = st.columns(n_cols)
 
-    for col, item, rank in zip(cols, row_items, range(chunk_start+1, chunk_start+n_cols+1)):
+    global_start = page_offset + chunk_start + 1
+    for col, item, rank in zip(cols, row_items, range(global_start, global_start + n_cols)):
         inf_id    = item["influencer_id"]
         inf       = item.get("influencer_master") or {}
         thumbnail = item.get("thumbnail_url") or ""
@@ -304,3 +343,7 @@ for chunk_start in range(0, len(contents), n_cols):
                 else:
                     if st.button("💛 즐겨찾기", key=f"fa_{inf_id}", use_container_width=True, type="primary"):
                         select_influencer(sel_brand_id, inf_id); st.rerun()
+
+# ─── 하단 페이지 네비게이션 ───────────────────────────────────────────────────
+st.markdown("")
+_page_nav("bottom")
