@@ -707,6 +707,7 @@ def migrate_google_sheet_rows(
     campaign_id: str,
     brand_id: str,
     rows: list[dict],
+    overwrite: bool = False,
 ) -> tuple[int, list[str]]:
     """Google Sheet 형식의 rows를 campaign_posts로 이관합니다.
 
@@ -798,8 +799,26 @@ def migrate_google_sheet_rows(
             to_create.append({"platform": "instagram", "post_url": ig_url, **ig_metrics})
 
         for post_data in to_create:
-            if post_url_exists(post_data["post_url"]):
-                errors.append(f"Row {i} ({name}): URL 중복 → 건너뜀 ({post_data['post_url'][:60]})")
+            existing = (
+                get_supabase()
+                .table("campaign_posts")
+                .select("id")
+                .eq("post_url", post_data["post_url"])
+                .execute()
+            ).data
+            if existing:
+                if overwrite:
+                    ok = update_campaign_post(existing[0]["id"], brand_id, {
+                        "influencer_name": name,
+                        "upload_date":     upload_date,
+                        **{k: v for k, v in post_data.items() if k != "post_url"},
+                    })
+                    if ok:
+                        created += 1
+                    else:
+                        errors.append(f"Row {i} ({name}): 업데이트 실패 ({post_data['post_url'][:60]})")
+                else:
+                    errors.append(f"Row {i} ({name}): URL 중복 → 건너뜀 ({post_data['post_url'][:60]})")
                 continue
             result = create_campaign_post(brand_id, {
                 "campaign_id":     campaign_id,

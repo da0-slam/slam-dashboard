@@ -678,12 +678,21 @@ with tab4:
                     if dual_count:
                         st.info(f"TikTok + Instagram 동시 등록: **{dual_count}명** → 게시물 {dual_count*2}개 생성 예정")
 
+                    overwrite_mode = st.checkbox(
+                        "🔄 기존 데이터 덮어쓰기 (좋아요 등 수치가 잘못 저장된 경우 체크)",
+                        value=False,
+                        key="mi_overwrite",
+                        help="이미 등록된 URL의 지표를 CSV 값으로 업데이트합니다.",
+                    )
+
                     if st.button(f"✅ {len(rows_to_migrate)}개 행 이관 시작", key="mi_run"):
                         with st.spinner("이관 중..."):
                             created, errors = migrate_google_sheet_rows(
-                                mi_campaign_id, brand_id, rows_to_migrate
+                                mi_campaign_id, brand_id, rows_to_migrate,
+                                overwrite=overwrite_mode,
                             )
-                        st.success(f"이관 완료: {created}개 게시물 생성")
+                        verb = "업데이트" if overwrite_mode else "생성"
+                        st.success(f"이관 완료: {created}개 게시물 {verb}")
                         if errors:
                             with st.expander(f"경고 / 건너뜀 ({len(errors)}건)"):
                                 for e in errors:
