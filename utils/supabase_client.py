@@ -461,3 +461,256 @@ def get_top_contents(limit: int = 20) -> list[dict]:
         .execute()
     )
     return res.data or []
+
+
+# ── Campaign Posts ────────────────────────────────────────────────────────────
+
+def get_campaign_posts(
+    brand_id: str,
+    campaign_id: str | None = None,
+    platform: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    search_name: str | None = None,
+    search_url: str | None = None,
+    sort_by: str = "upload_date",
+    sort_asc: bool = False,
+) -> list[dict]:
+    _SORT_COLS = {"upload_date", "views", "likes", "saves", "comments", "shares", "created_at"}
+    q = (
+        get_supabase()
+        .table("campaign_posts")
+        .select("*")
+        .eq("brand_id", brand_id)
+    )
+    if campaign_id:
+        q = q.eq("campaign_id", campaign_id)
+    if platform:
+        q = q.eq("platform", platform)
+    if start_date:
+        q = q.gte("upload_date", start_date)
+    if end_date:
+        q = q.lte("upload_date", end_date)
+    if search_name:
+        q = q.ilike("influencer_name", f"%{search_name}%")
+    if search_url:
+        q = q.ilike("post_url", f"%{search_url}%")
+    col = sort_by if sort_by in _SORT_COLS else "upload_date"
+    q = q.order(col, desc=not sort_asc)
+    res = q.execute()
+    return res.data or []
+
+
+def get_campaign_post_by_id(post_id: str, brand_id: str) -> dict | None:
+    res = (
+        get_supabase()
+        .table("campaign_posts")
+        .select("*")
+        .eq("id", post_id)
+        .eq("brand_id", brand_id)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def post_url_exists(post_url: str, exclude_post_id: str | None = None) -> bool:
+    q = get_supabase().table("campaign_posts").select("id").eq("post_url", post_url)
+    if exclude_post_id:
+        q = q.neq("id", exclude_post_id)
+    res = q.execute()
+    return bool(res.data)
+
+
+def create_campaign_post(brand_id: str, data: dict) -> dict | None:
+    payload = {**data, "brand_id": brand_id, "created_at": _now(), "updated_at": _now()}
+    res = get_supabase().table("campaign_posts").insert(payload).execute()
+    return res.data[0] if res.data else None
+
+
+def update_campaign_post(post_id: str, brand_id: str, data: dict) -> bool:
+    payload = {**data, "updated_at": _now()}
+    res = (
+        get_supabase()
+        .table("campaign_posts")
+        .update(payload)
+        .eq("id", post_id)
+        .eq("brand_id", brand_id)
+        .execute()
+    )
+    return bool(res.data)
+
+
+def delete_campaign_post(post_id: str, brand_id: str) -> bool:
+    get_supabase().table("campaign_posts").delete().eq("id", post_id).eq("brand_id", brand_id).execute()
+    return True
+
+
+def get_campaign_participants_info(campaign_id: str, brand_id: str) -> list[dict]:
+    """캠페인에 등록된 참여자 목록 + influencer_master 표시 이름."""
+    campaign = get_campaign_if_owned(campaign_id, brand_id)
+    if not campaign:
+        return []
+    sel_res = (
+        get_supabase()
+        .table("campaign_selections")
+        .select("id, influencer_id, status")
+        .eq("campaign_id", campaign_id)
+        .execute()
+    )
+    selections = sel_res.data or []
+    inf_ids = [s["influencer_id"] for s in selections if s.get("influencer_id")]
+    inf_map: dict = {}
+    if inf_ids:
+        inf_res = (
+            get_supabase()
+            .table("influencer_master")
+            .select("influencer_id, account_url, platform")
+            .in_("influencer_id", inf_ids)
+            .execute()
+        )
+        inf_map = {i["influencer_id"]: i for i in (inf_res.data or [])}
+    for s in selections:
+        inf = inf_map.get(s.get("influencer_id") or "", {})
+        s["display_name"] = inf.get("account_url") or s.get("influencer_id") or ""
+        s["inf_platform"] = inf.get("platform")
+    return selections
+
+
+# ── Apify 자동 트래킹 (Placeholder) ──────────────────────────────────────────
+
+def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
+    """Apify에서 게시물 성과 지표를 가져옵니다. (현재 미구현 placeholder)
+
+    향후 구현 방향:
+      - platform == 'tiktok'  → actor: clockworks/tiktok-scraper
+      - platform == 'instagram' → actor: apify/instagram-scraper
+      returns: {views, likes, comments, saves, shares} or None
+    """
+    # TODO: Implement Apify integration
+    # from apify_client import ApifyClient
+    # client = ApifyClient(os.environ.get("APIFY_TOKEN"))
+    # actor_id = "clockworks/tiktok-scraper" if platform == "tiktok" else "apify/instagram-scraper"
+    # run = client.actor(actor_id).call(run_input={"directUrls": [post_url], "maxItems": 1})
+    # items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    # if not items: return None
+    # item = items[0]
+    # return {"views": item.get("playCount",0), "likes": item.get("likesCount",0), ...}
+    return None
+
+
+def refresh_post_metrics(post_id: str, brand_id: str) -> bool:
+    """단일 게시물 지표를 Apify로 갱신합니다. (현재 미구현 placeholder)"""
+    post = get_campaign_post_by_id(post_id, brand_id)
+    if not post:
+        return False
+    metrics = fetch_metrics_from_apify(post["post_url"], post["platform"])
+    if not metrics:
+        return False
+    metrics["last_tracked_at"] = _now()
+    return update_campaign_post(post_id, brand_id, metrics)
+
+
+def refresh_campaign_posts(campaign_id: str, brand_id: str) -> int:
+    """캠페인의 모든 게시물 지표를 Apify로 갱신합니다. (현재 미구현 placeholder)
+    Returns: 갱신된 게시물 수"""
+    posts = get_campaign_posts(brand_id=brand_id, campaign_id=campaign_id)
+    count = 0
+    for post in posts:
+        if refresh_post_metrics(post["id"], brand_id):
+            count += 1
+    return count
+
+
+# ── Google Sheet 데이터 마이그레이션 ─────────────────────────────────────────
+
+def migrate_google_sheet_rows(
+    campaign_id: str,
+    brand_id: str,
+    rows: list[dict],
+) -> tuple[int, list[str]]:
+    """Google Sheet 형식의 rows를 campaign_posts로 이관합니다.
+
+    row 형식:
+        name       : 인플루언서 표시 이름
+        ig_url     : Instagram 게시물 URL (없으면 빈 문자열)
+        tt_url     : TikTok 게시물 URL (없으면 빈 문자열)
+        upload_day : 업로드 날짜 (YYYY/MM/DD 또는 YYYY-MM-DD)
+        views      : 조회수
+        likes      : 좋아요
+        comments   : 댓글
+        saves      : 저장
+        shares     : 공유
+
+    성과 지표 매핑 규칙:
+        - TikTok URL이 있으면 → TikTok 행에 지표 적용, Instagram 행은 0
+        - TikTok URL만 있으면 → TikTok 행에 지표 적용
+        - Instagram URL만 있으면 → Instagram 행에 지표 적용
+    """
+    import re
+    campaign = get_campaign_if_owned(campaign_id, brand_id)
+    if not campaign:
+        return 0, ["캠페인을 찾을 수 없거나 접근 권한이 없습니다."]
+
+    def _parse_date(val: str) -> str | None:
+        if not val:
+            return None
+        val = str(val).strip()
+        # YYYY/MM/DD → YYYY-MM-DD
+        val = re.sub(r"(\d{4})[/.](\d{1,2})[/.](\d{1,2})", r"\1-\2-\3", val)
+        try:
+            from datetime import datetime as _dt
+            return str(_dt.strptime(val, "%Y-%m-%d").date())
+        except Exception:
+            return None
+
+    created = 0
+    errors: list[str] = []
+
+    for i, row in enumerate(rows, 1):
+        name = str(row.get("name") or "").strip()
+        if not name:
+            errors.append(f"Row {i}: 인플루언서명 누락 → 건너뜀")
+            continue
+
+        ig_url = str(row.get("ig_url") or "").strip()
+        tt_url = str(row.get("tt_url") or "").strip()
+
+        if not ig_url and not tt_url:
+            errors.append(f"Row {i} ({name}): URL 없음 → 건너뜀")
+            continue
+
+        metrics = {
+            "views":    int(row.get("views")    or 0),
+            "likes":    int(row.get("likes")    or 0),
+            "comments": int(row.get("comments") or 0),
+            "saves":    int(row.get("saves")    or 0),
+            "shares":   int(row.get("shares")   or 0),
+        }
+        zero = {"views": 0, "likes": 0, "comments": 0, "saves": 0, "shares": 0}
+        upload_date = _parse_date(str(row.get("upload_day") or ""))
+
+        # 플랫폼별 지표 매핑
+        to_create: list[dict] = []
+        if tt_url:
+            to_create.append({"platform": "tiktok",    "post_url": tt_url, **metrics})
+            if ig_url:
+                to_create.append({"platform": "instagram", "post_url": ig_url, **zero})
+        elif ig_url:
+            to_create.append({"platform": "instagram", "post_url": ig_url, **metrics})
+
+        for post_data in to_create:
+            if post_url_exists(post_data["post_url"]):
+                errors.append(f"Row {i} ({name}): URL 중복 → 건너뜀 ({post_data['post_url'][:60]})")
+                continue
+            result = create_campaign_post(brand_id, {
+                "campaign_id":    campaign_id,
+                "influencer_name": name,
+                "upload_date":    upload_date,
+                **post_data,
+            })
+            if result:
+                created += 1
+            else:
+                errors.append(f"Row {i} ({name}): DB 저장 실패 ({post_data['platform']})")
+
+    return created, errors
