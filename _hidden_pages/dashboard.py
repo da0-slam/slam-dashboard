@@ -4,7 +4,8 @@ import plotly.express as px
 from utils.auth import require_auth, sidebar_user_info
 from utils.supabase_client import (
     get_pipeline_stats, get_total_content_count, get_top_contents,
-    get_all_user_profiles, get_brands, assign_user_to_brand, get_user_profile,
+    get_all_user_profiles, get_all_auth_users, get_brands,
+    assign_user_to_brand, update_user_role, get_user_profile,
 )
 
 st.set_page_config(page_title="수집 데이터 대시보드", page_icon="📊", layout="wide")
@@ -142,41 +143,87 @@ if top_contents:
 
 # ─── 유저 관리 ────────────────────────────────────────────────────────────────
 st.divider()
-st.subheader("👤 유저 브랜드 배정 관리")
+st.subheader("👤 유저 계정 관리")
 
-all_profiles = get_all_user_profiles()
-all_brands   = get_brands()
+all_profiles     = get_all_user_profiles()
+all_auth_users   = get_all_auth_users()
+all_brands       = get_brands()
 brand_id_to_name = {b["id"]: b["name"] for b in all_brands}
 brand_name_to_id = {b["name"]: b["id"] for b in all_brands}
+
+# user_id → email 맵
+email_map = {u["id"]: u["email"] for u in all_auth_users}
 
 if not all_profiles:
     st.info("등록된 유저가 없습니다.")
 else:
+    # ── 유저 현황 테이블 ───────────────────────────────────────────────────────
     df_users = pd.DataFrame(all_profiles)
+    df_users["email"]      = df_users["user_id"].map(email_map).fillna("(이메일 없음)")
     df_users["brand_name"] = df_users["brand_id"].map(brand_id_to_name).fillna("미배정")
-    display_cols = [c for c in ["user_id", "role", "brand_name", "brand_id"] if c in df_users.columns]
+    df_users["role_label"] = df_users["role"].map({"admin": "🔴 관리자", "brand_user": "🟢 브랜드유저"}).fillna(df_users["role"])
+
     st.dataframe(
-        df_users[display_cols].rename(columns={
-            "user_id": "User ID", "role": "역할",
-            "brand_name": "브랜드명", "brand_id": "Brand ID",
+        df_users[["email", "role_label", "brand_name"]].rename(columns={
+            "email": "이메일", "role_label": "역할", "brand_name": "브랜드",
         }),
-        use_container_width=True, hide_index=True,
+        use_container_width=True,
+        hide_index=True,
     )
 
-    st.markdown("#### 브랜드 재배정")
-    col1, col2, col3 = st.columns(3)
+    # 이메일 → user_id 역방향 맵 (selectbox label용)
+    def _label(uid: str) -> str:
+        email = email_map.get(uid, uid[:20] + "…")
+        brand = brand_id_to_name.get(all_profiles_map.get(uid, {}).get("brand_id", ""), "미배정")
+        role  = all_profiles_map.get(uid, {}).get("role", "")
+        return f"{email}  |  {brand}  |  {role}"
 
-    user_options = {p["user_id"]: f"{p['user_id'][:20]}… ({brand_id_to_name.get(p.get('brand_id',''), '미배정')})"
-                   for p in all_profiles}
-    sel_user_id = col1.selectbox("유저 선택", list(user_options.keys()),
-                                  format_func=lambda x: user_options[x], key="assign_user")
-    sel_brand_name = col2.selectbox("배정할 브랜드", list(brand_name_to_id.keys()), key="assign_brand")
-    with col3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("배정 저장", type="primary", use_container_width=True, key="assign_save"):
-            ok = assign_user_to_brand(sel_user_id, brand_name_to_id[sel_brand_name])
-            if ok:
-                st.success(f"✅ 유저 `{sel_user_id[:20]}…`를 **{sel_brand_name}** 브랜드에 배정했습니다.")
+    all_profiles_map = {p["user_id"]: p for p in all_profiles}
+
+    st.markdown("---")
+    sel_uid = st.selectbox(
+        "변경할 계정 선택",
+        [p["user_id"] for p in all_profiles],
+        format_func=_label,
+        key="mgmt_user_sel",
+    )
+    cur = all_profiles_map.get(sel_uid, {})
+
+    c1, c2, c3 = st.columns(3)
+
+    # ── 역할 변경 ──────────────────────────────────────────────────────────────
+    with c1:
+        st.markdown("**역할 변경**")
+        new_role = st.selectbox(
+            "역할",
+            ["brand_user", "admin"],
+            index=0 if cur.get("role") != "admin" else 1,
+            key="mgmt_role",
+        )
+        if st.button("역할 저장", use_container_width=True, key="role_save"):
+            if update_user_role(sel_uid, new_role):
+                st.success(f"역할을 **{new_role}** 로 변경했습니다.")
                 st.rerun()
             else:
-                st.error("배정에 실패했습니다. Supabase RLS 정책을 확인하세요.")
+                st.error("변경 실패")
+
+    # ── 브랜드 배정 ────────────────────────────────────────────────────────────
+    with c2:
+        st.markdown("**브랜드 배정**")
+        cur_brand_name = brand_id_to_name.get(cur.get("brand_id", ""), None)
+        brand_options  = list(brand_name_to_id.keys())
+        default_idx    = brand_options.index(cur_brand_name) if cur_brand_name in brand_options else 0
+        new_brand = st.selectbox("브랜드", brand_options, index=default_idx, key="mgmt_brand")
+        if st.button("브랜드 저장", use_container_width=True, key="brand_save"):
+            if assign_user_to_brand(sel_uid, brand_name_to_id[new_brand]):
+                st.success(f"브랜드를 **{new_brand}** 로 배정했습니다.")
+                st.rerun()
+            else:
+                st.error("배정 실패")
+
+    # ── 현재 설정 요약 ─────────────────────────────────────────────────────────
+    with c3:
+        st.markdown("**현재 설정**")
+        st.markdown(f"- 이메일: `{email_map.get(sel_uid, '–')}`")
+        st.markdown(f"- 역할: `{cur.get('role', '–')}`")
+        st.markdown(f"- 브랜드: `{brand_id_to_name.get(cur.get('brand_id',''), '미배정')}`")

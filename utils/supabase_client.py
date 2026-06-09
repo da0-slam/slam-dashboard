@@ -258,6 +258,30 @@ def get_all_user_profiles() -> list[dict]:
     return get_supabase().table("user_profiles").select("*").execute().data or []
 
 
+def get_all_auth_users() -> list[dict]:
+    """Supabase Auth Admin API로 전체 유저 이메일 목록 조회."""
+    import requests as _req
+    key = _clean_env("SUPABASE_KEY")
+    url = f"{os.environ.get('SUPABASE_URL', '').rstrip('/')}/auth/v1/admin/users?per_page=1000"
+    resp = _req.get(url, headers={"apikey": key, "Authorization": f"Bearer {key}"}, timeout=10)
+    if resp.status_code != 200:
+        return []
+    data = resp.json()
+    users = data.get("users") or (data if isinstance(data, list) else [])
+    return [{"id": u.get("id", ""), "email": u.get("email", "")} for u in users]
+
+
+def update_user_role(user_id: str, role: str) -> bool:
+    res = (
+        get_supabase()
+        .table("user_profiles")
+        .update({"role": role})
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return bool(res.data)
+
+
 def assign_user_to_brand(user_id: str, brand_id: str) -> bool:
     res = (
         get_supabase()
