@@ -40,8 +40,12 @@ if is_admin:
     if not brands:
         st.warning("등록된 브랜드가 없습니다.")
         st.stop()
-    # 동일 이름 브랜드 중복 방지: id를 포함한 고유 레이블 사용
-    brand_options = {f"{b['name']}  [{b['id'][:8]}]": b["id"] for b in brands}
+    from collections import Counter
+    _name_cnt = Counter(b["name"] for b in brands)
+    brand_options = {
+        (f"{b['name']}  [{b['id'][:8]}]" if _name_cnt[b["name"]] > 1 else b["name"]): b["id"]
+        for b in brands
+    }
     sel_brand_label = st.sidebar.selectbox("브랜드 (관리자)", list(brand_options.keys()), key="cp_brand_sel")
     brand_id = brand_options[sel_brand_label]
     brand_map = {v: v for v in brand_options.values()}  # id→id (하위 호환)
