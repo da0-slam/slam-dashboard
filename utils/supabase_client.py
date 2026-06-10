@@ -591,6 +591,19 @@ def delete_influencer_note(note_id: str) -> None:
     get_supabase().table("influencer_notes").delete().eq("id", note_id).execute()
 
 
+def get_recent_notes(brand_id: str, limit: int = 40) -> list[dict]:
+    """브랜드의 최근 댓글 목록 (패널용)."""
+    return (
+        get_supabase()
+        .table("influencer_notes")
+        .select("id,influencer_id,author_email,content,created_at")
+        .eq("brand_id", brand_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    ).data or []
+
+
 def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
     if not influencer_ids:
         return {}

@@ -6,9 +6,9 @@ from utils.supabase_client import (
     get_brand_selection_map, get_campaign_selection_map,
     select_influencer, update_selection_status, remove_selection,
     add_to_campaign, update_campaign_selection, remove_campaign_selection,
-    get_user_profile, get_note_counts,
+    get_user_profile, get_note_counts, get_recent_notes,
 )
-from utils.notes_ui import show_notes_dialog
+from utils.notes_ui import show_notes_dialog, _avatar_color, _time_label
 
 st.set_page_config(page_title="KOC Intelligence Viewer", page_icon="🎬", layout="wide")
 user = require_auth()
@@ -56,7 +56,9 @@ if not user_brand_id and not is_admin:
     st.stop()
 
 # ─── 헤더 ─────────────────────────────────────────────────────────────────────
-col_logo, col_brand, col_camp = st.columns([3, 2, 2])
+_panel_open = st.session_state.get("show_comment_panel", False)
+
+col_logo, col_brand, col_camp, col_panel = st.columns([3, 2, 2, 0.7])
 with col_logo:
     st.markdown("### 🎯 Slam Global · 인플루언서 탐색")
 
@@ -83,6 +85,15 @@ with col_camp:
     camp_opts     = {"── 즐겨찾기 모드 ──": None} | {c["name"]: c["id"] for c in campaigns}
     sel_camp_name = st.selectbox("캠페인", list(camp_opts.keys()), label_visibility="collapsed")
     sel_camp_id   = camp_opts[sel_camp_name]
+
+with col_panel:
+    st.markdown("<div style='padding-top:6px;'>", unsafe_allow_html=True)
+    _btn_label = "💬 ✕" if _panel_open else "💬"
+    if st.button(_btn_label, use_container_width=True, help="댓글 패널 열기/닫기",
+                 type="primary" if _panel_open else "secondary"):
+        st.session_state["show_comment_panel"] = not _panel_open
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 st.divider()
 
@@ -292,6 +303,88 @@ def show_influencer_videos(inf_id: str):
                 if caption:
                     st.caption(caption[:60] + ("…" if len(caption) > 60 else ""))
 
+def _render_comment_panel(brand_id: str, author_email: str, camp_id):
+    """Figma 스타일 오른쪽 댓글 패널."""
+    st.markdown("""
+    <style>
+    .cp-header{font-size:15px;font-weight:700;color:#111;margin:0 0 2px;}
+    .cp-sub{font-size:12px;color:#9ca3af;margin:0 0 12px;}
+    .cp-entry{display:flex;gap:9px;padding:10px 12px;border-radius:8px;
+              cursor:pointer;transition:background .15s;}
+    .cp-entry:hover{background:#f3f4f6;}
+    .cp-av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;
+           justify-content:center;color:#fff;font-size:12px;font-weight:700;flex-shrink:0;margin-top:1px;}
+    .cp-inf{font-size:12px;font-weight:700;color:#111;margin:0 0 1px;}
+    .cp-meta{font-size:11px;color:#9ca3af;margin:0 0 3px;}
+    .cp-text{font-size:12px;color:#374151;margin:0;
+             white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;}
+    .cp-divider{border:none;border-top:1px solid #f3f4f6;margin:4px 0;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    recent = get_recent_notes(brand_id, limit=40)
+
+    st.markdown("<p class='cp-header'>💬 댓글</p>", unsafe_allow_html=True)
+    st.markdown(
+        f"<p class='cp-sub'>{len(recent)}개의 최근 댓글</p>",
+        unsafe_allow_html=True,
+    )
+
+    # 검색 필터
+    _cp_search = st.text_input(
+        "댓글 검색",
+        placeholder="🔍  인플루언서 또는 내용 검색",
+        label_visibility="collapsed",
+        key="cp_search",
+    )
+
+    st.markdown("<hr class='cp-divider'>", unsafe_allow_html=True)
+
+    if not recent:
+        st.markdown(
+            "<div style='text-align:center;padding:32px 0;color:#9ca3af;font-size:13px;'>"
+            "아직 댓글이 없습니다.</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    filtered = recent
+    if _cp_search:
+        kw = _cp_search.lower()
+        filtered = [
+            n for n in recent
+            if kw in n["influencer_id"].lower() or kw in (n.get("content") or "").lower()
+        ]
+
+    for note in filtered:
+        inf_id      = note["influencer_id"]
+        author_name = (note.get("author_email") or "").split("@")[0]
+        initial     = author_name[0].upper() if author_name else "?"
+        color       = _avatar_color(author_name)
+        time_str    = _time_label(note.get("created_at", ""))
+        content_raw = (note.get("content") or "")
+        preview     = content_raw[:55] + ("…" if len(content_raw) > 55 else "")
+
+        st.markdown(
+            f"""<div class='cp-entry'>
+                <div class='cp-av' style='background:{color};'>{initial}</div>
+                <div style='flex:1;min-width:0;'>
+                    <p class='cp-inf'>@{inf_id}</p>
+                    <p class='cp-meta'>{author_name} &nbsp;·&nbsp; {time_str}</p>
+                    <p class='cp-text'>{preview}</p>
+                </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "↗ 댓글 보기",
+            key=f"cp_open_{note['id']}",
+            use_container_width=True,
+        ):
+            show_notes_dialog(inf_id, brand_id, author_email, camp_id)
+        st.markdown("<hr class='cp-divider'>", unsafe_allow_html=True)
+
+
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Showing",     len(contents))
 m2.metric("S Grade",     s_cnt)
@@ -339,56 +432,62 @@ def _page_nav(suffix: str):
             st.session_state["browse_page"] = page + 1
             st.rerun()
 
-_page_nav("top")
-st.markdown("")
-
-# 현재 페이지 항목만 슬라이스
+# ─── 데이터 슬라이스 (레이아웃 이전) ─────────────────────────────────────────
 page_offset   = page * PAGE_SIZE
 page_contents = contents[page_offset : page_offset + PAGE_SIZE]
-
-# 페이지 인플루언서 메모 수 일괄 조회 (API 1회)
 _page_inf_ids = [r["influencer_id"] for r in page_contents]
 _note_counts  = get_note_counts(_page_inf_ids, sel_brand_id)
 
-for chunk_start in range(0, len(page_contents), n_cols):
-    row_items = page_contents[chunk_start:chunk_start + n_cols]
-    cols = st.columns(n_cols)
+# ─── 그리드 / 패널 레이아웃 분기 ──────────────────────────────────────────────
+if _panel_open:
+    _grid_col, _panel_col = st.columns([7, 3], gap="medium")
+else:
+    _grid_col = st.container()
+    _panel_col = None
 
-    global_start = page_offset + chunk_start + 1
-    for col, item, rank in zip(cols, row_items, range(global_start, global_start + n_cols)):
-        inf_id        = item["influencer_id"]
-        thumbnail     = item.get("thumbnail_url") or item.get("cover_url") or ""
-        play          = item.get("play_count") or 0
-        avg_play      = item.get("avg_play_count") or 0
-        er            = item["er"]
-        grade         = item["grade"]
-        video_url     = item.get("video_url","")
-        grade_cls     = GRADE_CSS[grade]
-        fav           = fav_map.get(inf_id)
-        in_camp       = camp_map.get(inf_id)
-        ig_url        = item.get("instagram_url") or ""
-        ig_followers  = item.get("instagram_followers") or 0
-        us_followers  = item.get("us_db_followers") or ""
+with _grid_col:
+    _page_nav("top")
+    st.markdown("")
 
-        ig_badge = ""
-        if ig_url:
-            ig_label = f"📸 {_fmt(ig_followers)}" if ig_followers else "📸 Instagram"
-            ig_badge = f'<a href="{ig_url}" target="_blank" class="koc-ig">{ig_label}</a>'
+    for chunk_start in range(0, len(page_contents), n_cols):
+        row_items = page_contents[chunk_start:chunk_start + n_cols]
+        cols = st.columns(n_cols)
 
-        platform = (item.get("platform") or "tiktok").lower()
-        if "instagram" in platform:
-            plat_badge = '<span class="koc-plat koc-plat-ig">Instagram</span>'
-        else:
-            plat_badge = '<span class="koc-plat koc-plat-tt">TikTok</span>'
+        global_start = page_offset + chunk_start + 1
+        for col, item, rank in zip(cols, row_items, range(global_start, global_start + n_cols)):
+            inf_id        = item["influencer_id"]
+            thumbnail     = item.get("thumbnail_url") or item.get("cover_url") or ""
+            play          = item.get("play_count") or 0
+            avg_play      = item.get("avg_play_count") or 0
+            er            = item["er"]
+            grade         = item["grade"]
+            video_url     = item.get("video_url","")
+            grade_cls     = GRADE_CSS[grade]
+            fav           = fav_map.get(inf_id)
+            in_camp       = camp_map.get(inf_id)
+            ig_url        = item.get("instagram_url") or ""
+            ig_followers  = item.get("instagram_followers") or 0
+            us_followers  = item.get("us_db_followers") or ""
 
-        img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-placeholder">🎬</div>'
-        if video_url:
-            img_tag = f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{img_inner}</a>'
-        else:
-            img_tag = img_inner
+            ig_badge = ""
+            if ig_url:
+                ig_label = f"📸 {_fmt(ig_followers)}" if ig_followers else "📸 Instagram"
+                ig_badge = f'<a href="{ig_url}" target="_blank" class="koc-ig">{ig_label}</a>'
 
-        with col:
-            st.markdown(f"""
+            platform = (item.get("platform") or "tiktok").lower()
+            if "instagram" in platform:
+                plat_badge = '<span class="koc-plat koc-plat-ig">Instagram</span>'
+            else:
+                plat_badge = '<span class="koc-plat koc-plat-tt">TikTok</span>'
+
+            img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-placeholder">🎬</div>'
+            if video_url:
+                img_tag = f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{img_inner}</a>'
+            else:
+                img_tag = img_inner
+
+            with col:
+                st.markdown(f"""
 <div class="koc-card">
   {img_tag}
   <div class="koc-grade {grade_cls}">{grade}</div>
@@ -402,50 +501,55 @@ for chunk_start in range(0, len(page_contents), n_cols):
 </div>
 """, unsafe_allow_html=True)
 
-            b_vid, b_note = st.columns([3, 1])
-            with b_vid:
-                if st.button("🎬 전체 영상 보기", key=f"detail_{inf_id}", use_container_width=True):
-                    show_influencer_videos(inf_id)
-            with b_note:
-                nc = _note_counts.get(inf_id, 0)
-                if st.button(f"💬 {nc}" if nc else "💬", key=f"note_{inf_id}", use_container_width=True, help="메모/댓글"):
-                    show_notes_dialog(inf_id, sel_brand_id, user.email, sel_camp_id)
+                b_vid, b_note = st.columns([3, 1])
+                with b_vid:
+                    if st.button("🎬 전체 영상 보기", key=f"detail_{inf_id}", use_container_width=True):
+                        show_influencer_videos(inf_id)
+                with b_note:
+                    nc = _note_counts.get(inf_id, 0)
+                    if st.button(f"💬 {nc}" if nc else "💬", key=f"note_{inf_id}", use_container_width=True, help="메모/댓글"):
+                        show_notes_dialog(inf_id, sel_brand_id, user.email, sel_camp_id)
 
-            # 캠페인 모드
-            if sel_camp_id:
-                if in_camp:
-                    status = in_camp["status"]
-                    b1, b2 = st.columns(2)
-                    next_s = {"candidate":"confirmed","confirmed":"rejected","rejected":"candidate"}[status]
-                    next_l = {"candidate":"✅확정","confirmed":"🔴제외","rejected":"🟡후보"}[status]
-                    with b1:
-                        if st.button(next_l, key=f"cn_{inf_id}", use_container_width=True):
-                            update_campaign_selection(in_camp["id"], next_s); st.rerun()
-                    with b2:
-                        if st.button("삭제", key=f"cr_{inf_id}", use_container_width=True):
-                            remove_campaign_selection(in_camp["id"]); st.rerun()
-                    st.caption(f"{STATUS_COLOR[status]} {STATUS_LABEL[status]}")
+                # 캠페인 모드
+                if sel_camp_id:
+                    if in_camp:
+                        status = in_camp["status"]
+                        b1, b2 = st.columns(2)
+                        next_s = {"candidate":"confirmed","confirmed":"rejected","rejected":"candidate"}[status]
+                        next_l = {"candidate":"✅확정","confirmed":"🔴제외","rejected":"🟡후보"}[status]
+                        with b1:
+                            if st.button(next_l, key=f"cn_{inf_id}", use_container_width=True):
+                                update_campaign_selection(in_camp["id"], next_s); st.rerun()
+                        with b2:
+                            if st.button("삭제", key=f"cr_{inf_id}", use_container_width=True):
+                                remove_campaign_selection(in_camp["id"]); st.rerun()
+                        st.caption(f"{STATUS_COLOR[status]} {STATUS_LABEL[status]}")
+                    else:
+                        if st.button("＋ 캠페인 추가", key=f"ca_{inf_id}", use_container_width=True, type="primary"):
+                            add_to_campaign(sel_camp_id, inf_id); st.rerun()
+                # 즐겨찾기 모드
                 else:
-                    if st.button("＋ 캠페인 추가", key=f"ca_{inf_id}", use_container_width=True, type="primary"):
-                        add_to_campaign(sel_camp_id, inf_id); st.rerun()
-            # 즐겨찾기 모드
-            else:
-                if fav:
-                    status = fav["status"]
-                    b1, b2 = st.columns(2)
-                    next_s = {"candidate":"confirmed","confirmed":"rejected","rejected":"candidate"}[status]
-                    next_l = {"candidate":"✅확정","confirmed":"🔴제외","rejected":"🟡후보"}[status]
-                    with b1:
-                        if st.button(next_l, key=f"fn_{inf_id}", use_container_width=True):
-                            update_selection_status(fav["id"], next_s); st.rerun()
-                    with b2:
-                        if st.button("삭제", key=f"fr_{inf_id}", use_container_width=True):
-                            remove_selection(fav["id"]); st.rerun()
-                    st.caption(f"{STATUS_COLOR[status]} {STATUS_LABEL[status]}")
-                else:
-                    if st.button("💛 즐겨찾기", key=f"fa_{inf_id}", use_container_width=True, type="primary"):
-                        select_influencer(sel_brand_id, inf_id); st.rerun()
+                    if fav:
+                        status = fav["status"]
+                        b1, b2 = st.columns(2)
+                        next_s = {"candidate":"confirmed","confirmed":"rejected","rejected":"candidate"}[status]
+                        next_l = {"candidate":"✅확정","confirmed":"🔴제외","rejected":"🟡후보"}[status]
+                        with b1:
+                            if st.button(next_l, key=f"fn_{inf_id}", use_container_width=True):
+                                update_selection_status(fav["id"], next_s); st.rerun()
+                        with b2:
+                            if st.button("삭제", key=f"fr_{inf_id}", use_container_width=True):
+                                remove_selection(fav["id"]); st.rerun()
+                        st.caption(f"{STATUS_COLOR[status]} {STATUS_LABEL[status]}")
+                    else:
+                        if st.button("💛 즐겨찾기", key=f"fa_{inf_id}", use_container_width=True, type="primary"):
+                            select_influencer(sel_brand_id, inf_id); st.rerun()
 
-# ─── 하단 페이지 네비게이션 ───────────────────────────────────────────────────
-st.markdown("")
-_page_nav("bottom")
+    # ─── 하단 페이지 네비게이션 ─────────────────────────────────────────────
+    st.markdown("")
+    _page_nav("bottom")
+
+# ─── 댓글 패널 ────────────────────────────────────────────────────────────────
+if _panel_open and _panel_col:
+    with _panel_col:
+        _render_comment_panel(sel_brand_id, user.email, sel_camp_id)
