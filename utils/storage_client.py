@@ -55,20 +55,26 @@ def upload_image_from_url(
         content_type = resp.headers.get("Content-Type", "image/jpeg").split(";")[0]
         img_bytes = resp.content
 
-        upload_resp = requests.post(
-            f"{_sb_storage_url()}/object/{bucket}/{path}",
-            headers={
-                **_headers(),
-                "Content-Type": content_type,
-                "x-upsert": "true",
-            },
-            data=img_bytes,
-            timeout=30,
-        )
-        if upload_resp.status_code not in (200, 201):
-            return None
-
-        return get_public_url(bucket, path)
+        for attempt in range(3):
+            try:
+                upload_resp = requests.post(
+                    f"{_sb_storage_url()}/object/{bucket}/{path}",
+                    headers={
+                        **_headers(),
+                        "Content-Type": content_type,
+                        "x-upsert": "true",
+                    },
+                    data=img_bytes,
+                    timeout=30,
+                )
+                if upload_resp.status_code in (200, 201):
+                    return get_public_url(bucket, path)
+                return None
+            except requests.exceptions.ConnectionError:
+                if attempt < 2:
+                    import time as _t; _t.sleep(2 ** attempt)
+                    continue
+                raise
     except Exception as e:
         print(f"  [storage] upload failed {path}: {e}")
         return None

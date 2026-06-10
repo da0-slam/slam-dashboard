@@ -104,7 +104,7 @@ for r in all_contents:
     r["year"] = pt[:4] if pt else "?"
 
 # ─── 필터 바 ──────────────────────────────────────────────────────────────────
-fc1, fc2, fc3, fc4, fc5 = st.columns([3, 2, 2, 1.5, 1.5])
+fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([3, 2, 2, 1.5, 1.5, 1])
 
 with fc1:
     grade_filter = st.multiselect(
@@ -127,6 +127,10 @@ with fc4:
     )
 with fc5:
     n_cols = st.selectbox("열", [4, 3, 5], label_visibility="collapsed")
+with fc6:
+    if st.button("↺", help="썸네일 업데이트 반영 등 최신 데이터로 새로고침", use_container_width=True):
+        get_browse_contents.clear()
+        st.rerun()
 
 caption_search = st.text_input(
     "캡션 검색",
