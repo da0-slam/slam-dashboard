@@ -35,13 +35,17 @@
 
 인플루언서 콘텐츠를 썸네일 그리드 형태로 탐색합니다.
 
-- **플랫폼 필터**: TikTok / Instagram 전환
+- **그레이드 필터**: S/A/B/C 등급별 필터링
+- **연도 필터**: 업로드 연도별 필터링
 - **키워드 검색**: 인플루언서 계정명으로 검색
-- **그레이드 필터**: A/B/C/D 등급별 필터링
-- **정렬**: 조회수, 좋아요, 저장 수 기준 정렬
+- **캡션 검색**: 영상 캡션 내 키워드 검색
+- **언어 필터**: 한국어 / 영어 / 일본어 등 콘텐츠 언어별 필터링
+- **⭐ 즐겨찾기만 보기**: 현재 브랜드에서 즐겨찾기한 인플루언서만 표시
+- **정렬**: Rank / ER% / 최신순 / 오래된순
 - **페이지네이션**: 페이지당 48개, 이전/다음 내비게이션
-- **썸네일 클릭**: 해당 영상 URL 바로 이동
-- **인플루언서 클릭**: 해당 인플루언서의 전체 영상 목록 팝업 표시
+- **썸네일 클릭**: 해당 영상 URL 바로 이동 (썸네일 우선 노출 — Supabase Storage 저장 영상 최우선)
+- **전체 영상 보기**: 인플루언서의 모든 영상 목록 + 평균 조회수 / 평균 ER 팝업
+- **💬 메모/댓글**: 카드마다 댓글 버튼 — 브랜드 내 팀원 간 공유 댓글 (Figma 스타일 UI)
 
 ---
 
@@ -62,7 +66,9 @@
 
 - **캠페인 CRUD**: 캠페인 생성·수정·삭제
 - **인플루언서 배정**: 즐겨찾기 목록에서 캠페인에 배정
-- **상태 관리**: 배정된 인플루언서의 진행 상태 추적
+- **상태 관리**: 후보 → 확정 → 제외 상태 추적 (그리드/리스트 뷰)
+- **초대 링크**: 항상 표시되는 캠페인 공유 URL (토글 없이 바로 복사 가능)
+- **💬 메모/댓글**: 인플루언서 카드마다 댓글 버튼 — 같은 브랜드/캠페인 팀원만 조회 가능
 - **CSV 일괄 등록**: 인플루언서 목록을 CSV로 한 번에 캠페인에 추가
   - 유연한 컬럼 자동 인식 (계정명, URL, 플랫폼 등)
 
@@ -138,7 +144,14 @@ slam-dashboard/
 ├── utils/
 │   ├── supabase_client.py       # Supabase 클라이언트, 전체 DB 헬퍼 함수
 │   ├── auth.py                  # require_auth, 사이드바 유저 정보
-│   └── session.py               # 서버 메모리 세션 저장·복원 (새로고침 대응)
+│   ├── session.py               # 세션 저장·복원 (메모리 + Supabase DB 이중 저장)
+│   └── notes_ui.py              # 인플루언서 메모/댓글 공통 다이얼로그 (Figma 스타일)
+├── migrations/
+│   ├── 008_browse_view_thumbnail_priority.sql  # v_browse_contents 썸네일 우선순위
+│   └── 009_sessions_table.sql                  # slam_sessions 세션 영구 저장 테이블
+├── scripts/
+│   ├── backfill_thumbnails.py   # 썸네일 미수집 건 일괄 보완 (tikwm.com 우회 포함)
+│   └── sync_instagram_from_usdb.py  # US_DB → influencer_master Instagram 데이터 동기화
 ├── requirements.txt
 └── railway.toml
 ```
@@ -192,6 +205,8 @@ git push origin main
 | `campaign_selections` | 캠페인별 인플루언서 배정 및 상태 |
 | `campaign_posts` | 캠페인 게시물 성과 지표 (views, likes, comments, saves, shares) |
 | `user_profiles` | 유저 역할(admin/brand_user) · 브랜드 연결 |
+| `influencer_notes` | 브랜드 공유 메모/댓글 (인플루언서 × 브랜드 스코프) |
+| `slam_sessions` | 서버 재시작 후 로그인 유지를 위한 세션 영구 저장 |
 
 ---
 
@@ -204,3 +219,5 @@ git push origin main
 | 인플루언서 탐색 누락 (Supabase 1000행 제한) | PostgREST 기본 `max_rows=1000` 서버 캡 | `.range()` 페이지네이션 루프로 전체 데이터 조회 |
 | 좋아요 0으로 저장 | 구글 시트 `Likes♥` 컬럼의 특수문자(`♥`)가 alias에 미포함 | `likes♥`, `likes♥(ig)` alias 추가 + 덮어쓰기 모드 제공 |
 | 테스트 계정 캠페인 미표시 | 동일 브랜드명으로 신규 브랜드 생성되어 brand_id 불일치 | 어드민 대시보드 유저 브랜드 재배정 기능으로 수동 수정 |
+| Railway 재배포 시 로그인 초기화 | Supabase refresh token rotation — 사용 후 구 토큰 무효화되나 DB 미업데이트 | 복원 성공 시 `_db_update_refresh()`로 새 토큰을 즉시 DB에 갱신 |
+| TikTok 썸네일 수집 실패 (지역 제한) | oEmbed API가 지역 제한 영상에 400 반환 | tikwm.com API를 fallback으로 추가해 우회 수집 |
