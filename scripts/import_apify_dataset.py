@@ -170,7 +170,7 @@ def main():
 
     rows     = []
     skipped  = 0
-    new_infs = set()
+    new_infs = {}  # influencer_id → {account_url, platform}
 
     for item in items:
         iid = resolve_influencer_id(item, inf_map)
@@ -184,14 +184,37 @@ def main():
             continue
 
         rows.append(row)
+
         if iid.lower() not in inf_map:
-            new_infs.add(iid)
+            author_meta = item.get("authorMeta") or {}
+            video_url   = item.get("webVideoUrl") or ""
+            m = re.search(r"tiktok\.com/@([^/]+)", video_url)
+            username    = m.group(1) if m else iid
+            new_infs[iid] = {
+                "influencer_id": iid,
+                "account_url":   f"https://www.tiktok.com/@{username}",
+                "platform":      "tiktok",
+                "apify_status":  "done",
+            }
 
     print(f"매핑됨: {len(rows)}개  |  스킵: {skipped}개")
-    if new_infs:
-        print(f"⚠️  DB에 없는 인플루언서 {len(new_infs)}명 (신규 등록됨): {', '.join(sorted(new_infs)[:5])}{'...' if len(new_infs)>5 else ''}")
 
-    # 500개씩 청크 업로드
+    # 신규 인플루언서 먼저 등록
+    if new_infs:
+        preview = ', '.join(sorted(new_infs)[:5]) + ('...' if len(new_infs) > 5 else '')
+        print(f"[신규] influencer_master에 {len(new_infs)}명 등록: {preview}")
+        inf_rows = list(new_infs.values())
+        for i in range(0, len(inf_rows), 500):
+            resp = requests.post(
+                f"{SUPABASE_URL}/rest/v1/influencer_master",
+                headers={**SB_HEADERS, "Prefer": "resolution=ignore-duplicates,return=minimal"},
+                json=inf_rows[i:i+500],
+                timeout=30,
+            )
+            if resp.status_code not in (200, 201):
+                print(f"  [WARN] 인플루언서 등록 오류: {resp.status_code} {resp.text[:120]}")
+
+    # 콘텐츠 저장
     saved = 0
     for i in range(0, len(rows), 500):
         chunk = rows[i:i+500]
@@ -199,9 +222,9 @@ def main():
         saved += n
         print(f"  저장 {saved}/{len(rows)}...")
 
-    print(f"\n✅ 완료: {saved}개 koc_contents 저장")
+    print(f"\n[완료] {saved}개 koc_contents 저장")
     if skipped:
-        print(f"   스킵: {skipped}개 (video_url 없거나 인플루언서 미확인)")
+        print(f"[스킵] {skipped}개 (video_url 없거나 인플루언서 미확인)")
 
 
 if __name__ == "__main__":
