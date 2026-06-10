@@ -52,7 +52,7 @@ if is_admin:
     brand_options        = {f"{b['name']}  [{b['id'][:8]}]": b["id"] for b in brands}
     selected_brand_label = st.selectbox("브랜드사", list(brand_options.keys()))
     selected_brand_id    = brand_options[selected_brand_label]
-    selected_brand_name  = selected_brand_label  # label 포함 이름
+    selected_brand_name  = selected_brand_label.split("  [")[0]
 else:
     brand = get_brand_by_id(user_brand_id)
     if not brand:
