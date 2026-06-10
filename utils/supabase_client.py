@@ -504,7 +504,7 @@ def get_browse_contents(platform: str | None = None) -> list[dict]:
     while True:
         q = (
             sb.table("v_browse_contents")
-            .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,share_count,save_count,caption,posted_at,cover_url,platform,instagram_url,instagram_followers")
+            .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,share_count,save_count,caption,posted_at,cover_url,platform,instagram_url,instagram_followers,avg_play_count,us_db_followers")
             .order("play_count", desc=True)
         )
         if platform:

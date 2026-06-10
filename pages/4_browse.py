@@ -293,17 +293,19 @@ for chunk_start in range(0, len(page_contents), n_cols):
 
     global_start = page_offset + chunk_start + 1
     for col, item, rank in zip(cols, row_items, range(global_start, global_start + n_cols)):
-        inf_id       = item["influencer_id"]
-        thumbnail    = item.get("thumbnail_url") or item.get("cover_url") or ""
-        play         = item.get("play_count") or 0
-        er           = item["er"]
-        grade        = item["grade"]
-        video_url    = item.get("video_url","")
-        grade_cls    = GRADE_CSS[grade]
-        fav          = fav_map.get(inf_id)
-        in_camp      = camp_map.get(inf_id)
-        ig_url       = item.get("instagram_url") or ""
-        ig_followers = item.get("instagram_followers") or 0
+        inf_id        = item["influencer_id"]
+        thumbnail     = item.get("thumbnail_url") or item.get("cover_url") or ""
+        play          = item.get("play_count") or 0
+        avg_play      = item.get("avg_play_count") or 0
+        er            = item["er"]
+        grade         = item["grade"]
+        video_url     = item.get("video_url","")
+        grade_cls     = GRADE_CSS[grade]
+        fav           = fav_map.get(inf_id)
+        in_camp       = camp_map.get(inf_id)
+        ig_url        = item.get("instagram_url") or ""
+        ig_followers  = item.get("instagram_followers") or 0
+        us_followers  = item.get("us_db_followers") or ""
 
         ig_badge = ""
         if ig_url:
@@ -324,7 +326,7 @@ for chunk_start in range(0, len(page_contents), n_cols):
   <div class="koc-rank">#{rank}</div>
   <div class="koc-info">
     <p class="koc-name">@{inf_id}</p>
-    <p class="koc-stat">👁 {_fmt(play)} &nbsp;·&nbsp; ER {er:.1f}%</p>
+    <p class="koc-stat">👁 {_fmt(avg_play)} &nbsp;·&nbsp; ER {er:.1f}%{"&nbsp;·&nbsp; 👥 " + us_followers if us_followers else ""}</p>
     {ig_badge}
   </div>
 </div>
