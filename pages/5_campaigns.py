@@ -7,6 +7,7 @@ from utils.supabase_client import (
     get_brands, get_brand_by_id, get_influencers,
     get_campaigns, create_campaign, update_campaign, delete_campaign,
     get_campaign_selections, update_campaign_selection, remove_campaign_selection,
+    update_selection_note,
     get_influencer_thumbnails, get_user_profile,
     get_campaign_if_owned, get_brand_access_password_hash,
     set_brand_access_password, verify_password,
@@ -129,6 +130,7 @@ if st.session_state.get("selected_campaign"):
     with col_back:
         if st.button("← 목록"):
             st.session_state.selected_campaign = None
+            st.session_state.pop("_invite_url", None)
             st.rerun()
     with col_title:
         st.subheader(f"📌 {camp['name']}  {CAMP_STATUS.get(camp['status'], '')}")
@@ -149,20 +151,21 @@ if st.session_state.get("selected_campaign"):
             st.success("저장했습니다.")
             st.rerun()
 
-        st.divider()
-        st.markdown("**🔗 초대 링크**")
-        st.caption("초대 링크를 공유하면 팀원이 이 캠페인에 바로 접근할 수 있습니다.")
-        if st.button("초대 링크 생성 / 확인", key="gen_invite"):
-            token = get_or_create_invite_token(camp["id"])
-            if token:
-                site = os.environ.get("SITE_URL", "http://localhost:8501").rstrip("/")
-                invite_url = f"{site}/campaigns?invite={token}"
-                st.session_state["_invite_url"] = invite_url
-            else:
-                st.error("초대 링크를 생성할 수 없습니다. 관리자에게 문의하세요.")
-        if st.session_state.get("_invite_url"):
-            st.text_input("초대 링크 (복사하세요)", value=st.session_state["_invite_url"],
-                          key="invite_url_display")
+    # ── 초대 링크 (항상 표시) ─────────────────────────────────────────────────
+    _invite_key = f"_invite_url_{camp_id}"
+    if not st.session_state.get(_invite_key):
+        token = get_or_create_invite_token(camp_id)
+        if token:
+            site = os.environ.get("SITE_URL", "http://localhost:8501").rstrip("/")
+            st.session_state[_invite_key] = f"{site}/campaigns?invite={token}"
+    if st.session_state.get(_invite_key):
+        with st.container(border=True):
+            st.markdown("**🔗 초대 링크**")
+            st.text_input(
+                "팀원이 바로 접근할 수 있습니다.",
+                value=st.session_state[_invite_key],
+                key=f"invite_display_{camp_id}",
+            )
 
     with st.expander("📥 인플루언서 일괄 등록 (CSV)"):
         st.markdown("""
@@ -280,8 +283,6 @@ if st.session_state.get("selected_campaign"):
 """, unsafe_allow_html=True)
                         if video_url:
                             st.markdown(f"[↗ 영상]({video_url})")
-                        if item.get("note"):
-                            st.caption(f"📝 {item['note']}")
                         b1, b2 = st.columns(2)
                         next_s = {"candidate": "confirmed", "confirmed": "rejected", "rejected": "candidate"}[status]
                         next_l = {"candidate": "✅확정", "confirmed": "🔴제외", "rejected": "🟡후보"}[status]
@@ -292,6 +293,17 @@ if st.session_state.get("selected_campaign"):
                         with b2:
                             if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
                                 remove_campaign_selection(item["id"])
+                                st.rerun()
+                        # 메모 입력
+                        note_key = f"note_input_{item['id']}"
+                        cur_note = item.get("note") or ""
+                        new_note = st.text_input(
+                            "메모", value=cur_note, key=note_key,
+                            placeholder="메모 입력...", label_visibility="collapsed"
+                        )
+                        if new_note != cur_note:
+                            if st.button("💾 저장", key=f"{prefix}_g_ns_note_{item['id']}", use_container_width=True):
+                                update_selection_note(item["id"], new_note)
                                 st.rerun()
         else:
             for item in items:
@@ -314,8 +326,16 @@ if st.session_state.get("selected_campaign"):
                     with c2:
                         st.markdown(f"{STATUS_COLOR[status]} **@{inf_id}** `{STATUS_LABEL[status]}`")
                         st.caption(f"{inf.get('platform','')}  {f'[↗ 영상]({video_url})' if video_url else ''}")
-                        if item.get("note"):
-                            st.caption(f"📝 {item['note']}")
+                        cur_note = item.get("note") or ""
+                        new_note = st.text_input(
+                            "메모", value=cur_note,
+                            key=f"note_l_{item['id']}",
+                            placeholder="메모 입력...", label_visibility="collapsed"
+                        )
+                        if new_note != cur_note:
+                            if st.button("💾", key=f"{prefix}_l_note_save_{item['id']}", help="메모 저장"):
+                                update_selection_note(item["id"], new_note)
+                                st.rerun()
                     with c3:
                         next_s = {"candidate": "confirmed", "confirmed": "rejected", "rejected": "candidate"}[status]
                         next_l = {"candidate": "✅ 확정", "confirmed": "🔴 제외", "rejected": "🟡 후보로"}[status]

@@ -478,6 +478,12 @@ def update_campaign_selection(selection_id: str, status: str, note: str | None =
     get_supabase().table("campaign_selections").update(data).eq("id", selection_id).execute()
 
 
+def update_selection_note(selection_id: str, note: str) -> None:
+    get_supabase().table("campaign_selections").update(
+        {"note": note, "updated_at": _now()}
+    ).eq("id", selection_id).execute()
+
+
 def remove_campaign_selection(selection_id: str) -> None:
     get_supabase().table("campaign_selections").delete().eq("id", selection_id).execute()
 
@@ -519,7 +525,7 @@ def get_browse_contents(platform: str | None = None) -> list[dict]:
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_influencer_contents(influencer_id: str) -> list[dict]:
-    return (
+    rows = (
         get_supabase()
         .table("koc_contents")
         .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,share_count,save_count,caption,posted_at")
@@ -527,6 +533,9 @@ def get_influencer_contents(influencer_id: str) -> list[dict]:
         .order("play_count", desc=True)
         .execute()
     ).data or []
+    # 썸네일 있는 영상을 앞으로, 조회수 순은 유지
+    rows.sort(key=lambda r: 0 if "supabase" in (r.get("thumbnail_url") or "") else 1)
+    return rows
 
 
 def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:

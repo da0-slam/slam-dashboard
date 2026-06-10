@@ -246,6 +246,7 @@ def show_influencer_videos(inf_id: str):
         return
 
     total_plays = sum(v.get("play_count") or 0 for v in videos)
+    avg_plays   = total_plays // len(videos) if videos else 0
     avg_er_val  = sum(
         (sum(v.get(k) or 0 for k in ("like_count","comment_count","share_count","save_count"))
          / (v.get("play_count") or 1) * 100)
@@ -255,7 +256,7 @@ def show_influencer_videos(inf_id: str):
     st.markdown(f"### @{inf_id}")
     m1, m2, m3 = st.columns(3)
     m1.metric("총 영상 수", len(videos))
-    m2.metric("총 조회수",  _fmt(total_plays))
+    m2.metric("평균 조회수", _fmt(avg_plays))
     m3.metric("평균 ER",   f"{avg_er_val:.1f}%")
     st.divider()
 
