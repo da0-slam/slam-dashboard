@@ -295,10 +295,9 @@ if st.session_state.get("selected_campaign"):
                                 remove_campaign_selection(item["id"])
                                 st.rerun()
                         # 메모 입력
-                        note_key = f"note_input_{item['id']}"
                         cur_note = item.get("note") or ""
                         new_note = st.text_input(
-                            "메모", value=cur_note, key=note_key,
+                            "메모", value=cur_note, key=f"note_g_{prefix}_{item['id']}",
                             placeholder="메모 입력...", label_visibility="collapsed"
                         )
                         if new_note != cur_note:
@@ -329,7 +328,7 @@ if st.session_state.get("selected_campaign"):
                         cur_note = item.get("note") or ""
                         new_note = st.text_input(
                             "메모", value=cur_note,
-                            key=f"note_l_{item['id']}",
+                            key=f"note_l_{prefix}_{item['id']}",
                             placeholder="메모 입력...", label_visibility="collapsed"
                         )
                         if new_note != cur_note:
