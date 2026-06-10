@@ -6,8 +6,9 @@ from utils.supabase_client import (
     get_brand_selection_map, get_campaign_selection_map,
     select_influencer, update_selection_status, remove_selection,
     add_to_campaign, update_campaign_selection, remove_campaign_selection,
-    get_user_profile,
+    get_user_profile, get_note_counts,
 )
+from utils.notes_ui import show_notes_dialog
 
 st.set_page_config(page_title="KOC Intelligence Viewer", page_icon="🎬", layout="wide")
 user = require_auth()
@@ -339,6 +340,10 @@ st.markdown("")
 page_offset   = page * PAGE_SIZE
 page_contents = contents[page_offset : page_offset + PAGE_SIZE]
 
+# 페이지 인플루언서 메모 수 일괄 조회 (API 1회)
+_page_inf_ids = [r["influencer_id"] for r in page_contents]
+_note_counts  = get_note_counts(_page_inf_ids, sel_brand_id)
+
 for chunk_start in range(0, len(page_contents), n_cols):
     row_items = page_contents[chunk_start:chunk_start + n_cols]
     cols = st.columns(n_cols)
@@ -391,8 +396,14 @@ for chunk_start in range(0, len(page_contents), n_cols):
 </div>
 """, unsafe_allow_html=True)
 
-            if st.button("🎬 전체 영상 보기", key=f"detail_{inf_id}", use_container_width=True):
-                show_influencer_videos(inf_id)
+            b_vid, b_note = st.columns([3, 1])
+            with b_vid:
+                if st.button("🎬 전체 영상 보기", key=f"detail_{inf_id}", use_container_width=True):
+                    show_influencer_videos(inf_id)
+            with b_note:
+                nc = _note_counts.get(inf_id, 0)
+                if st.button(f"💬 {nc}" if nc else "💬", key=f"note_{inf_id}", use_container_width=True, help="메모/댓글"):
+                    show_notes_dialog(inf_id, sel_brand_id, user.email, sel_camp_id)
 
             # 캠페인 모드
             if sel_camp_id:

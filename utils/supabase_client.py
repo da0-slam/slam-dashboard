@@ -538,6 +538,59 @@ def get_influencer_contents(influencer_id: str) -> list[dict]:
     return rows
 
 
+# ─── 인플루언서 메모/댓글 ─────────────────────────────────────────────────────
+
+def get_influencer_notes(influencer_id: str, brand_id: str) -> list[dict]:
+    return (
+        get_supabase()
+        .table("influencer_notes")
+        .select("id,author_email,content,created_at,campaign_id")
+        .eq("influencer_id", influencer_id)
+        .eq("brand_id", brand_id)
+        .order("created_at", desc=False)
+        .execute()
+    ).data or []
+
+
+def get_note_counts(influencer_ids: list[str], brand_id: str) -> dict[str, int]:
+    """influencer_id → 메모 수 맵 (한 번에 조회)."""
+    if not influencer_ids:
+        return {}
+    rows = (
+        get_supabase()
+        .table("influencer_notes")
+        .select("influencer_id")
+        .in_("influencer_id", influencer_ids)
+        .eq("brand_id", brand_id)
+        .execute()
+    ).data or []
+    counts: dict[str, int] = {}
+    for r in rows:
+        iid = r["influencer_id"]
+        counts[iid] = counts.get(iid, 0) + 1
+    return counts
+
+
+def add_influencer_note(
+    influencer_id: str,
+    brand_id: str,
+    author_email: str,
+    content: str,
+    campaign_id: str | None = None,
+) -> None:
+    get_supabase().table("influencer_notes").insert({
+        "influencer_id": influencer_id,
+        "brand_id":      brand_id,
+        "author_email":  author_email,
+        "content":       content,
+        "campaign_id":   campaign_id,
+    }).execute()
+
+
+def delete_influencer_note(note_id: str) -> None:
+    get_supabase().table("influencer_notes").delete().eq("id", note_id).execute()
+
+
 def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
     if not influencer_ids:
         return {}

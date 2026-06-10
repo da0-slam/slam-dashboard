@@ -7,13 +7,14 @@ from utils.supabase_client import (
     get_brands, get_brand_by_id, get_influencers,
     get_campaigns, create_campaign, update_campaign, delete_campaign,
     get_campaign_selections, update_campaign_selection, remove_campaign_selection,
-    update_selection_note,
+    update_selection_note, get_note_counts,
     get_influencer_thumbnails, get_user_profile,
     get_campaign_if_owned, get_brand_access_password_hash,
     set_brand_access_password, verify_password,
     bulk_add_to_campaign,
     get_or_create_invite_token, get_campaign_by_invite_token,
 )
+from utils.notes_ui import show_notes_dialog
 
 st.set_page_config(page_title="캠페인 관리", page_icon="📋", layout="wide")
 user = require_auth()
@@ -235,10 +236,11 @@ if st.session_state.get("selected_campaign"):
 
     st.divider()
 
-    selections = get_campaign_selections(camp["id"])
-    inf_ids    = [s["influencer_id"] for s in selections]
-    thumb_map  = get_influencer_thumbnails(inf_ids)
-    inf_map    = {r["influencer_id"]: r for r in get_influencers()}
+    selections    = get_campaign_selections(camp["id"])
+    inf_ids       = [s["influencer_id"] for s in selections]
+    thumb_map     = get_influencer_thumbnails(inf_ids)
+    inf_map       = {r["influencer_id"]: r for r in get_influencers()}
+    note_cnt_map  = get_note_counts(inf_ids, selected_brand_id)
 
     view_col, _ = st.columns([2, 6])
     with view_col:
@@ -294,16 +296,10 @@ if st.session_state.get("selected_campaign"):
                             if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
                                 remove_campaign_selection(item["id"])
                                 st.rerun()
-                        # 메모 입력
-                        cur_note = item.get("note") or ""
-                        new_note = st.text_input(
-                            "메모", value=cur_note, key=f"note_g_{prefix}_{item['id']}",
-                            placeholder="메모 입력...", label_visibility="collapsed"
-                        )
-                        if new_note != cur_note:
-                            if st.button("💾 저장", key=f"{prefix}_g_ns_note_{item['id']}", use_container_width=True):
-                                update_selection_note(item["id"], new_note)
-                                st.rerun()
+                        # 댓글 버튼
+                        nc = note_cnt_map.get(inf_id, 0)
+                        if st.button(f"💬 {nc}" if nc else "💬 메모", key=f"{prefix}_g_note_{item['id']}", use_container_width=True):
+                            show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
         else:
             for item in items:
                 inf_id    = item["influencer_id"]
@@ -313,7 +309,7 @@ if st.session_state.get("selected_campaign"):
                 thumbnail = thumb.get("thumbnail", "")
                 video_url = thumb.get("video_url", "")
                 with st.container(border=True):
-                    c1, c2, c3, c4 = st.columns([1, 4, 2, 1])
+                    c1, c2, c3, c4, c5 = st.columns([1, 4, 2, 1, 1])
                     with c1:
                         if thumbnail:
                             try:
@@ -325,16 +321,8 @@ if st.session_state.get("selected_campaign"):
                     with c2:
                         st.markdown(f"{STATUS_COLOR[status]} **@{inf_id}** `{STATUS_LABEL[status]}`")
                         st.caption(f"{inf.get('platform','')}  {f'[↗ 영상]({video_url})' if video_url else ''}")
-                        cur_note = item.get("note") or ""
-                        new_note = st.text_input(
-                            "메모", value=cur_note,
-                            key=f"note_l_{prefix}_{item['id']}",
-                            placeholder="메모 입력...", label_visibility="collapsed"
-                        )
-                        if new_note != cur_note:
-                            if st.button("💾", key=f"{prefix}_l_note_save_{item['id']}", help="메모 저장"):
-                                update_selection_note(item["id"], new_note)
-                                st.rerun()
+                        if item.get("note"):
+                            st.caption(f"📝 {item['note']}")
                     with c3:
                         next_s = {"candidate": "confirmed", "confirmed": "rejected", "rejected": "candidate"}[status]
                         next_l = {"candidate": "✅ 확정", "confirmed": "🔴 제외", "rejected": "🟡 후보로"}[status]
@@ -342,6 +330,10 @@ if st.session_state.get("selected_campaign"):
                             update_campaign_selection(item["id"], next_s)
                             st.rerun()
                     with c4:
+                        nc = note_cnt_map.get(inf_id, 0)
+                        if st.button(f"💬{nc}" if nc else "💬", key=f"{prefix}_l_note_{item['id']}", use_container_width=True, help="메모/댓글"):
+                            show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
+                    with c5:
                         if st.button("삭제", key=f"{prefix}_l_rm_{item['id']}", use_container_width=True):
                             remove_campaign_selection(item["id"])
                             st.rerun()
