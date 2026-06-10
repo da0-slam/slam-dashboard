@@ -3,6 +3,10 @@ import streamlit as st
 
 def require_auth():
     if not st.session_state.get("user"):
+        from utils.session import restore_session, inject_restore_js
+        inject_restore_js()
+        restore_session()
+    if not st.session_state.get("user"):
         st.warning("로그인이 필요합니다.")
         st.stop()
     return st.session_state.user
