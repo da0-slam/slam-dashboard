@@ -145,6 +145,9 @@ for r in all_contents:
     pt = r.get("posted_at") or ""
     r["year"] = pt[:4] if pt else "?"
 
+# fav_map은 필터에서도 필요하므로 미리 로드
+fav_map  = get_brand_selection_map(sel_brand_id)
+
 # ─── 필터 바 ──────────────────────────────────────────────────────────────────
 fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([3, 2, 2, 1.5, 1.5, 1])
 
@@ -174,7 +177,7 @@ with fc6:
         get_browse_contents.clear()
         st.rerun()
 
-fl1, fl2 = st.columns([3, 2])
+fl1, fl2, fl3 = st.columns([3, 2, 1])
 with fl1:
     caption_search = st.text_input(
         "캡션 검색",
@@ -191,6 +194,8 @@ with fl2:
         placeholder="언어 필터 (전체)",
         label_visibility="collapsed",
     )
+with fl3:
+    fav_only = st.toggle("⭐ 즐겨찾기만", value=False)
 
 # ─── 필터 적용 ────────────────────────────────────────────────────────────────
 contents = all_contents[:]
@@ -207,6 +212,8 @@ if caption_search:
     contents = [r for r in contents if kw in (r.get("caption") or "").lower()]
 if lang_filter:
     contents = [r for r in contents if r["lang"] in lang_filter]
+if fav_only:
+    contents = [r for r in contents if r["influencer_id"] in fav_map]
 
 if sort_by == "ER %":
     contents.sort(key=lambda r: r["er"], reverse=True)
@@ -218,7 +225,7 @@ elif sort_by == "Date (오래된순)":
 # ─── 페이지네이션 상태 ────────────────────────────────────────────────────────
 PAGE_SIZE = 48  # 4열×12행 or 3열×16행
 
-_filter_sig = (tuple(grade_filter), year_filter, search_kw, caption_search, tuple(lang_filter), sort_by, sel_camp_id)
+_filter_sig = (tuple(grade_filter), year_filter, search_kw, caption_search, tuple(lang_filter), sort_by, sel_camp_id, fav_only)
 if st.session_state.get("_browse_filter_sig") != _filter_sig:
     st.session_state["_browse_filter_sig"] = _filter_sig
     st.session_state["browse_page"] = 0
@@ -294,7 +301,6 @@ m4.metric("Total Views", _fmt(total_views))
 st.divider()
 
 # ─── 선택 상태 로드 ────────────────────────────────────────────────────────────
-fav_map  = get_brand_selection_map(sel_brand_id)
 camp_map = get_campaign_selection_map(sel_camp_id) if sel_camp_id else {}
 
 # 캠페인 모드: 확정 → 후보 → 미선택 → 제외 순서로 정렬

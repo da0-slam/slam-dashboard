@@ -55,6 +55,19 @@ def _db_load(sid: str) -> str | None:
     except Exception:
         return None
 
+def _db_update_refresh(sid: str, refresh_token: str) -> None:
+    """rotation 후 새 refresh_token으로 DB 업데이트."""
+    try:
+        requests.patch(
+            f"{_sb_url()}/rest/v1/slam_sessions",
+            headers=_sb_headers(),
+            params={"id": f"eq.{sid}"},
+            json={"refresh_token": refresh_token},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
 def _db_delete(sid: str) -> None:
     try:
         requests.delete(
@@ -79,9 +92,10 @@ def _mem() -> dict:
 def save_session(access_token: str, refresh_token: str) -> None:
     sid = str(uuid.uuid4())
     _mem()[sid] = {"access": access_token, "refresh": refresh_token}
-    _db_save(sid, refresh_token)               # DB에 영구 저장
+    _db_save(sid, refresh_token)
     st.query_params[_QP_KEY] = sid
     st.session_state["_session_id"] = sid
+    st.session_state.access_token = access_token
 
 
 def restore_session() -> bool:
@@ -110,8 +124,10 @@ def restore_session() -> bool:
             st.session_state.user           = res.user
             st.session_state.access_token   = res.session.access_token
             st.session_state["_session_id"] = sid
-            # 새 access_token 캐시 업데이트
-            _mem()[sid]["access"] = res.session.access_token
+            # rotation된 새 토큰 모두 업데이트
+            new_refresh = res.session.refresh_token
+            _mem()[sid] = {"access": res.session.access_token, "refresh": new_refresh}
+            _db_update_refresh(sid, new_refresh)  # DB도 최신 refresh token으로 교체
             return True
     except Exception:
         clear_session()
