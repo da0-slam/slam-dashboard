@@ -13,6 +13,7 @@ from utils.supabase_client import (
     get_campaign_post_by_id,
     get_campaign_posts,
     get_campaigns,
+    get_influencer_cover_map,
     get_user_profile,
     migrate_google_sheet_rows,
     post_url_exists,
@@ -338,6 +339,12 @@ with tab2:
             )
             grp = grp.merge(best, on="influencer_name", how="left")
 
+        # 커버 이미지 URL 추가 (influencer_master.cover_url 기반)
+        _cover = get_influencer_cover_map()
+        grp["커버"] = grp["influencer_name"].apply(
+            lambda n: _cover.get(n.lower())
+        )
+
         grp = grp.sort_values("총_조회수", ascending=False)
         grp.rename(columns={
             "influencer_name": "인플루언서",
@@ -351,7 +358,12 @@ with tab2:
             "최고성과_URL":    "최고 성과 URL",
         }, inplace=True)
 
+        # 커버 컬럼을 맨 앞으로
+        cols = ["커버"] + [c for c in grp.columns if c != "커버"]
+        grp = grp[cols]
+
         col_config = {
+            "커버":           st.column_config.ImageColumn("커버", width="small"),
             "평균 참여율(%)": st.column_config.NumberColumn("평균 참여율(%)", format="%.2f%%"),
         }
         if "최고 성과 URL" in grp.columns:

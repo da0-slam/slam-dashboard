@@ -211,18 +211,31 @@ def delete_brand(brand_id: str) -> None:
 
 def get_influencers(search: str = "", limit: int = 200) -> list[dict]:
     q = get_supabase().table("influencer_master").select(
-        "influencer_id,account_url,platform,apify_status"
+        "influencer_id,account_url,platform,apify_status,cover_url"
     )
     if search:
         q = q.ilike("influencer_id", f"%{search}%")
     return (q.order("influencer_id").limit(limit).execute()).data or []
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_influencer_cover_map() -> dict:
+    """influencer_id → cover_url 딕셔너리. 커버 이미지 있는 항목만."""
+    res = (
+        get_supabase()
+        .table("influencer_master")
+        .select("influencer_id,cover_url")
+        .not_.is_("cover_url", "null")
+        .execute()
+    )
+    return {r["influencer_id"].lower(): r["cover_url"] for r in (res.data or []) if r.get("cover_url")}
+
+
 def get_brand_selections(brand_id: str, status: str | None = None) -> list[dict]:
     q = (
         get_supabase()
         .table("brand_selections")
-        .select("id,influencer_id,status,note,selected_at,influencer_master(influencer_id,account_url,platform,apify_status)")
+        .select("id,influencer_id,status,note,selected_at,influencer_master(influencer_id,account_url,platform,apify_status,cover_url)")
         .eq("brand_id", brand_id)
     )
     if status:
@@ -487,7 +500,7 @@ def get_browse_contents(platform: str | None = None) -> list[dict]:
     sb = get_supabase()
 
     # 인플루언서 메타 (전체)
-    inf_rows = sb.table("influencer_master").select("influencer_id,account_url,platform,apify_status").execute().data or []
+    inf_rows = sb.table("influencer_master").select("influencer_id,account_url,platform,apify_status,cover_url").execute().data or []
     if platform:
         inf_rows = [r for r in inf_rows if r.get("platform") == platform]
     inf_map = {r["influencer_id"]: r for r in inf_rows}

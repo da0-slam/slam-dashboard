@@ -62,8 +62,12 @@ with col_selected:
             url     = inf.get("account_url") or ""
             platform = inf.get("platform", "")
 
+            cover_url = inf.get("cover_url") or ""
             with st.container(border=True):
-                c1, c2, c3 = st.columns([4, 2, 1])
+                c0, c1, c2, c3 = st.columns([1, 4, 2, 1])
+                with c0:
+                    if cover_url:
+                        st.image(cover_url, width=50)
                 with c1:
                     name_md = f"[{name}]({url})" if url and name else (name or inf_id)
                     st.markdown(
@@ -84,10 +88,12 @@ with col_selected:
                         "confirmed": "🔴 제외",
                         "rejected":  "🟡 후보로",
                     }[status]
+                    st.write("")
                     if st.button(next_label, key=f"{prefix}_status_{item['id']}", use_container_width=True):
                         update_selection_status(item["id"], next_status)
                         st.rerun()
                 with c3:
+                    st.write("")
                     if st.button("삭제", key=f"{prefix}_remove_{item['id']}", use_container_width=True):
                         remove_selection(item["id"])
                         st.rerun()
@@ -123,8 +129,12 @@ with col_search:
             platform = inf.get("platform", "")
             selected = inf_id in selected_ids
 
+            cover_url = inf.get("cover_url") or ""
             with st.container(border=True):
-                c1, c2 = st.columns([4, 1])
+                c0, c1, c2 = st.columns([1, 4, 1])
+                with c0:
+                    if cover_url:
+                        st.image(cover_url, width=50)
                 with c1:
                     name_md = f"[{name}]({url})" if url else name
                     st.markdown(name_md)

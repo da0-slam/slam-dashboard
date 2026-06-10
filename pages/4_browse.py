@@ -278,7 +278,7 @@ for chunk_start in range(0, len(page_contents), n_cols):
     for col, item, rank in zip(cols, row_items, range(global_start, global_start + n_cols)):
         inf_id    = item["influencer_id"]
         inf       = item.get("influencer_master") or {}
-        thumbnail = item.get("thumbnail_url") or ""
+        thumbnail = item.get("thumbnail_url") or inf.get("cover_url") or ""
         play      = item.get("play_count") or 0
         er        = item["er"]
         grade     = item["grade"]
