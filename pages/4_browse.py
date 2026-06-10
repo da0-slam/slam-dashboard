@@ -98,9 +98,24 @@ def calc_grade(er):
     if er >= 2:  return "B"
     return "C"
 
+def detect_lang(caption: str) -> str:
+    if not caption or not caption.strip():
+        return "❓ No Caption"
+    for c in caption:
+        if '가' <= c <= '힣' or 'ㄱ' <= c <= 'ㆎ':
+            return "🇰🇷 Korean"
+    for c in caption:
+        if '぀' <= c <= 'ゟ' or '゠' <= c <= 'ヿ':
+            return "🇯🇵 Japanese"
+    for c in caption:
+        if '一' <= c <= '鿿':
+            return "🇨🇳 Chinese"
+    return "🌐 English / Other"
+
 for r in all_contents:
     r["er"]    = calc_er(r)
     r["grade"] = calc_grade(r["er"])
+    r["lang"]  = detect_lang(r.get("caption") or "")
 
 # 업로드 연도 파싱
 for r in all_contents:
@@ -136,11 +151,22 @@ with fc6:
         get_browse_contents.clear()
         st.rerun()
 
-caption_search = st.text_input(
-    "캡션 검색",
-    placeholder="Search captions (e.g. skincare, nightroutine, unboxing...)",
-    label_visibility="collapsed",
-)
+fl1, fl2 = st.columns([3, 2])
+with fl1:
+    caption_search = st.text_input(
+        "캡션 검색",
+        placeholder="Search captions (e.g. skincare, nightroutine, unboxing...)",
+        label_visibility="collapsed",
+    )
+with fl2:
+    _avail_langs = sorted({r["lang"] for r in all_contents})
+    lang_filter = st.multiselect(
+        "언어",
+        _avail_langs,
+        default=[],
+        placeholder="언어 필터 (전체)",
+        label_visibility="collapsed",
+    )
 
 # ─── 필터 적용 ────────────────────────────────────────────────────────────────
 contents = all_contents[:]
@@ -155,6 +181,8 @@ if search_kw:
 if caption_search:
     kw = caption_search.lower()
     contents = [r for r in contents if kw in (r.get("caption") or "").lower()]
+if lang_filter:
+    contents = [r for r in contents if r["lang"] in lang_filter]
 
 if sort_by == "ER %":
     contents.sort(key=lambda r: r["er"], reverse=True)
@@ -166,7 +194,7 @@ elif sort_by == "Date (오래된순)":
 # ─── 페이지네이션 상태 ────────────────────────────────────────────────────────
 PAGE_SIZE = 48  # 4열×12행 or 3열×16행
 
-_filter_sig = (tuple(grade_filter), year_filter, search_kw, caption_search, sort_by, sel_camp_id)
+_filter_sig = (tuple(grade_filter), year_filter, search_kw, caption_search, tuple(lang_filter), sort_by, sel_camp_id)
 if st.session_state.get("_browse_filter_sig") != _filter_sig:
     st.session_state["_browse_filter_sig"] = _filter_sig
     st.session_state["browse_page"] = 0
