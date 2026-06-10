@@ -98,6 +98,8 @@ def calc_grade(er):
     if er >= 2:  return "B"
     return "C"
 
+import re as _re
+
 _LANG_ORDER = [
     "🌐 English",
     "🇰🇷 Korean",
@@ -106,12 +108,15 @@ _LANG_ORDER = [
     "🇨🇳 Chinese",
     "❓ Others",
 ]
+# #fypシ / #fypシ゚ 등 영어권도 사용하는 TikTok 바이럴 태그 제거용
+_FYP_RE = _re.compile(r'#fyp\S*', _re.IGNORECASE)
 
 def detect_lang(caption: str) -> str:
     if not caption or not caption.strip():
         return "❓ Others"
+    text = _FYP_RE.sub('', caption)
     counts = {"🇰🇷 Korean": 0, "🇯🇵 Japanese": 0, "🇸🇦 Arabic": 0, "🇨🇳 Chinese": 0}
-    for c in caption:
+    for c in text:
         if '가' <= c <= '힣' or 'ㄱ' <= c <= 'ㆎ':
             counts["🇰🇷 Korean"] += 1
         elif '぀' <= c <= 'ゟ' or '゠' <= c <= 'ヿ':
@@ -120,7 +125,6 @@ def detect_lang(caption: str) -> str:
             counts["🇸🇦 Arabic"] += 1
         elif '一' <= c <= '鿿':
             counts["🇨🇳 Chinese"] += 1
-    # 최소 3자 이상인 언어 중 가장 많은 쪽 반환 (#fypシ 같은 1글자 해시태그 무시)
     valid = {lang: cnt for lang, cnt in counts.items() if cnt >= 3}
     if valid:
         return max(valid, key=valid.get)
