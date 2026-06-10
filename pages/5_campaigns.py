@@ -122,51 +122,7 @@ if st.session_state.get("selected_campaign"):
         st.session_state.selected_campaign = None
         st.stop()
 
-    # ── Step 2: 관리 비밀번호 게이트 (브랜드 단위 — 한 번 인증하면 전체 캠페인 유지)
-    access_key = f"brand_access_{selected_brand_id}"
-    if not st.session_state.get(access_key):
-        col_back, _ = st.columns([1, 8])
-        with col_back:
-            if st.button("← 목록"):
-                st.session_state.selected_campaign = None
-                st.rerun()
-
-        st.subheader(f"🔒 {verified_camp['name']}")
-        st.caption("캠페인 상세 관리에는 브랜드 관리 비밀번호가 필요합니다.")
-        st.divider()
-
-        pw_hash = get_brand_access_password_hash(selected_brand_id)
-
-        if pw_hash is None:
-            st.warning("이 브랜드의 캠페인 관리 비밀번호가 아직 설정되지 않았습니다.")
-            st.info("아래에서 관리 비밀번호를 설정하면 캠페인에 접근할 수 있습니다.")
-            with st.form("set_pw_form"):
-                new_pw  = st.text_input("새 관리 비밀번호", type="password")
-                new_pw2 = st.text_input("비밀번호 확인",   type="password")
-                if st.form_submit_button("비밀번호 설정 후 접속", type="primary", use_container_width=True):
-                    if not new_pw:
-                        st.error("비밀번호를 입력하세요.")
-                    elif new_pw != new_pw2:
-                        st.error("비밀번호가 일치하지 않습니다.")
-                    elif len(new_pw) < 4:
-                        st.error("비밀번호는 4자 이상이어야 합니다.")
-                    else:
-                        set_brand_access_password(selected_brand_id, new_pw)
-                        st.session_state[access_key] = True
-                        st.rerun()
-        else:
-            with st.form("campaign_auth_form"):
-                entered = st.text_input("관리 비밀번호", type="password", placeholder="비밀번호를 입력하세요")
-                if st.form_submit_button("인증", type="primary", use_container_width=True):
-                    if verify_password(entered, pw_hash):
-                        st.session_state[access_key] = True
-                        st.rerun()
-                    else:
-                        st.error("비밀번호가 올바르지 않습니다.")
-
-        st.stop()  # 인증 전 상세 데이터 렌더링 완전 차단
-
-    # ── Step 3: 인증 완료 → 상세 화면 렌더링 ────────────────────────────────
+    # ── Step 2: 상세 화면 렌더링 ─────────────────────────────────────────────
     camp = verified_camp  # DB에서 재확인된 데이터 사용
 
     col_back, col_title = st.columns([1, 8])
@@ -195,7 +151,7 @@ if st.session_state.get("selected_campaign"):
 
         st.divider()
         st.markdown("**🔗 초대 링크**")
-        st.caption("초대 링크로 접속한 사람은 비밀번호 없이 이 캠페인을 관리할 수 있습니다.")
+        st.caption("초대 링크를 공유하면 팀원이 이 캠페인에 바로 접근할 수 있습니다.")
         if st.button("초대 링크 생성 / 확인", key="gen_invite"):
             token = get_or_create_invite_token(camp["id"])
             if token:

@@ -34,6 +34,10 @@ st.markdown("""
         background:rgba(255,255,255,.12);border-radius:4px;padding:2px 6px;
         color:#fff;font-size:10px;font-weight:600;text-decoration:none;}
 .koc-ig:hover{background:rgba(255,255,255,.22);}
+.koc-plat{display:inline-block;border-radius:3px;padding:1px 5px;
+          font-size:9px;font-weight:700;margin-bottom:2px;letter-spacing:.3px;}
+.koc-plat-tt{background:#ff0050;color:#fff;}
+.koc-plat-ig{background:linear-gradient(45deg,#f09433,#dc2743,#bc1888);color:#fff;}
 .grade-s{background:#FF6B2C;} .grade-a{background:#3B82F6;}
 .grade-b{background:#6B7280;} .grade-c{background:#374151;}
 div[data-testid="stHorizontalBlock"] > div {padding: 0 4px;}
@@ -359,6 +363,12 @@ for chunk_start in range(0, len(page_contents), n_cols):
             ig_label = f"📸 {_fmt(ig_followers)}" if ig_followers else "📸 Instagram"
             ig_badge = f'<a href="{ig_url}" target="_blank" class="koc-ig">{ig_label}</a>'
 
+        platform = (item.get("platform") or "tiktok").lower()
+        if "instagram" in platform:
+            plat_badge = '<span class="koc-plat koc-plat-ig">Instagram</span>'
+        else:
+            plat_badge = '<span class="koc-plat koc-plat-tt">TikTok</span>'
+
         img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-placeholder">🎬</div>'
         if video_url:
             img_tag = f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{img_inner}</a>'
@@ -372,6 +382,7 @@ for chunk_start in range(0, len(page_contents), n_cols):
   <div class="koc-grade {grade_cls}">{grade}</div>
   <div class="koc-rank">#{rank}</div>
   <div class="koc-info">
+    {plat_badge}
     <p class="koc-name">@{inf_id}</p>
     <p class="koc-stat">👁 {_fmt(avg_play)} &nbsp;·&nbsp; ER {er:.1f}%{"&nbsp;·&nbsp; 👥 " + us_followers if us_followers else ""}</p>
     {ig_badge}
