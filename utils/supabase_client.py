@@ -495,44 +495,26 @@ def get_campaign_selection_map(campaign_id: str) -> dict[str, dict]:
 
 # ─── Browse ──────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_browse_contents(platform: str | None = None) -> list[dict]:
     sb = get_supabase()
-
-    # 인플루언서 메타 (전체)
-    inf_rows = sb.table("influencer_master").select("influencer_id,account_url,platform,apify_status,cover_url").execute().data or []
-    if platform:
-        inf_rows = [r for r in inf_rows if r.get("platform") == platform]
-    inf_map = {r["influencer_id"]: r for r in inf_rows}
-
-    # 콘텐츠 전체 — 페이지네이션으로 PostgREST max_rows 서버 제한 우회
-    all_contents: list[dict] = []
+    all_rows: list[dict] = []
     page_size = 1000
     offset = 0
     while True:
-        page = (
-            sb.table("koc_contents")
-            .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,share_count,save_count,caption,posted_at")
+        q = (
+            sb.table("v_browse_contents")
+            .select("influencer_id,video_url,thumbnail_url,play_count,like_count,comment_count,share_count,save_count,caption,posted_at,cover_url,platform")
             .order("play_count", desc=True)
-            .range(offset, offset + page_size - 1)
-            .execute()
-        ).data or []
-        all_contents.extend(page)
+        )
+        if platform:
+            q = q.eq("platform", platform)
+        page = q.range(offset, offset + page_size - 1).execute().data or []
+        all_rows.extend(page)
         if len(page) < page_size:
             break
         offset += page_size
-
-    # 인플루언서별 최고 조회수 영상 1개만 (중복 제거)
-    seen: set[str] = set()
-    result = []
-    for r in all_contents:
-        iid = r["influencer_id"]
-        if iid in seen:
-            continue
-        seen.add(iid)
-        r["influencer_master"] = inf_map.get(iid, {})
-        result.append(r)
-    return result
+    return all_rows
 
 
 @st.cache_data(ttl=600, show_spinner=False)

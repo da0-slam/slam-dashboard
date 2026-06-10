@@ -128,6 +128,12 @@ with fc4:
 with fc5:
     n_cols = st.selectbox("열", [4, 3, 5], label_visibility="collapsed")
 
+caption_search = st.text_input(
+    "캡션 검색",
+    placeholder="캡션 내용으로 검색 (예: 스킨케어, 다이어트, 추천...)",
+    label_visibility="collapsed",
+)
+
 # ─── 필터 적용 ────────────────────────────────────────────────────────────────
 contents = all_contents[:]
 
@@ -138,6 +144,9 @@ if year_filter and year_filter != "ALL":
 if search_kw:
     kw = search_kw.lstrip("@").lower()
     contents = [r for r in contents if kw in r["influencer_id"].lower()]
+if caption_search:
+    kw = caption_search.lower()
+    contents = [r for r in contents if kw in (r.get("caption") or "").lower()]
 
 if sort_by == "ER %":
     contents.sort(key=lambda r: r["er"], reverse=True)
@@ -149,7 +158,7 @@ elif sort_by == "Date (오래된순)":
 # ─── 페이지네이션 상태 ────────────────────────────────────────────────────────
 PAGE_SIZE = 48  # 4열×12행 or 3열×16행
 
-_filter_sig = (tuple(grade_filter), year_filter, search_kw, sort_by, sel_camp_id)
+_filter_sig = (tuple(grade_filter), year_filter, search_kw, caption_search, sort_by, sel_camp_id)
 if st.session_state.get("_browse_filter_sig") != _filter_sig:
     st.session_state["_browse_filter_sig"] = _filter_sig
     st.session_state["browse_page"] = 0
@@ -277,8 +286,7 @@ for chunk_start in range(0, len(page_contents), n_cols):
     global_start = page_offset + chunk_start + 1
     for col, item, rank in zip(cols, row_items, range(global_start, global_start + n_cols)):
         inf_id    = item["influencer_id"]
-        inf       = item.get("influencer_master") or {}
-        thumbnail = item.get("thumbnail_url") or inf.get("cover_url") or ""
+        thumbnail = item.get("thumbnail_url") or item.get("cover_url") or ""
         play      = item.get("play_count") or 0
         er        = item["er"]
         grade     = item["grade"]
