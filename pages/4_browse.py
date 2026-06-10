@@ -53,7 +53,7 @@ if not user_brand_id and not is_admin:
 # ─── 헤더 ─────────────────────────────────────────────────────────────────────
 col_logo, col_brand, col_camp = st.columns([3, 2, 2])
 with col_logo:
-    st.markdown("### 🎯 BRANDSLAM · KOC Intelligence Viewer")
+    st.markdown("### 🎯 Slam Global · 인플루언서 탐색")
 
 with col_brand:
     if is_admin:

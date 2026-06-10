@@ -173,7 +173,7 @@ else:
 
     # 이메일 → user_id 역방향 맵 (selectbox label용)
     def _label(uid: str) -> str:
-        email = email_map.get(uid, uid[:20] + "…")
+        email = email_map.get(uid, "(미등록 사용자)")
         brand = brand_id_to_name.get(all_profiles_map.get(uid, {}).get("brand_id", ""), "미배정")
         role  = all_profiles_map.get(uid, {}).get("role", "")
         return f"{email}  |  {brand}  |  {role}"

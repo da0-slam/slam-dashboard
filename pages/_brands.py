@@ -71,7 +71,7 @@ with tab_list:
                         st.session_state.confirm_delete = None
                         st.session_state.pop(f"reset_pw_{bid}", None)
                 with c3:
-                    if st.button("🔑 비번", key=f"pw_{bid}", use_container_width=True):
+                    if st.button("🔑 비밀번호", key=f"pw_{bid}", use_container_width=True):
                         st.session_state[f"reset_pw_{bid}"] = True
                         st.session_state.editing_brand  = None
                         st.session_state.confirm_delete = None

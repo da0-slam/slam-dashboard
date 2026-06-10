@@ -131,7 +131,7 @@ else:
         # ── 로그인 탭 ──────────────────────────────────────────────────────────
         with tab_login:
             with st.form("login_form"):
-                email    = st.text_input("이메일", placeholder="admin@example.com", key="login_email")
+                email    = st.text_input("이메일", placeholder="이메일 주소를 입력하세요", key="login_email")
                 password = st.text_input("비밀번호", type="password", key="login_password")
                 submitted = st.form_submit_button("로그인", use_container_width=True, type="primary")
 
@@ -160,7 +160,7 @@ else:
                             elif "header value" in err or "whitespace" in err:
                                 st.error("서버 설정 오류입니다. 관리자에게 문의하세요.")
                             else:
-                                st.error(f"로그인 실패: {err}")
+                                st.error("로그인에 실패했습니다. 잠시 후 다시 시도해주세요.")
 
             # ── 소셜 로그인 ────────────────────────────────────────────────────
             st.divider()
@@ -194,8 +194,8 @@ else:
         # ── 회원가입 탭 ────────────────────────────────────────────────────────
         with tab_signup:
             with st.form("signup_form"):
-                su_brand     = st.text_input("브랜드명 *", placeholder="예: brandslam", key="signup_brand")
-                su_email     = st.text_input("이메일 *", placeholder="user@example.com", key="signup_email")
+                su_brand     = st.text_input("브랜드명 *", placeholder="브랜드명을 입력하세요", key="signup_brand")
+                su_email     = st.text_input("이메일 *", placeholder="이메일 주소를 입력하세요", key="signup_email")
                 su_password  = st.text_input("비밀번호 *", type="password", key="signup_password")
                 su_password2 = st.text_input("비밀번호 확인 *", type="password", key="signup_password2")
                 su_submitted = st.form_submit_button("회원가입", use_container_width=True, type="primary")
@@ -221,7 +221,7 @@ else:
                                     st.info("📧 인증 이메일이 발송되었습니다.")
                                     st.markdown(
                                         f"**{su_email}** 받은편지함을 확인하고 "
-                                        "**'Confirm your mail'** 링크를 클릭하세요.  \n"
+                                        "인증 링크를 클릭하세요.  \n"
                                         "스팸함도 확인해보세요.  \n"
                                         "인증 완료 후 이 페이지로 돌아와 로그인하시면 됩니다."
                                     )
@@ -234,9 +234,8 @@ else:
                             if "already registered" in err or "User already registered" in err:
                                 st.error("이미 가입된 이메일입니다.")
                             elif "confirmation email" in err or "sending" in err.lower() or "email" in err.lower():
-                                st.error("이메일 발송에 실패했습니다.")
-                                st.info("Supabase 대시보드 → Authentication → Providers → Email → **Confirm email** 을 OFF로 설정하면 이메일 인증 없이 가입할 수 있습니다.")
+                                st.error("이메일 발송에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.")
                             elif "header value" in err or "whitespace" in err:
                                 st.error("서버 설정 오류입니다. 관리자에게 문의하세요.")
                             else:
-                                st.error(f"회원가입 실패: {err}")
+                                st.error("회원가입에 실패했습니다. 잠시 후 다시 시도해주세요.")

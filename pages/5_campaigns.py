@@ -203,8 +203,7 @@ if st.session_state.get("selected_campaign"):
                 invite_url = f"{site}/campaigns?invite={token}"
                 st.session_state["_invite_url"] = invite_url
             else:
-                st.error("초대 링크 생성 실패. campaigns 테이블에 invite_token 컬럼을 추가해주세요.")
-                st.code("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS invite_token text UNIQUE;")
+                st.error("초대 링크를 생성할 수 없습니다. 관리자에게 문의하세요.")
         if st.session_state.get("_invite_url"):
             st.text_input("초대 링크 (복사하세요)", value=st.session_state["_invite_url"],
                           key="invite_url_display")
@@ -394,7 +393,7 @@ else:
 
     if st.session_state.get("show_create"):
         with st.form("create_campaign_form"):
-            camp_name = st.text_input("캠페인명 *", placeholder="예: 23yo Concealer Q3 2025")
+            camp_name = st.text_input("캠페인명 *", placeholder="예: brandslam 2025 Summer")
             camp_desc = st.text_area("설명", height=80)
             c1, c2 = st.columns(2)
             with c1:
