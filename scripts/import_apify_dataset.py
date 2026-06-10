@@ -17,6 +17,10 @@ import sys
 
 import requests
 
+# utils/ 임포트 경로 추가 (scripts/ 폴더에서 실행 시)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.storage_client import upload_thumbnail
+
 # ─── 환경 변수 ────────────────────────────────────────────────────────────────
 
 APIFY_TOKEN  = os.environ.get("APIFY_TOKEN", "").strip()
@@ -182,6 +186,13 @@ def main():
         if not row:
             skipped += 1
             continue
+
+        # 썸네일 → Supabase Storage 업로드 (영구 URL로 교체)
+        vid_m = re.search(r"/video/(\d+)", row["video_url"])
+        if row["thumbnail_url"] and vid_m:
+            sb_url = upload_thumbnail(row["thumbnail_url"], iid, vid_m.group(1), APIFY_TOKEN)
+            if sb_url:
+                row["thumbnail_url"] = sb_url
 
         rows.append(row)
 
