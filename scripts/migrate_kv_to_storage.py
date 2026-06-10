@@ -42,8 +42,7 @@ if not all([APIFY_TOKEN, APIFY_STORE_IDS, SUPABASE_URL, SUPABASE_KEY]):
     sys.exit(1)
 
 APIFY_BASE       = "https://api.apify.com/v2"
-COVERS_BUCKET    = "influencer-covers"
-THUMBS_BUCKET    = "thumbnails"
+BUCKET           = "tiktok-thumbnails"   # 기존 Supabase Storage 버킷
 COVER_KEY_RE     = re.compile(r"^cover-(.+)-(\d{14})-(\d+)\.jpg$", re.IGNORECASE)
 
 SB_HEADERS = {
@@ -70,7 +69,8 @@ def ensure_bucket(bucket: str) -> None:
     )
     if resp.status_code in (200, 201):
         print(f"  [bucket] 생성됨: {bucket}")
-    # 409 = already exists (OK)
+    else:
+        print(f"  [bucket] {bucket} 사용 (이미 존재)")
 
 
 def upload_to_storage(img_bytes: bytes, content_type: str, bucket: str, path: str) -> str | None:
@@ -176,9 +176,8 @@ def download_kv_image(store_id: str, key: str) -> tuple[bytes, str] | None:
 def main():
     print("=== Apify KV → Supabase Storage 마이그레이션 ===\n")
 
-    # 버킷 준비
-    ensure_bucket(COVERS_BUCKET)
-    ensure_bucket(THUMBS_BUCKET)
+    # 버킷 준비 (이미 존재하면 그냥 사용)
+    ensure_bucket(BUCKET)
 
     # 모든 KV Store에서 키 수집, 인플루언서별로 그룹핑
     # {username: [(timestamp_str, video_id_str, store_id, key), ...]}
@@ -221,8 +220,8 @@ def main():
             continue
 
         img_bytes, content_type = result
-        cover_path = f"{username}.jpg"
-        cover_url = upload_to_storage(img_bytes, content_type, COVERS_BUCKET, cover_path)
+        cover_path = f"covers/{username}.jpg"
+        cover_url = upload_to_storage(img_bytes, content_type, BUCKET, cover_path)
         if not cover_url:
             continue
 
@@ -255,13 +254,13 @@ def main():
             # 해당 영상 썸네일도 업로드
             if vid2 == video_id:
                 # 이미 다운로드한 커버와 같은 영상
-                thumb_url = upload_to_storage(img_bytes, content_type, THUMBS_BUCKET, f"{username}/{vid2}.jpg")
+                thumb_url = upload_to_storage(img_bytes, content_type, BUCKET, f"thumbnails/{username}/{vid2}.jpg")
             else:
                 result2 = download_kv_image(sid2, key2)
                 if result2 is None:
                     continue
                 img2, ct2 = result2
-                thumb_url = upload_to_storage(img2, ct2, THUMBS_BUCKET, f"{username}/{vid2}.jpg")
+                thumb_url = upload_to_storage(img2, ct2, BUCKET, f"thumbnails/{username}/{vid2}.jpg")
 
             if thumb_url and update_koc_thumbnail(username, vid2, thumb_url):
                 print(f"  ✓ thumbnail 갱신: video {vid2}")

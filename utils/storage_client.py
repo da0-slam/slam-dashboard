@@ -3,8 +3,7 @@ import os
 
 import requests
 
-_COVERS_BUCKET = "influencer-covers"
-_THUMBS_BUCKET = "thumbnails"
+_BUCKET = "tiktok-thumbnails"  # 기존 Supabase Storage 버킷 재사용
 
 
 def _sb_storage_url() -> str:
@@ -21,17 +20,16 @@ def _headers() -> dict:
 
 
 def ensure_buckets() -> None:
-    """Create public buckets if they don't exist."""
-    for bucket in (_COVERS_BUCKET, _THUMBS_BUCKET):
-        try:
-            requests.post(
-                f"{_sb_storage_url()}/bucket",
-                headers=_headers(),
-                json={"id": bucket, "name": bucket, "public": True},
-                timeout=10,
-            )
-        except Exception:
-            pass  # Already exists or non-critical
+    """버킷이 없으면 생성 (이미 있으면 무시)."""
+    try:
+        requests.post(
+            f"{_sb_storage_url()}/bucket",
+            headers=_headers(),
+            json={"id": _BUCKET, "name": _BUCKET, "public": True},
+            timeout=10,
+        )
+    except Exception:
+        pass
 
 
 def upload_image_from_url(
@@ -82,10 +80,10 @@ def get_public_url(bucket: str, path: str) -> str:
 
 
 def upload_cover(src_url: str, username: str, apify_token: str = "") -> str | None:
-    """Upload influencer cover image. Returns public URL."""
-    return upload_image_from_url(src_url, _COVERS_BUCKET, f"{username}.jpg", apify_token)
+    """인플루언서 대표 커버 이미지 업로드. covers/{username}.jpg 경로 사용."""
+    return upload_image_from_url(src_url, _BUCKET, f"covers/{username}.jpg", apify_token)
 
 
 def upload_thumbnail(src_url: str, username: str, video_id: str, apify_token: str = "") -> str | None:
-    """Upload video thumbnail. Returns public URL."""
-    return upload_image_from_url(src_url, _THUMBS_BUCKET, f"{username}/{video_id}.jpg", apify_token)
+    """영상 썸네일 업로드. thumbnails/{username}/{video_id}.jpg 경로 사용."""
+    return upload_image_from_url(src_url, _BUCKET, f"thumbnails/{username}/{video_id}.jpg", apify_token)
