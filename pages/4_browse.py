@@ -30,6 +30,10 @@ st.markdown("""
           padding:20px 10px 10px;}
 .koc-name{color:#fff;font-weight:700;font-size:13px;margin:0;}
 .koc-stat{color:rgba(255,255,255,.8);font-size:11px;margin:2px 0 0;}
+.koc-ig{display:inline-flex;align-items:center;gap:4px;margin-top:4px;
+        background:rgba(255,255,255,.12);border-radius:4px;padding:2px 6px;
+        color:#fff;font-size:10px;font-weight:600;text-decoration:none;}
+.koc-ig:hover{background:rgba(255,255,255,.22);}
 .grade-s{background:#FF6B2C;} .grade-a{background:#3B82F6;}
 .grade-b{background:#6B7280;} .grade-c{background:#374151;}
 div[data-testid="stHorizontalBlock"] > div {padding: 0 4px;}
@@ -134,7 +138,7 @@ with fc6:
 
 caption_search = st.text_input(
     "캡션 검색",
-    placeholder="캡션 내용으로 검색 (예: 스킨케어, 다이어트, 추천...)",
+    placeholder="Search captions (e.g. skincare, nightroutine, unboxing...)",
     label_visibility="collapsed",
 )
 
@@ -289,15 +293,22 @@ for chunk_start in range(0, len(page_contents), n_cols):
 
     global_start = page_offset + chunk_start + 1
     for col, item, rank in zip(cols, row_items, range(global_start, global_start + n_cols)):
-        inf_id    = item["influencer_id"]
-        thumbnail = item.get("thumbnail_url") or item.get("cover_url") or ""
-        play      = item.get("play_count") or 0
-        er        = item["er"]
-        grade     = item["grade"]
-        video_url = item.get("video_url","")
-        grade_cls = GRADE_CSS[grade]
-        fav       = fav_map.get(inf_id)
-        in_camp   = camp_map.get(inf_id)
+        inf_id       = item["influencer_id"]
+        thumbnail    = item.get("thumbnail_url") or item.get("cover_url") or ""
+        play         = item.get("play_count") or 0
+        er           = item["er"]
+        grade        = item["grade"]
+        video_url    = item.get("video_url","")
+        grade_cls    = GRADE_CSS[grade]
+        fav          = fav_map.get(inf_id)
+        in_camp      = camp_map.get(inf_id)
+        ig_url       = item.get("instagram_url") or ""
+        ig_followers = item.get("instagram_followers") or 0
+
+        ig_badge = ""
+        if ig_url:
+            ig_label = f"📸 {_fmt(ig_followers)}" if ig_followers else "📸 Instagram"
+            ig_badge = f'<a href="{ig_url}" target="_blank" class="koc-ig">{ig_label}</a>'
 
         img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-placeholder">🎬</div>'
         if video_url:
@@ -314,6 +325,7 @@ for chunk_start in range(0, len(page_contents), n_cols):
   <div class="koc-info">
     <p class="koc-name">@{inf_id}</p>
     <p class="koc-stat">👁 {_fmt(play)} &nbsp;·&nbsp; ER {er:.1f}%</p>
+    {ig_badge}
   </div>
 </div>
 """, unsafe_allow_html=True)
