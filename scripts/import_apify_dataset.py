@@ -154,7 +154,8 @@ def upsert_batch(rows: list[dict]) -> int:
         return 0
     resp = requests.post(
         f"{SUPABASE_URL}/rest/v1/koc_contents",
-        headers=SB_HEADERS,
+        headers={**SB_HEADERS, "Prefer": "resolution=merge-duplicates,return=minimal"},
+        params={"on_conflict": "video_url"},
         json=rows,
         timeout=30,
     )
