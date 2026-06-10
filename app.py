@@ -8,7 +8,6 @@ from utils.supabase_client import (
 from utils.session import (
     restore_session, save_session,
     save_pkce_verifier, pop_pkce_verifier,
-    _save_to_storage as _save_sid_to_storage,
 )
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8501").rstrip("/")
@@ -42,7 +41,6 @@ if _oauth_code and not st.session_state.user:
             st.session_state.user         = res.user
             st.session_state.access_token = res.session.access_token
             save_session(res.session.access_token, res.session.refresh_token)
-            _save_sid_to_storage(st.query_params.get("_s", ""))
             for p in ["code", "_pkce"]:
                 st.query_params.pop(p, None)
             st.rerun()
@@ -147,7 +145,6 @@ else:
                             st.session_state.user         = res.user
                             st.session_state.access_token = res.session.access_token
                             save_session(res.session.access_token, res.session.refresh_token)
-                            _save_sid_to_storage(st.query_params.get("_s", ""))
                             # 이메일 인증 후 첫 로그인 시 브랜드 자동 연결
                             pending_brand = st.session_state.pop("pending_brand_name", None)
                             if pending_brand and res.user:

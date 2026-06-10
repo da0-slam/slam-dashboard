@@ -3,12 +3,14 @@ import streamlit as st
 
 def require_auth():
     if not st.session_state.get("user"):
-        from utils.session import restore_session, inject_restore_js
-        inject_restore_js()
+        from utils.session import restore_session
         restore_session()
     if not st.session_state.get("user"):
         st.warning("로그인이 필요합니다.")
         st.stop()
+    # 페이지 이동으로 URL에서 _s가 사라진 경우 재주입 → 새로고침 후 복원 가능
+    from utils.session import ensure_session_in_url
+    ensure_session_in_url()
     return st.session_state.user
 
 
@@ -17,7 +19,6 @@ def sidebar_user_info() -> None:
     if not user:
         return
     with st.sidebar:
-        # 어드민 전용 메뉴
         from utils.supabase_client import get_user_profile
         profile = get_user_profile(user.id)
         if profile.get("role") == "admin":
