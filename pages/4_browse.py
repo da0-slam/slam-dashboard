@@ -108,7 +108,7 @@ fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([3, 2, 2, 1.5, 1.5, 1])
 
 with fc1:
     grade_filter = st.multiselect(
-        "Grade", ["S","A","B","C"], default=["S","A","B"],
+        "Grade", ["S","A","B","C"], default=["S","A","B","C"],
         label_visibility="collapsed",
         placeholder="Grade 선택"
     )
