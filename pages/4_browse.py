@@ -98,9 +98,18 @@ def calc_grade(er):
     if er >= 2:  return "B"
     return "C"
 
+_LANG_ORDER = [
+    "🌐 English",
+    "🇰🇷 Korean",
+    "🇯🇵 Japanese",
+    "🇸🇦 Arabic",
+    "🇨🇳 Chinese",
+    "❓ Others",
+]
+
 def detect_lang(caption: str) -> str:
     if not caption or not caption.strip():
-        return "❓ No Caption"
+        return "❓ Others"
     for c in caption:
         if '가' <= c <= '힣' or 'ㄱ' <= c <= 'ㆎ':
             return "🇰🇷 Korean"
@@ -108,9 +117,12 @@ def detect_lang(caption: str) -> str:
         if '぀' <= c <= 'ゟ' or '゠' <= c <= 'ヿ':
             return "🇯🇵 Japanese"
     for c in caption:
+        if '؀' <= c <= 'ۿ' or 'ݐ' <= c <= 'ݿ':
+            return "🇸🇦 Arabic"
+    for c in caption:
         if '一' <= c <= '鿿':
             return "🇨🇳 Chinese"
-    return "🌐 English / Other"
+    return "🌐 English"
 
 for r in all_contents:
     r["er"]    = calc_er(r)
@@ -159,7 +171,8 @@ with fl1:
         label_visibility="collapsed",
     )
 with fl2:
-    _avail_langs = sorted({r["lang"] for r in all_contents})
+    _langs_in_data = {r["lang"] for r in all_contents}
+    _avail_langs = [l for l in _LANG_ORDER if l in _langs_in_data]
     lang_filter = st.multiselect(
         "언어",
         _avail_langs,
