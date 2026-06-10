@@ -165,7 +165,7 @@ with fc4:
 with fc5:
     n_cols = st.selectbox("열", [4, 3, 5], label_visibility="collapsed")
 with fc6:
-    if st.button("↺", help="썸네일 업데이트 반영 등 최신 데이터로 새로고침", use_container_width=True):
+    if st.button("↺", help="최신 데이터로 새로고침", use_container_width=True):
         get_browse_contents.clear()
         st.rerun()
 
