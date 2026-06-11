@@ -106,13 +106,13 @@ def _render_notes_body(
                     unsafe_allow_html=True,
                 )
             with c_del:
-                if is_mine:
-                    st.markdown("<div style='padding-top:12px;'>", unsafe_allow_html=True)
-                    if st.button("✕", key=f"{key_prefix}del_{note['id']}", help="삭제",
-                                 use_container_width=True):
-                        delete_influencer_note(note["id"])
-                        st.rerun()
-                    st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+                if is_mine and st.button(
+                    "✕", key=f"{key_prefix}del_{note['id']}", help="삭제",
+                    use_container_width=True,
+                ):
+                    delete_influencer_note(note["id"])
+                    st.rerun()
 
     st.divider()
 

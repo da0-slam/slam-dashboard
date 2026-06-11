@@ -58,7 +58,7 @@ if not user_brand_id and not is_admin:
 # ─── 헤더 ─────────────────────────────────────────────────────────────────────
 _panel_open = st.session_state.get("show_comment_panel", False)
 
-col_logo, col_brand, col_camp, col_panel = st.columns([3, 2, 2, 0.7])
+col_logo, col_brand, col_camp = st.columns([3, 2, 2])
 with col_logo:
     st.markdown("### 🎯 Slam Global · 인플루언서 탐색")
 
@@ -85,15 +85,6 @@ with col_camp:
     camp_opts     = {"── 즐겨찾기 모드 ──": None} | {c["name"]: c["id"] for c in campaigns}
     sel_camp_name = st.selectbox("캠페인", list(camp_opts.keys()), label_visibility="collapsed")
     sel_camp_id   = camp_opts[sel_camp_name]
-
-with col_panel:
-    st.markdown("<div style='padding-top:6px;'>", unsafe_allow_html=True)
-    _btn_label = "댓글 ‹" if _panel_open else "댓글 ›"
-    if st.button(_btn_label, use_container_width=True, help="댓글 패널 열기/닫기",
-                 type="primary" if _panel_open else "secondary"):
-        st.session_state["show_comment_panel"] = not _panel_open
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 st.divider()
 
@@ -400,11 +391,11 @@ def _render_comment_panel(brand_id: str, author_email: str, camp_id):
             unsafe_allow_html=True,
         )
         if st.button(
-            "↗ 댓글 보기",
+            "🎬 영상 + 댓글 보기",
             key=f"cp_open_{note['id']}",
             use_container_width=True,
         ):
-            show_notes_dialog(inf_id, brand_id, author_email, camp_id)
+            show_influencer_videos(inf_id, brand_id, author_email, camp_id)
         st.markdown("<hr class='cp-divider'>", unsafe_allow_html=True)
 
 
@@ -461,12 +452,27 @@ page_contents = contents[page_offset : page_offset + PAGE_SIZE]
 _page_inf_ids = [r["influencer_id"] for r in page_contents]
 _note_counts  = get_note_counts(_page_inf_ids, sel_brand_id)
 
-# ─── 그리드 / 패널 레이아웃 분기 ──────────────────────────────────────────────
+# ─── 그리드 / 핸들(토글) / 패널 레이아웃 ────────────────────────────────────
+# 핸들 컬럼이 항상 노출되어 Streamlit 사이드바처럼 여닫기 가능
 if _panel_open:
-    _grid_col, _panel_col = st.columns([7, 3], gap="medium")
+    _grid_col, _handle_col, _panel_col = st.columns([6.7, 0.3, 3])
 else:
-    _grid_col = st.container()
+    _grid_col, _handle_col = st.columns([9.7, 0.3])
     _panel_col = None
+
+with _handle_col:
+    st.markdown(
+        "<style>.panel-toggle button{padding:4px 2px!important;font-size:16px;"
+        "line-height:1;border-radius:6px;}</style>"
+        "<div class='panel-toggle' style='padding-top:4px;'>",
+        unsafe_allow_html=True,
+    )
+    _arrow = "‹" if _panel_open else "›"
+    if st.button(_arrow, key="panel_toggle_handle", use_container_width=True,
+                 help="댓글 패널 열기/닫기"):
+        st.session_state["show_comment_panel"] = not _panel_open
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with _grid_col:
     _page_nav("top")
