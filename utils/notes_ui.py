@@ -129,12 +129,10 @@ def _render_notes_body(
                             if new_text:
                                 update_influencer_note(note["id"], new_text)
                                 st.session_state[_edit_key] = False
-                                st.rerun()
                     with _cancel_col:
                         if st.button("취소", key=f"{key_prefix}cancel_{note['id']}",
                                      use_container_width=True):
                             st.session_state[_edit_key] = False
-                            st.rerun()
                 else:
                     # 일반 모드: 수정 / 삭제 버튼
                     _, _edit_col, _del_col = st.columns([6, 2, 2])
@@ -142,12 +140,10 @@ def _render_notes_body(
                         if st.button("✎ 수정", key=f"{key_prefix}edit_{note['id']}",
                                      use_container_width=True):
                             st.session_state[_edit_key] = True
-                            st.rerun()
                     with _del_col:
                         if st.button("✕ 삭제", key=f"{key_prefix}del_{note['id']}",
                                      use_container_width=True):
                             delete_influencer_note(note["id"])
-                            st.rerun()
 
             st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
 
@@ -185,7 +181,8 @@ def _render_notes_body(
                     content=content,
                     campaign_id=campaign_id,
                 )
-                st.rerun()
+                # st.rerun() 제거 — dialog 안에서 호출 시 dialog 닫힘
+                # 버튼 클릭이 이미 rerun을 트리거하므로 자동으로 갱신됨
             else:
                 st.warning("내용을 입력하세요.")
 

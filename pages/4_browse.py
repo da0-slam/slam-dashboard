@@ -223,6 +223,8 @@ elif sort_by == "Date (최신순)":
     contents.sort(key=lambda r: r.get("posted_at") or "", reverse=True)
 elif sort_by == "Date (오래된순)":
     contents.sort(key=lambda r: r.get("posted_at") or "")
+else:  # Rank (기본) — 영어권 먼저, 그룹 내 원래 랭크 순서 유지 (stable sort)
+    contents.sort(key=lambda r: 0 if r["lang"] == "🌐 English" else 1)
 
 # ─── 페이지네이션 상태 ────────────────────────────────────────────────────────
 PAGE_SIZE = 48  # 4열×12행 or 3열×16행
