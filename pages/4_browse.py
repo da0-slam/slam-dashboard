@@ -8,7 +8,7 @@ from utils.supabase_client import (
     add_to_campaign, update_campaign_selection, remove_campaign_selection,
     get_user_profile, get_note_counts, get_recent_notes,
 )
-from utils.notes_ui import show_notes_dialog, _avatar_color, _time_label
+from utils.notes_ui import show_notes_dialog, render_notes_inline, _avatar_color, _time_label
 
 st.set_page_config(page_title="KOC Intelligence Viewer", page_icon="🎬", layout="wide")
 user = require_auth()
@@ -88,7 +88,7 @@ with col_camp:
 
 with col_panel:
     st.markdown("<div style='padding-top:6px;'>", unsafe_allow_html=True)
-    _btn_label = "💬 ✕" if _panel_open else "💬"
+    _btn_label = "댓글 ‹" if _panel_open else "댓글 ›"
     if st.button(_btn_label, use_container_width=True, help="댓글 패널 열기/닫기",
                  type="primary" if _panel_open else "secondary"):
         st.session_state["show_comment_panel"] = not _panel_open
@@ -258,7 +258,7 @@ def _fmt(n):
     return str(n)
 
 @st.dialog("인플루언서 영상 전체보기", width="large")
-def show_influencer_videos(inf_id: str):
+def show_influencer_videos(inf_id: str, brand_id: str, author_email: str, camp_id=None):
     videos = get_influencer_contents(inf_id)
     if not videos:
         st.info("영상 데이터가 없습니다.")
@@ -272,36 +272,59 @@ def show_influencer_videos(inf_id: str):
         for v in videos
     ) / len(videos)
 
-    st.markdown(f"### @{inf_id}")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("총 영상 수", len(videos))
-    m2.metric("평균 조회수", _fmt(avg_plays))
-    m3.metric("평균 ER",   f"{avg_er_val:.1f}%")
-    st.divider()
+    # ── 2-컬럼: 영상(좌) + 댓글(우) ─────────────────────────────────────────
+    v_col, n_col = st.columns([6, 4], gap="large")
 
-    COLS = 3
-    for chunk_start in range(0, len(videos), COLS):
-        row_vids = videos[chunk_start:chunk_start + COLS]
-        cols = st.columns(COLS)
-        for col, v in zip(cols, row_vids):
-            play      = v.get("play_count") or 0
-            eng       = sum(v.get(k) or 0 for k in ("like_count","comment_count","share_count","save_count"))
-            er        = eng / play * 100 if play else 0.0
-            thumbnail = v.get("thumbnail_url") or ""
-            video_url = v.get("video_url") or ""
-            posted    = (v.get("posted_at") or "")[:10]
-            caption   = v.get("caption") or ""
+    with v_col:
+        st.markdown(
+            f"<p style='font-size:18px;font-weight:700;margin:0 0 12px;'>@{inf_id}</p>",
+            unsafe_allow_html=True,
+        )
+        m1, m2, m3 = st.columns(3)
+        m1.metric("총 영상 수",  len(videos))
+        m2.metric("평균 조회수", _fmt(avg_plays))
+        m3.metric("평균 ER",    f"{avg_er_val:.1f}%")
+        st.divider()
 
-            with col:
-                if thumbnail and video_url:
-                    st.markdown(f'<a href="{video_url}" target="_blank"><img src="{thumbnail}" style="width:100%;border-radius:8px;"></a>', unsafe_allow_html=True)
-                elif thumbnail:
-                    st.image(thumbnail, use_container_width=True)
-                else:
-                    st.markdown('<div style="background:#1a1a2e;aspect-ratio:9/16;display:flex;align-items:center;justify-content:center;font-size:2rem;border-radius:8px;">🎬</div>', unsafe_allow_html=True)
-                st.caption(f"👁 {_fmt(play)}  ·  ER {er:.1f}%  ·  {posted}")
-                if caption:
-                    st.caption(caption[:60] + ("…" if len(caption) > 60 else ""))
+        COLS = 2
+        for chunk_start in range(0, len(videos), COLS):
+            row_vids = videos[chunk_start:chunk_start + COLS]
+            cols = st.columns(COLS)
+            for col, v in zip(cols, row_vids):
+                play      = v.get("play_count") or 0
+                eng       = sum(v.get(k) or 0 for k in ("like_count","comment_count","share_count","save_count"))
+                er        = eng / play * 100 if play else 0.0
+                thumbnail = v.get("thumbnail_url") or ""
+                video_url = v.get("video_url") or ""
+                posted    = (v.get("posted_at") or "")[:10]
+                caption   = v.get("caption") or ""
+
+                with col:
+                    if thumbnail and video_url:
+                        st.markdown(
+                            f'<a href="{video_url}" target="_blank">'
+                            f'<img src="{thumbnail}" style="width:100%;border-radius:8px;"></a>',
+                            unsafe_allow_html=True,
+                        )
+                    elif thumbnail:
+                        st.image(thumbnail, use_container_width=True)
+                    else:
+                        st.markdown(
+                            '<div style="background:#1a1a2e;aspect-ratio:9/16;display:flex;'
+                            'align-items:center;justify-content:center;font-size:2rem;'
+                            'border-radius:8px;">🎬</div>',
+                            unsafe_allow_html=True,
+                        )
+                    st.markdown(
+                        f"<p style='font-size:11px;color:#6b7280;margin:4px 0 0;'>"
+                        f"👁 {_fmt(play)} &nbsp;·&nbsp; ER {er:.1f}% &nbsp;·&nbsp; {posted}</p>",
+                        unsafe_allow_html=True,
+                    )
+                    if caption:
+                        st.caption(caption[:55] + ("…" if len(caption) > 55 else ""))
+
+    with n_col:
+        render_notes_inline(inf_id, brand_id, author_email, camp_id)
 
 def _render_comment_panel(brand_id: str, author_email: str, camp_id):
     """Figma 스타일 오른쪽 댓글 패널."""
@@ -501,10 +524,11 @@ with _grid_col:
 </div>
 """, unsafe_allow_html=True)
 
+                st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
                 b_vid, b_note = st.columns([3, 1])
                 with b_vid:
                     if st.button("🎬 전체 영상 보기", key=f"detail_{inf_id}", use_container_width=True):
-                        show_influencer_videos(inf_id)
+                        show_influencer_videos(inf_id, sel_brand_id, user.email, sel_camp_id)
                 with b_note:
                     nc = _note_counts.get(inf_id, 0)
                     if st.button(f"💬 {nc}" if nc else "💬", key=f"note_{inf_id}", use_container_width=True, help="메모/댓글"):
