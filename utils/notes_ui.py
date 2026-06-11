@@ -90,29 +90,32 @@ def _render_notes_body(
             time_str    = _time_label(note.get("created_at", ""))
             content     = (note.get("content") or "").replace("<", "&lt;").replace(">", "&gt;")
 
-            c_comment, c_del = st.columns([14, 1])
-            with c_comment:
-                st.markdown(
-                    f"""<div class="note-row">
-                        {_avatar_html(initial, color)}
-                        <div class="note-body">
-                            <div class="note-meta">
-                                <span class="note-author">{author_name}</span>
-                                <span class="note-time">{time_str}</span>
-                            </div>
-                            <p class="note-text">{content}</p>
+            # 댓글 HTML 풀 너비로 렌더링
+            st.markdown(
+                f"""<div class="note-row">
+                    {_avatar_html(initial, color)}
+                    <div class="note-body">
+                        <div class="note-meta">
+                            <span class="note-author">{author_name}</span>
+                            <span class="note-time">{time_str}</span>
                         </div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
-            with c_del:
-                st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-                if is_mine and st.button(
-                    "✕", key=f"{key_prefix}del_{note['id']}", help="삭제",
-                    use_container_width=True,
-                ):
-                    delete_influencer_note(note["id"])
-                    st.rerun()
+                        <p class="note-text">{content}</p>
+                    </div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            # 삭제 버튼은 내 댓글일 때만, 우측에 별도 행으로
+            if is_mine:
+                _, _del_col = st.columns([8, 2])
+                with _del_col:
+                    if st.button(
+                        "✕ 삭제",
+                        key=f"{key_prefix}del_{note['id']}",
+                        use_container_width=True,
+                    ):
+                        delete_influencer_note(note["id"])
+                        st.rerun()
+            st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
 
     st.divider()
 
