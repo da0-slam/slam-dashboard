@@ -2,7 +2,10 @@
 인플루언서 메모/댓글 공통 UI — Figma 스타일
 """
 import streamlit as st
-from utils.supabase_client import get_influencer_notes, add_influencer_note, delete_influencer_note
+from utils.supabase_client import (
+    get_influencer_notes, add_influencer_note,
+    delete_influencer_note, update_influencer_note,
+)
 
 _NOTES_CSS = """
 <style>
@@ -104,17 +107,48 @@ def _render_notes_body(
                 </div>""",
                 unsafe_allow_html=True,
             )
-            # 삭제 버튼은 내 댓글일 때만, 우측에 별도 행으로
+            # 내 댓글: 수정/삭제 액션
             if is_mine:
-                _, _del_col = st.columns([8, 2])
-                with _del_col:
-                    if st.button(
-                        "✕ 삭제",
-                        key=f"{key_prefix}del_{note['id']}",
-                        use_container_width=True,
-                    ):
-                        delete_influencer_note(note["id"])
-                        st.rerun()
+                _edit_key = f"{key_prefix}editing_{note['id']}"
+                is_editing = st.session_state.get(_edit_key, False)
+
+                if is_editing:
+                    # 인라인 수정 모드
+                    edited = st.text_area(
+                        "수정",
+                        value=note.get("content", ""),
+                        height=72,
+                        label_visibility="collapsed",
+                        key=f"{key_prefix}edit_val_{note['id']}",
+                    )
+                    _s_col, _ok_col, _cancel_col = st.columns([5, 2, 2])
+                    with _ok_col:
+                        if st.button("저장", key=f"{key_prefix}save_{note['id']}",
+                                     type="primary", use_container_width=True):
+                            new_text = edited.strip()
+                            if new_text:
+                                update_influencer_note(note["id"], new_text)
+                                st.session_state[_edit_key] = False
+                                st.rerun()
+                    with _cancel_col:
+                        if st.button("취소", key=f"{key_prefix}cancel_{note['id']}",
+                                     use_container_width=True):
+                            st.session_state[_edit_key] = False
+                            st.rerun()
+                else:
+                    # 일반 모드: 수정 / 삭제 버튼
+                    _, _edit_col, _del_col = st.columns([6, 2, 2])
+                    with _edit_col:
+                        if st.button("✎ 수정", key=f"{key_prefix}edit_{note['id']}",
+                                     use_container_width=True):
+                            st.session_state[_edit_key] = True
+                            st.rerun()
+                    with _del_col:
+                        if st.button("✕ 삭제", key=f"{key_prefix}del_{note['id']}",
+                                     use_container_width=True):
+                            delete_influencer_note(note["id"])
+                            st.rerun()
+
             st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
 
     st.divider()
