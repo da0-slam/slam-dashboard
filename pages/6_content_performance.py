@@ -310,7 +310,7 @@ with tab1:
 
         st.divider()
 
-        view_mode = st.radio("게시물 보기 방식", ["브라우징", "목록"], horizontal=True, key="cp_view_mode")
+        view_mode = st.radio("게시물 보기 방식", ["그리드", "목록"], horizontal=True, key="cp_view_mode")
 
         # 썸네일 스크랩핑 (관리자 전용)
         if is_admin:
@@ -351,8 +351,8 @@ with tab1:
                 disp["캠페인"] = disp["campaign_id"].map(campaign_map).fillna("–")
             else:
                 disp["캠페인"] = "–"
-            # influencer_name 제거하고 캠페인 추가 (thumbnail_url 유지)
-            show_cols = ["캠페인"] + [c for c in show_cols if c != "influencer_name"]
+            # 캠페인 추가, influencer_name 유지
+            show_cols = ["캠페인", "influencer_name"] + [c for c in show_cols if c != "influencer_name"]
 
         show_cols = [c for c in show_cols if c in disp.columns]
         rename = {
@@ -372,7 +372,7 @@ with tab1:
         }
         disp = disp[show_cols].rename(columns=rename)
 
-        if view_mode == "브라우징":
+        if view_mode == "그리드":
             rows = [r for r in disp.to_dict(orient="records") if r.get("썸네일")]
             if not rows:
                 st.info("썸네일이 있는 게시물이 없습니다. 썸네일 스크랩핑을 실행하거나 목록 보기를 이용하세요.")
