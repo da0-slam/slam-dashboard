@@ -333,7 +333,7 @@ with tab1:
         disp = df.copy()
         disp["플랫폼"] = disp["platform"].map({"instagram": "Instagram", "tiktok": "TikTok"})
 
-        show_cols = ["influencer_name", "플랫폼", "post_url", "upload_date",
+        show_cols = ["influencer_name", "플랫폼", "post_url",
                      "views", "likes", "comments", "saves", "shares",
                      "engagement_rate", "last_tracked_at"]
         if "thumbnail_url" in disp.columns:
@@ -379,48 +379,27 @@ with tab1:
                         col.write("")
                     col.markdown(f"**{row.get('인플루언서','')}**")
                     col.markdown(f"{row.get('플랫폼','')}")
-                    col.markdown(f"업로드일: {row.get('업로드일','-')}")
                     if row.get("게시물 URL"):
                         col.markdown(f"[🔗 게시물 열기]({row.get('게시물 URL')})")
             st.divider()
         else:
             st.subheader("게시물 목록")
-            if sel_camp_label == "전체 캠페인":
-                disp["캠페인"] = disp["campaign_id"].map(campaign_map).fillna("–")
-                show_cols = ["influencer_name", "캠페인"] + show_cols[1:]
-
-        show_cols = [c for c in show_cols if c in disp.columns]
-        rename = {
-            "influencer_name":  "인플루언서",
-            "플랫폼":           "플랫폼",
-            "post_url":         "게시물 URL",
-            "upload_date":      "업로드일",
-            "views":            "조회수",
-            "likes":            "좋아요",
-            "comments":         "댓글",
-            "saves":            "저장",
-            "shares":           "공유",
-            "engagement_rate":  "참여율(%)",
-            "last_tracked_at":  "마지막 갱신",
-            "캠페인":           "캠페인",
-        }
-        disp = disp[show_cols].rename(columns=rename)
-
-        st.dataframe(
-            disp,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "게시물 URL":    st.column_config.LinkColumn("게시물 URL", display_text="🔗 열기"),
-                "조회수":        st.column_config.NumberColumn("조회수",    format="%d"),
-                "좋아요":        st.column_config.NumberColumn("좋아요",    format="%d"),
-                "댓글":          st.column_config.NumberColumn("댓글",      format="%d"),
-                "저장":          st.column_config.NumberColumn("저장",      format="%d"),
-                "공유":          st.column_config.NumberColumn("공유",      format="%d"),
-                "참여율(%)":     st.column_config.NumberColumn("참여율(%)", format="%.2f%%"),
-                "마지막 갱신":   st.column_config.DatetimeColumn("마지막 갱신", format="YYYY-MM-DD HH:mm"),
-            },
-        )
+            list_disp = disp[[c for c in disp.columns if c != "썸네일"]]
+            st.dataframe(
+                list_disp,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "게시물 URL":    st.column_config.LinkColumn("게시물 URL", display_text="🔗 열기"),
+                    "조회수":        st.column_config.NumberColumn("조회수",    format="%d"),
+                    "좋아요":        st.column_config.NumberColumn("좋아요",    format="%d"),
+                    "댓글":          st.column_config.NumberColumn("댓글",      format="%d"),
+                    "저장":          st.column_config.NumberColumn("저장",      format="%d"),
+                    "공유":          st.column_config.NumberColumn("공유",      format="%d"),
+                    "참여율(%)":     st.column_config.NumberColumn("참여율(%)", format="%.2f%%"),
+                    "마지막 갱신":   st.column_config.DatetimeColumn("마지막 갱신", format="YYYY-MM-DD HH:mm"),
+                },
+            )
 
 # ═══════════════════════════════════════════════════════════════
 # Tab 2 – 인플루언서별 요약
