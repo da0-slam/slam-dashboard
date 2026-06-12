@@ -33,26 +33,29 @@ def sidebar_user_info() -> None:
         profile = get_user_profile(user.id)
         is_admin = profile.get("role") == "admin"
 
-        # Streamlit normalises page filenames: _dashboard.py→/dashboard, _brands.py→/brands, 7_strategy.py→/strategy
-        _HIDE_ADMIN_PAGES_CSS = """
-<style>
-[data-testid="stSidebarNav"] a[href*="dashboard"],
-[data-testid="stSidebarNav"] li:has(a[href*="dashboard"]),
-[data-testid="stSidebarNav"] a[href*="brands"],
-[data-testid="stSidebarNav"] li:has(a[href*="brands"]),
-[data-testid="stSidebarNav"] a[href*="strategy"],
-[data-testid="stSidebarNav"] li:has(a[href*="strategy"]) { display:none!important; }
-</style>
-"""
         if is_admin:
             st.markdown("**🔧 관리자 메뉴**")
             st.page_link("pages/_dashboard.py", label="📊 어드민 대시보드", use_container_width=True)
             st.page_link("pages/_brands.py",   label="🏢 브랜드 관리",     use_container_width=True)
             st.page_link("pages/7_strategy.py", label="🎯 전략",            use_container_width=True)
             st.divider()
-            st.markdown(_HIDE_ADMIN_PAGES_CSS, unsafe_allow_html=True)
+            # 관리자도 전략 페이지 자동 nav 중복 숨김
+            st.markdown("""
+<style>
+[data-testid="stSidebarNav"] a[href*="7_strategy"],
+[data-testid="stSidebarNav"] li:has(a[href*="7_strategy"]) { display:none!important; }
+</style>
+""", unsafe_allow_html=True)
         else:
-            st.markdown(_HIDE_ADMIN_PAGES_CSS, unsafe_allow_html=True)
+            # 비관리자: 어드민 전용 + 전략 페이지를 자동 생성 네비에서 숨김
+            st.markdown("""
+<style>
+[data-testid="stSidebarNav"] a[href*="_dashboard"],
+[data-testid="stSidebarNav"] li:has(a[href*="_dashboard"]),
+[data-testid="stSidebarNav"] a[href*="7_strategy"],
+[data-testid="stSidebarNav"] li:has(a[href*="7_strategy"]) { display:none!important; }
+</style>
+""", unsafe_allow_html=True)
 
             brand_ids = profile.get("brand_ids") or []
             user_brand_ids = set(brand_ids + ([profile["brand_id"]] if profile.get("brand_id") else []))
