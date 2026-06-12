@@ -733,6 +733,17 @@ with tab4:
                     "shares":          form_shares,
                 })
                 if result:
+                    post_id = result.get("id") if isinstance(result, dict) else None
+                    # 자동 썸네일 스크랩
+                    if post_id:
+                        with st.spinner("썸네일 스크랩 중..."):
+                            thumb = fetch_and_upload_thumbnail(
+                                form_url.strip(),
+                                form_name.strip(),
+                                _sanitize_storage_key(post_id),
+                            )
+                            if thumb:
+                                update_campaign_post_thumbnail(post_id, brand_id, thumb)
                     st.success(f"게시물이 추가되었습니다. ({form_platform.upper()} · {form_name})")
                     _load_all.clear()
                     st.rerun()

@@ -255,3 +255,47 @@ def upload_cover(src_url: str, username: str, apify_token: str = "") -> str | No
 def upload_thumbnail(src_url: str, username: str, video_id: str, apify_token: str = "") -> str | None:
     """영상 썸네일 업로드. thumbnails/{username}/{video_id}.jpg 경로 사용."""
     return upload_image_from_url(src_url, _BUCKET, f"thumbnails/{username}/{video_id}.jpg", apify_token)
+
+
+_STRATEGY_BUCKET = "strategy-files"
+
+
+def ensure_strategy_bucket() -> None:
+    try:
+        requests.post(
+            f"{_sb_storage_url()}/bucket",
+            headers=_headers(),
+            json={"id": _STRATEGY_BUCKET, "name": _STRATEGY_BUCKET, "public": True},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
+def upload_strategy_file(
+    brand_id: str,
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+) -> str | None:
+    import uuid as _uuid
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
+    path = f"{brand_id}/{_uuid.uuid4().hex[:8]}_{safe}"
+    ensure_strategy_bucket()
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                f"{_sb_storage_url()}/object/{_STRATEGY_BUCKET}/{path}",
+                headers={**_headers(), "Content-Type": content_type, "x-upsert": "true"},
+                data=file_bytes,
+                timeout=60,
+            )
+            if resp.status_code in (200, 201):
+                return get_public_url(_STRATEGY_BUCKET, path)
+            return None
+        except requests.exceptions.ConnectionError:
+            if attempt < 2:
+                import time as _t; _t.sleep(2 ** attempt)
+            else:
+                raise
+    return None

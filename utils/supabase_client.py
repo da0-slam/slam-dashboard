@@ -174,6 +174,28 @@ def upsert_brand_strategy(brand_id: str, updates: dict) -> bool:
     return bool(res.data)
 
 
+def get_strategy_files(brand_id: str) -> list[dict]:
+    res = (get_supabase().table("brand_strategy_files")
+           .select("*").eq("brand_id", brand_id)
+           .order("uploaded_at", desc=True).execute())
+    return res.data or []
+
+
+def add_strategy_file(brand_id: str, file_name: str, file_url: str,
+                       file_type: str, file_size: int | None = None) -> dict | None:
+    res = (get_supabase().table("brand_strategy_files")
+           .insert({"brand_id": brand_id, "file_name": file_name,
+                    "file_url": file_url, "file_type": file_type,
+                    "file_size": file_size}).execute())
+    return res.data[0] if res.data else None
+
+
+def delete_strategy_file(file_id: str) -> bool:
+    res = (get_supabase().table("brand_strategy_files")
+           .delete().eq("id", file_id).execute())
+    return True
+
+
 def get_brand_by_id(brand_id: str) -> dict:
     res = get_supabase().table("brands").select("*").eq("id", brand_id).limit(1).execute()
     return res.data[0] if res.data else {}

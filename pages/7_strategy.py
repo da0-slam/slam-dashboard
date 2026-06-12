@@ -8,7 +8,11 @@ from utils.supabase_client import (
     get_user_profile,
     get_brand_strategy,
     upsert_brand_strategy,
+    get_strategy_files,
+    add_strategy_file,
+    delete_strategy_file,
 )
+from utils.storage_client import upload_strategy_file
 
 st.set_page_config(page_title="전략", page_icon="🎯", layout="wide")
 
@@ -131,10 +135,11 @@ def _render_section(field: str):
             st.info("아직 내용이 없습니다. 편집 버튼을 눌러 추가하세요.")
 
 
-tab1, tab2, tab3, tab_export = st.tabs([
+tab1, tab2, tab3, tab_files, tab_export = st.tabs([
     SECTION_META["brand_guide"]["label"],
     SECTION_META["campaign_goals"]["label"],
     SECTION_META["competitor_refs"]["label"],
+    "📎 파일",
     "📤 내보내기",
 ])
 
@@ -146,6 +151,91 @@ with tab2:
 
 with tab3:
     _render_section("competitor_refs")
+
+with tab_files:
+    st.subheader("📎 첨부파일")
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def _load_files(bid: str) -> list[dict]:
+        return get_strategy_files(bid)
+
+    # ── 업로드 ────────────────────────────────────────────────────────────────
+    with st.expander("➕ 파일 업로드", expanded=False):
+        uploaded = st.file_uploader(
+            "PDF, 이미지, 문서 파일을 업로드하세요",
+            type=["pdf", "png", "jpg", "jpeg", "gif", "webp", "pptx", "docx", "xlsx"],
+            key=f"strat_file_upload_{brand_id}",
+        )
+        if uploaded is not None:
+            if st.button("⬆️ 업로드", key="strat_upload_btn", type="primary"):
+                with st.spinner("업로드 중..."):
+                    file_bytes = uploaded.read()
+                    file_url = upload_strategy_file(
+                        brand_id, file_bytes, uploaded.name, uploaded.type
+                    )
+                    if file_url:
+                        add_strategy_file(
+                            brand_id, uploaded.name, file_url,
+                            uploaded.type, len(file_bytes)
+                        )
+                        _load_files.clear()
+                        st.success(f"'{uploaded.name}' 업로드 완료")
+                        st.rerun()
+                    else:
+                        st.error("업로드 실패. Supabase Storage에 `strategy-files` 버킷이 있는지 확인하세요.")
+
+    # ── 파일 목록 ─────────────────────────────────────────────────────────────
+    files = _load_files(brand_id)
+    if not files:
+        st.info("업로드된 파일이 없습니다.")
+    else:
+        viewing_key = f"strat_viewing_{brand_id}"
+        if viewing_key not in st.session_state:
+            st.session_state[viewing_key] = None
+
+        for f in files:
+            fid   = f["id"]
+            fname = f["file_name"]
+            furl  = f["file_url"]
+            ftype = f.get("file_type", "")
+            fsize = f.get("file_size") or 0
+            size_str = f"{fsize/1024:.0f} KB" if fsize > 0 else ""
+
+            is_pdf   = "pdf" in ftype.lower()
+            is_image = any(t in ftype.lower() for t in ["png","jpg","jpeg","gif","webp","image"])
+
+            col_a, col_b, col_c = st.columns([6, 1, 1])
+            icon = "📄" if is_pdf else ("🖼️" if is_image else "📎")
+            col_a.markdown(f"**{icon} {fname}** {f'  `{size_str}`' if size_str else ''}")
+
+            if is_pdf or is_image:
+                is_viewing = st.session_state[viewing_key] == fid
+                btn_label = "🔼 닫기" if is_viewing else "👁️ 보기"
+                if col_b.button(btn_label, key=f"view_{fid}", use_container_width=True):
+                    st.session_state[viewing_key] = None if is_viewing else fid
+                    st.rerun()
+            else:
+                col_b.markdown(f"[⬇️]({furl})", unsafe_allow_html=True)
+
+            if col_c.button("🗑️", key=f"del_file_{fid}", use_container_width=True):
+                delete_strategy_file(fid)
+                _load_files.clear()
+                if st.session_state.get(viewing_key) == fid:
+                    st.session_state[viewing_key] = None
+                st.rerun()
+
+            # ── 뷰어 ──────────────────────────────────────────────────────────
+            if st.session_state.get(viewing_key) == fid:
+                if is_pdf:
+                    st.markdown(
+                        f"""<iframe src="{furl}" width="100%" height="780"
+                            style="border:1px solid #ddd;border-radius:8px;margin-top:8px;">
+                        </iframe>""",
+                        unsafe_allow_html=True,
+                    )
+                elif is_image:
+                    st.image(furl, use_container_width=True)
+                st.markdown("---")
 
 with tab_export:
     st.subheader("📤 전략 문서 내보내기")
