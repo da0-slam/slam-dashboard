@@ -134,14 +134,14 @@ def main():
         thumb = find_koc_thumbnail(inf, post_url)
         if not thumb:
             skip += 1
-            print(f"[{i}/{total}] id={pid} — no matching koc thumbnail")
+            print(f"[{i}/{total}] id={pid} - no matching koc thumbnail")
             continue
         if update_campaign_thumbnail(pid, thumb):
             ok += 1
-            print(f"[{i}/{total}] id={pid} — copied thumbnail")
+            print(f"[{i}/{total}] id={pid} - copied thumbnail")
         else:
             fail += 1
-            print(f"[{i}/{total}] id={pid} — update failed")
+            print(f"[{i}/{total}] id={pid} - update failed")
         time.sleep(0.05)
 
     print("=== Done ===")
