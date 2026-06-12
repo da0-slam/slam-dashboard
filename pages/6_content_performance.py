@@ -320,6 +320,8 @@ with tab1:
                     st.write(f"썸네일이 없는 게시물 {len(missing)}개")
                     if st.button("썸네일 스크랩핑 실행", key="cp_scrape_thumbnails"):
                         st.session_state.cp_scrape_results = _scrape_thumbnails_for_posts(missing)
+                        _load_all.clear()
+                        st.rerun()
 
                     if st.session_state.get("cp_scrape_results"):
                         res_df = pd.DataFrame(st.session_state.cp_scrape_results)
