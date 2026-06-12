@@ -45,9 +45,11 @@ def upload_image_from_url(
     Upserts (overwrites) existing files at the same path.
     """
     try:
-        dl_headers: dict = {}
+        dl_headers: dict = {**_request_headers()}
         if apify_token and "api.apify.com" in src_url:
             dl_headers["Authorization"] = f"Bearer {apify_token}"
+        if "imginn.com" in src_url:
+            dl_headers["Referer"] = "https://imginn.com/"
 
         resp = requests.get(src_url, headers=dl_headers, timeout=20)
         if resp.status_code != 200:
@@ -148,6 +150,23 @@ def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
     return None
 
 
+def _fetch_instagram_thumbnail_instaloader(post_url: str) -> str | None:
+    try:
+        import instaloader
+        m = re.search(r'/(?:reel|p|tv)/([^/?#]+)', post_url)
+        if not m:
+            return None
+        shortcode = m.group(1)
+        L = instaloader.Instaloader(quiet=True, download_pictures=False,
+                                     download_videos=False, download_video_thumbnails=False,
+                                     download_geotags=False, download_comments=False,
+                                     save_metadata=False)
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        return post.url
+    except Exception:
+        return None
+
+
 def _fetch_instagram_thumbnail_ytdlp(post_url: str) -> str | None:
     try:
         import yt_dlp
@@ -165,30 +184,9 @@ def _fetch_instagram_thumbnail_ytdlp(post_url: str) -> str | None:
     return None
 
 
-def _fetch_instagram_thumbnail_proxy(post_url: str) -> str | None:
-    """imginn.com 공개 프록시를 통해 썸네일 추출 (로그인 불필요)."""
-    m = re.search(r"instagram\.com/(reel|p|tv)/([^/?#]+)", post_url)
-    if not m:
-        return None
-    post_type, shortcode = m.group(1), m.group(2)
-    for proxy_base in [
-        f"https://imginn.com/{post_type}/{shortcode}/",
-        f"https://imginn.org/{post_type}/{shortcode}/",
-    ]:
-        html = _fetch_html(proxy_base)
-        if html:
-            thumb = _extract_og_image(html)
-            if thumb and "instagram" not in thumb and "cdninstagram" not in thumb:
-                # proxy가 자체 CDN URL을 반환하는 경우도 유효
-                return thumb
-            if thumb:
-                return thumb
-    return None
-
-
 def _fetch_instagram_thumbnail(post_url: str) -> str | None:
-    # 1차: imginn.com 프록시 (로그인 불필요, 빠름)
-    thumb = _fetch_instagram_thumbnail_proxy(post_url)
+    # 1차: instaloader (공개 게시물, 실제 Instagram CDN URL 반환)
+    thumb = _fetch_instagram_thumbnail_instaloader(post_url)
     if thumb:
         return thumb
     # 2차: yt-dlp (설치된 경우, 크롬 쿠키 자동 사용)
