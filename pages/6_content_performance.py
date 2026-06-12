@@ -136,7 +136,7 @@ camp_choices.update({c["name"]: c["id"] for c in campaigns})
 sel_camp_label = st.sidebar.selectbox("캠페인", list(camp_choices.keys()), key="cp_camp")
 filter_campaign_id: str | None = camp_choices[sel_camp_label]
 
-platform_choice = st.sidebar.selectbox("플랫폼", ["전체", "Instagram", "TikTok"], key="cp_plat")
+platform_choice = st.sidebar.selectbox("플랫폼", ["전체", "Instagram", "TikTok"], index=2, key="cp_plat")
 filter_platform = {"전체": None, "Instagram": "instagram", "TikTok": "tiktok"}[platform_choice]
 
 st.sidebar.markdown("**업로드 기간**")
