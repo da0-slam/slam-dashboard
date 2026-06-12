@@ -7,8 +7,13 @@ from utils.supabase_client import (
 
 st.set_page_config(page_title="브랜드사 관리", page_icon="🏢", layout="wide")
 
-require_auth()
+user = require_auth()
 sidebar_user_info()
+
+from utils.supabase_client import get_user_profile as _get_profile
+if _get_profile(user.id).get("role") != "admin":
+    st.error("관리자 전용 페이지입니다.")
+    st.stop()
 
 st.title("🏢 브랜드사 관리")
 
