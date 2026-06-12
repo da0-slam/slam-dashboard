@@ -579,6 +579,20 @@ with tab4:
             )
             e_url = st.text_input("게시물 URL *", value=ep.get("post_url", ""))
 
+            # 썸네일 직접 지정 (자동 스크랩 실패 시)
+            cur_thumb = ep.get("thumbnail_url") or ""
+            with st.expander("🖼️ 썸네일 직접 지정 (선택)", expanded=bool(cur_thumb and "supabase" not in cur_thumb)):
+                thumb_cols = st.columns([3, 1])
+                e_thumb_url = thumb_cols[0].text_input(
+                    "썸네일 이미지 URL",
+                    value=cur_thumb,
+                    placeholder="https://...",
+                    help="자동 스크랩이 안 될 때 이미지 URL을 직접 붙여넣으세요.",
+                )
+                if cur_thumb:
+                    thumb_cols[1].image(cur_thumb, use_container_width=True)
+            e_rescrape = st.checkbox("저장 후 썸네일 자동 재스크랩", value=False, key="edit_rescrape")
+
             raw_date = ep.get("upload_date")
             try:
                 from datetime import datetime as _dt
@@ -612,7 +626,7 @@ with tab4:
             elif post_url_exists(e_url.strip(), exclude_post_id=ep["id"]):
                 st.error("이미 등록된 URL입니다.")
             else:
-                ok = update_campaign_post(ep["id"], brand_id, {
+                payload = {
                     "influencer_name": e_name.strip(),
                     "platform":        e_plat,
                     "post_url":        e_url.strip(),
@@ -622,7 +636,21 @@ with tab4:
                     "comments":        e_comments,
                     "saves":           e_saves,
                     "shares":          e_shares,
-                })
+                }
+                # 썸네일 직접 지정값 반영
+                if e_thumb_url.strip():
+                    payload["thumbnail_url"] = e_thumb_url.strip()
+                ok = update_campaign_post(ep["id"], brand_id, payload)
+                # 자동 재스크랩 요청 시
+                if ok and e_rescrape:
+                    with st.spinner("썸네일 재스크랩 중..."):
+                        new_thumb = fetch_and_upload_thumbnail(
+                            e_url.strip(),
+                            e_name.strip(),
+                            _sanitize_storage_key(ep["id"]),
+                        )
+                        if new_thumb:
+                            update_campaign_post_thumbnail(ep["id"], brand_id, new_thumb)
                 if ok:
                     st.success("수정되었습니다.")
                     st.session_state.cp_editing_post = None
