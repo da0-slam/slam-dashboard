@@ -174,19 +174,22 @@ def upsert_brand_strategy(brand_id: str, updates: dict) -> bool:
     return bool(res.data)
 
 
-def get_strategy_files(brand_id: str) -> list[dict]:
-    res = (get_supabase().table("brand_strategy_files")
-           .select("*").eq("brand_id", brand_id)
-           .order("uploaded_at", desc=True).execute())
+def get_strategy_files(brand_id: str, section: str | None = None) -> list[dict]:
+    q = (get_supabase().table("brand_strategy_files")
+         .select("*").eq("brand_id", brand_id))
+    if section:
+        q = q.eq("section", section)
+    res = q.order("uploaded_at", desc=True).execute()
     return res.data or []
 
 
 def add_strategy_file(brand_id: str, file_name: str, file_url: str,
-                       file_type: str, file_size: int | None = None) -> dict | None:
+                       file_type: str, file_size: int | None = None,
+                       section: str = "general") -> dict | None:
     res = (get_supabase().table("brand_strategy_files")
            .insert({"brand_id": brand_id, "file_name": file_name,
                     "file_url": file_url, "file_type": file_type,
-                    "file_size": file_size}).execute())
+                    "file_size": file_size, "section": section}).execute())
     return res.data[0] if res.data else None
 
 

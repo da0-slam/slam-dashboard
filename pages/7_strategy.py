@@ -49,7 +49,7 @@ else:
     if not brand_id or brand_id not in _user_brand_ids:
         st.error("접근 권한이 없습니다.")
         st.stop()
-    brand_name = brand_id  # fallback; replaced below
+    brand_name = brand_id
     try:
         brands = get_brands()
         brand_name = next((b["name"] for b in brands if b["id"] == brand_id), brand_id)
@@ -61,42 +61,114 @@ else:
 def _load(bid: str) -> dict:
     return get_brand_strategy(bid)
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _load_files(bid: str, section: str) -> list[dict]:
+    return get_strategy_files(bid, section)
+
 
 st.title(f"🎯 전략  ·  {brand_name}")
 
 data = _load(brand_id)
 
-# ── 공통 섹션 렌더러 ─────────────────────────────────────────────────────────
+# ── 파일 업로드/뷰어 공통 렌더러 ─────────────────────────────────────────────
+def _render_files(section: str):
+    st.divider()
+    st.markdown("##### 📎 첨부파일")
+
+    files = _load_files(brand_id, section)
+    viewing_key = f"strat_viewing_{brand_id}_{section}"
+
+    # 파일 목록
+    if files:
+        for f in files:
+            fid      = f["id"]
+            fname    = f["file_name"]
+            furl     = f["file_url"]
+            ftype    = f.get("file_type", "")
+            fsize    = f.get("file_size") or 0
+            size_str = f"{fsize/1024:.0f} KB" if fsize > 0 else ""
+            is_pdf   = "pdf" in ftype.lower()
+            is_image = any(t in ftype.lower() for t in ["png","jpg","jpeg","gif","webp","image"])
+
+            icon = "📄" if is_pdf else ("🖼️" if is_image else "📎")
+            col_a, col_b, col_c = st.columns([6, 1, 1])
+            col_a.markdown(f"{icon} **{fname}**" + (f"  `{size_str}`" if size_str else ""))
+
+            if is_pdf or is_image:
+                is_viewing = st.session_state.get(viewing_key) == fid
+                if col_b.button("🔼 닫기" if is_viewing else "👁️ 보기",
+                                key=f"view_{fid}", use_container_width=True):
+                    st.session_state[viewing_key] = None if is_viewing else fid
+                    st.rerun()
+            else:
+                col_b.markdown(f"[⬇️ 다운로드]({furl})")
+
+            if col_c.button("🗑️", key=f"del_file_{fid}", use_container_width=True):
+                delete_strategy_file(fid)
+                _load_files.clear()
+                if st.session_state.get(viewing_key) == fid:
+                    st.session_state[viewing_key] = None
+                st.rerun()
+
+            if st.session_state.get(viewing_key) == fid:
+                if is_pdf:
+                    st.markdown(
+                        f'<iframe src="{furl}" width="100%" height="780" '
+                        f'style="border:1px solid #ddd;border-radius:8px;margin-top:4px;"></iframe>',
+                        unsafe_allow_html=True,
+                    )
+                elif is_image:
+                    st.image(furl, use_container_width=True)
+                st.markdown("---")
+
+    # 업로드 폼
+    with st.expander("➕ 파일 업로드", expanded=False):
+        uploaded = st.file_uploader(
+            "PDF, 이미지, 문서",
+            type=["pdf", "png", "jpg", "jpeg", "gif", "webp", "pptx", "docx", "xlsx"],
+            key=f"strat_uploader_{brand_id}_{section}",
+            label_visibility="collapsed",
+        )
+        if uploaded is not None:
+            if st.button("⬆️ 업로드", key=f"strat_upload_btn_{section}", type="primary"):
+                with st.spinner("업로드 중..."):
+                    file_bytes = uploaded.read()
+                    file_url = upload_strategy_file(
+                        brand_id, file_bytes, uploaded.name, uploaded.type
+                    )
+                    if file_url:
+                        add_strategy_file(
+                            brand_id, uploaded.name, file_url,
+                            uploaded.type, len(file_bytes), section=section,
+                        )
+                        _load_files.clear()
+                        st.success(f"'{uploaded.name}' 업로드 완료")
+                        st.rerun()
+                    else:
+                        st.error("업로드 실패. Supabase Storage `strategy-files` 버킷을 확인하세요.")
+
+
+# ── 탭 렌더러 ─────────────────────────────────────────────────────────────────
 SECTION_META = {
     "brand_guide": {
         "label": "📖 브랜드 가이드",
         "placeholder": (
             "브랜드의 핵심 가치, 톤앤매너, 슬로건, 금지 표현 등을 마크다운으로 작성하세요.\n\n"
-            "예시:\n"
-            "## 핵심 가치\n- 신뢰, 혁신, 건강\n\n"
-            "## 톤앤매너\n- 친근하되 전문적인 말투 사용\n- 과장 표현 지양\n\n"
-            "## 슬로건\n> 당신의 건강한 하루를 응원합니다"
+            "예시:\n## 핵심 가치\n- 신뢰, 혁신, 건강\n\n## 톤앤매너\n- 친근하되 전문적인 말투 사용\n\n## 슬로건\n> 당신의 건강한 하루를 응원합니다"
         ),
     },
     "campaign_goals": {
         "label": "🎯 캠페인 목표",
         "placeholder": (
             "캠페인 KPI, 목표 수치, 핵심 메시지 등을 작성하세요.\n\n"
-            "예시:\n"
-            "## KPI\n| 지표 | 목표 |\n|---|---|\n| 총 조회수 | 500만 |\n| 팔로워 유입 | 5,000명 |\n\n"
-            "## 핵심 메시지\n1. 제품 체험 후기 중심\n2. 일상 속 자연스러운 노출"
+            "예시:\n## KPI\n| 지표 | 목표 |\n|---|---|\n| 총 조회수 | 500만 |\n\n## 핵심 메시지\n1. 제품 체험 후기 중심"
         ),
     },
     "competitor_refs": {
         "label": "🔍 경쟁사 레퍼런스",
         "placeholder": (
             "참고할 경쟁사 계정, 콘텐츠 URL, 특징 분석 등을 작성하세요.\n\n"
-            "예시:\n"
-            "## 경쟁사 A — @competitor_a\n"
-            "- [참고 릴스](https://www.instagram.com/reel/...)\n"
-            "- 특징: 일상 브이로그 형식, 밝은 색감\n\n"
-            "## 경쟁사 B — @competitor_b\n"
-            "- 특징: 전문가 인터뷰 콘텐츠 강세"
+            "예시:\n## 경쟁사 A — @competitor_a\n- [참고 릴스](https://www.instagram.com/reel/...)\n- 특징: 일상 브이로그 형식"
         ),
     },
 }
@@ -111,7 +183,7 @@ def _render_section(field: str):
         new_val = st.text_area(
             "내용",
             value=content,
-            height=420,
+            height=380,
             placeholder=meta["placeholder"],
             key=f"strat_input_{field}_{brand_id}",
             label_visibility="collapsed",
@@ -134,12 +206,15 @@ def _render_section(field: str):
         else:
             st.info("아직 내용이 없습니다. 편집 버튼을 눌러 추가하세요.")
 
+    # 해당 탭의 파일들
+    _render_files(field)
 
-tab1, tab2, tab3, tab_files, tab_export = st.tabs([
+
+# ── 탭 레이아웃 ───────────────────────────────────────────────────────────────
+tab1, tab2, tab3, tab_export = st.tabs([
     SECTION_META["brand_guide"]["label"],
     SECTION_META["campaign_goals"]["label"],
     SECTION_META["competitor_refs"]["label"],
-    "📎 파일",
     "📤 내보내기",
 ])
 
@@ -152,99 +227,13 @@ with tab2:
 with tab3:
     _render_section("competitor_refs")
 
-with tab_files:
-    st.subheader("📎 첨부파일")
-
-    @st.cache_data(ttl=30, show_spinner=False)
-    def _load_files(bid: str) -> list[dict]:
-        return get_strategy_files(bid)
-
-    # ── 업로드 ────────────────────────────────────────────────────────────────
-    with st.expander("➕ 파일 업로드", expanded=False):
-        uploaded = st.file_uploader(
-            "PDF, 이미지, 문서 파일을 업로드하세요",
-            type=["pdf", "png", "jpg", "jpeg", "gif", "webp", "pptx", "docx", "xlsx"],
-            key=f"strat_file_upload_{brand_id}",
-        )
-        if uploaded is not None:
-            if st.button("⬆️ 업로드", key="strat_upload_btn", type="primary"):
-                with st.spinner("업로드 중..."):
-                    file_bytes = uploaded.read()
-                    file_url = upload_strategy_file(
-                        brand_id, file_bytes, uploaded.name, uploaded.type
-                    )
-                    if file_url:
-                        add_strategy_file(
-                            brand_id, uploaded.name, file_url,
-                            uploaded.type, len(file_bytes)
-                        )
-                        _load_files.clear()
-                        st.success(f"'{uploaded.name}' 업로드 완료")
-                        st.rerun()
-                    else:
-                        st.error("업로드 실패. Supabase Storage에 `strategy-files` 버킷이 있는지 확인하세요.")
-
-    # ── 파일 목록 ─────────────────────────────────────────────────────────────
-    files = _load_files(brand_id)
-    if not files:
-        st.info("업로드된 파일이 없습니다.")
-    else:
-        viewing_key = f"strat_viewing_{brand_id}"
-        if viewing_key not in st.session_state:
-            st.session_state[viewing_key] = None
-
-        for f in files:
-            fid   = f["id"]
-            fname = f["file_name"]
-            furl  = f["file_url"]
-            ftype = f.get("file_type", "")
-            fsize = f.get("file_size") or 0
-            size_str = f"{fsize/1024:.0f} KB" if fsize > 0 else ""
-
-            is_pdf   = "pdf" in ftype.lower()
-            is_image = any(t in ftype.lower() for t in ["png","jpg","jpeg","gif","webp","image"])
-
-            col_a, col_b, col_c = st.columns([6, 1, 1])
-            icon = "📄" if is_pdf else ("🖼️" if is_image else "📎")
-            col_a.markdown(f"**{icon} {fname}** {f'  `{size_str}`' if size_str else ''}")
-
-            if is_pdf or is_image:
-                is_viewing = st.session_state[viewing_key] == fid
-                btn_label = "🔼 닫기" if is_viewing else "👁️ 보기"
-                if col_b.button(btn_label, key=f"view_{fid}", use_container_width=True):
-                    st.session_state[viewing_key] = None if is_viewing else fid
-                    st.rerun()
-            else:
-                col_b.markdown(f"[⬇️]({furl})", unsafe_allow_html=True)
-
-            if col_c.button("🗑️", key=f"del_file_{fid}", use_container_width=True):
-                delete_strategy_file(fid)
-                _load_files.clear()
-                if st.session_state.get(viewing_key) == fid:
-                    st.session_state[viewing_key] = None
-                st.rerun()
-
-            # ── 뷰어 ──────────────────────────────────────────────────────────
-            if st.session_state.get(viewing_key) == fid:
-                if is_pdf:
-                    st.markdown(
-                        f"""<iframe src="{furl}" width="100%" height="780"
-                            style="border:1px solid #ddd;border-radius:8px;margin-top:8px;">
-                        </iframe>""",
-                        unsafe_allow_html=True,
-                    )
-                elif is_image:
-                    st.image(furl, use_container_width=True)
-                st.markdown("---")
-
 with tab_export:
     st.subheader("📤 전략 문서 내보내기")
 
-    brand_guide    = data.get("brand_guide") or ""
-    campaign_goals = data.get("campaign_goals") or ""
+    brand_guide     = data.get("brand_guide") or ""
+    campaign_goals  = data.get("campaign_goals") or ""
     competitor_refs = data.get("competitor_refs") or ""
 
-    # ── Markdown 다운로드 ─────────────────────────────────────────────────────
     md_content = f"""# 🎯 {brand_name} 전략 문서
 
 ---
@@ -276,13 +265,11 @@ with tab_export:
 
     st.divider()
 
-    # ── HTML → PDF 변환용 HTML 다운로드 ──────────────────────────────────────
     try:
         import markdown as _md_lib
         html_body = _md_lib.markdown(md_content, extensions=["tables", "fenced_code"])
     except ImportError:
         import re as _re
-        # 간단한 마크다운 → HTML 변환 (markdown 라이브러리 없을 때)
         html_body = md_content
         html_body = _re.sub(r"^## (.+)$", r"<h2>\1</h2>", html_body, flags=_re.MULTILINE)
         html_body = _re.sub(r"^# (.+)$",  r"<h1>\1</h1>", html_body, flags=_re.MULTILINE)
@@ -295,21 +282,19 @@ with tab_export:
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{brand_name} 전략 문서</title>
   <style>
     body {{ font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
             max-width: 860px; margin: 40px auto; padding: 0 24px;
             color: #1a1a1a; line-height: 1.7; }}
-    h1   {{ color: #222; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; }}
-    h2   {{ color: #333; margin-top: 36px; border-left: 4px solid #ff6b35;
-            padding-left: 10px; }}
-    h3   {{ color: #555; }}
-    a    {{ color: #1a73e8; }}
+    h1 {{ color: #222; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; }}
+    h2 {{ color: #333; margin-top: 36px; border-left: 4px solid #ff6b35; padding-left: 10px; }}
+    h3 {{ color: #555; }}
+    a  {{ color: #1a73e8; }}
     table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
     th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }}
-    th   {{ background: #f5f5f5; }}
-    hr   {{ border: none; border-top: 1px solid #e0e0e0; margin: 32px 0; }}
+    th {{ background: #f5f5f5; }}
+    hr {{ border: none; border-top: 1px solid #e0e0e0; margin: 32px 0; }}
     code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }}
     blockquote {{ border-left: 4px solid #ccc; margin: 0; padding-left: 16px; color: #666; }}
     @media print {{
@@ -331,6 +316,4 @@ with tab_export:
         use_container_width=True,
     )
 
-    st.caption(
-        "HTML 파일을 브라우저로 열고 **Ctrl+P → PDF로 저장**하면 한국어가 깨지지 않는 PDF를 만들 수 있습니다."
-    )
+    st.caption("HTML 파일을 브라우저로 열고 **Ctrl+P → PDF로 저장**하면 한국어가 깨지지 않는 PDF를 만들 수 있습니다.")
