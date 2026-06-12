@@ -37,17 +37,32 @@ def sidebar_user_info() -> None:
             st.markdown("**🔧 관리자 메뉴**")
             st.page_link("pages/_dashboard.py", label="📊 어드민 대시보드", use_container_width=True)
             st.page_link("pages/_brands.py",   label="🏢 브랜드 관리",     use_container_width=True)
+            st.page_link("pages/7_strategy.py", label="🎯 전략",            use_container_width=True)
             st.divider()
+            # 관리자도 전략 페이지 자동 nav 중복 숨김
+            st.markdown("""
+<style>
+[data-testid="stSidebarNav"] a[href*="7_strategy"],
+[data-testid="stSidebarNav"] li:has(a[href*="7_strategy"]) { display:none!important; }
+</style>
+""", unsafe_allow_html=True)
         else:
-            # 비관리자: 어드민 전용 페이지를 자동 생성 네비에서 숨김
+            # 비관리자: 어드민 전용 + 전략 페이지를 자동 생성 네비에서 숨김
             st.markdown("""
 <style>
 [data-testid="stSidebarNav"] a[href*="_dashboard"],
-[data-testid="stSidebarNav"] li:has(a[href*="_dashboard"]) { display:none!important; }
+[data-testid="stSidebarNav"] li:has(a[href*="_dashboard"]),
+[data-testid="stSidebarNav"] a[href*="7_strategy"],
+[data-testid="stSidebarNav"] li:has(a[href*="7_strategy"]) { display:none!important; }
 </style>
 """, unsafe_allow_html=True)
 
             brand_ids = profile.get("brand_ids") or []
+            user_brand_ids = set(brand_ids + ([profile["brand_id"]] if profile.get("brand_id") else []))
+
+            if user_brand_ids:
+                st.page_link("pages/7_strategy.py", label="🎯 전략", use_container_width=True)
+
             if len(brand_ids) > 1:
                 all_brands = get_brands()
                 bmap = {b["id"]: b["name"] for b in all_brands}
@@ -60,7 +75,8 @@ def sidebar_user_info() -> None:
                         "브랜드", labels, index=default_idx, key="_active_brand"
                     )
                     st.session_state["active_brand_id"] = options[labels.index(selected)]
-                    st.divider()
+            if user_brand_ids:
+                st.divider()
 
         st.caption(f"👤 {user.email}")
         if st.button("로그아웃", use_container_width=True, key="_sidebar_logout"):

@@ -155,6 +155,25 @@ def get_brands() -> list[dict]:
     return res.data or []
 
 
+def get_brand_strategy(brand_id: str) -> dict:
+    res = (get_supabase().table("brand_strategy")
+           .select("brand_guide,campaign_goals,competitor_refs,updated_at")
+           .eq("brand_id", brand_id).limit(1).execute())
+    return res.data[0] if res.data else {}
+
+
+def upsert_brand_strategy(brand_id: str, updates: dict) -> bool:
+    sb = get_supabase()
+    existing = sb.table("brand_strategy").select("id").eq("brand_id", brand_id).limit(1).execute()
+    if existing.data:
+        res = (sb.table("brand_strategy")
+               .update({**updates, "updated_at": "now()"})
+               .eq("brand_id", brand_id).execute())
+    else:
+        res = sb.table("brand_strategy").insert({"brand_id": brand_id, **updates}).execute()
+    return bool(res.data)
+
+
 def get_brand_by_id(brand_id: str) -> dict:
     res = get_supabase().table("brands").select("*").eq("id", brand_id).limit(1).execute()
     return res.data[0] if res.data else {}
