@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.auth import require_auth, sidebar_user_info
+from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
 from utils.supabase_client import (
     get_brands, get_brand_by_id, get_campaigns,
     get_browse_contents, get_influencer_contents,
@@ -47,7 +47,7 @@ div[data-testid="stHorizontalBlock"] > div {padding: 0 4px;}
 
 # ─── 사용자 프로필 및 브랜드 확인 ────────────────────────────────────────────
 profile       = get_user_profile(user.id)
-user_brand_id = profile.get("brand_id")
+user_brand_id = get_active_brand_id(profile)
 user_role     = profile.get("role", "brand_user")
 is_admin      = user_role == "admin"
 

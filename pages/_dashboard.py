@@ -162,10 +162,16 @@ else:
     df_users["email"]      = df_users["user_id"].map(email_map).fillna("(이메일 없음)")
     df_users["brand_name"] = df_users["brand_id"].map(brand_id_to_name).fillna("미배정")
     df_users["role_label"] = df_users["role"].map({"admin": "🔴 관리자", "brand_user": "🟢 브랜드유저"}).fillna(df_users["role"])
+    def _brands_label(row):
+        ids = row.get("brand_ids") or []
+        if len(ids) > 1:
+            return ", ".join(brand_id_to_name.get(bid, bid[:8]) for bid in ids)
+        return brand_id_to_name.get(row.get("brand_id", ""), "미배정")
+    df_users["brands_display"] = df_users.apply(_brands_label, axis=1)
 
     st.dataframe(
-        df_users[["email", "role_label", "brand_name"]].rename(columns={
-            "email": "이메일", "role_label": "역할", "brand_name": "브랜드",
+        df_users[["email", "role_label", "brands_display"]].rename(columns={
+            "email": "이메일", "role_label": "역할", "brands_display": "브랜드",
         }),
         use_container_width=True,
         hide_index=True,
@@ -210,20 +216,31 @@ else:
     # ── 브랜드 배정 ────────────────────────────────────────────────────────────
     with c2:
         st.markdown("**브랜드 배정**")
-        cur_brand_name = brand_id_to_name.get(cur.get("brand_id", ""), None)
-        brand_options  = list(brand_name_to_id.keys())
-        default_idx    = brand_options.index(cur_brand_name) if cur_brand_name in brand_options else 0
-        new_brand = st.selectbox("브랜드", brand_options, index=default_idx, key="mgmt_brand")
+        from utils.supabase_client import assign_user_brands
+        cur_brand_ids  = cur.get("brand_ids") or ([cur["brand_id"]] if cur.get("brand_id") else [])
+        cur_brand_names = [brand_id_to_name[bid] for bid in cur_brand_ids if bid in brand_id_to_name]
+        new_brands = st.multiselect(
+            "브랜드 (복수 선택 가능)",
+            list(brand_name_to_id.keys()),
+            default=cur_brand_names,
+            key="mgmt_brands",
+        )
         if st.button("브랜드 저장", use_container_width=True, key="brand_save"):
-            if assign_user_to_brand(sel_uid, brand_name_to_id[new_brand]):
-                st.success(f"브랜드를 **{new_brand}** 로 배정했습니다.")
-                st.rerun()
+            if not new_brands:
+                st.error("최소 1개 이상 선택하세요.")
             else:
-                st.error("배정 실패")
+                new_ids = [brand_name_to_id[n] for n in new_brands]
+                if assign_user_brands(sel_uid, new_ids):
+                    st.success(f"브랜드: **{', '.join(new_brands)}**")
+                    st.rerun()
+                else:
+                    st.error("배정 실패")
 
     # ── 현재 설정 요약 ─────────────────────────────────────────────────────────
     with c3:
         st.markdown("**현재 설정**")
         st.markdown(f"- 이메일: `{email_map.get(sel_uid, '–')}`")
         st.markdown(f"- 역할: `{cur.get('role', '–')}`")
-        st.markdown(f"- 브랜드: `{brand_id_to_name.get(cur.get('brand_id',''), '미배정')}`")
+        cur_ids = cur.get("brand_ids") or ([cur["brand_id"]] if cur.get("brand_id") else [])
+        cur_names = [brand_id_to_name.get(bid, bid[:8]) for bid in cur_ids] or ["미배정"]
+        st.markdown(f"- 브랜드: `{', '.join(cur_names)}`")

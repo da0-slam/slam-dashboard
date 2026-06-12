@@ -5,7 +5,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from utils.auth import require_auth, sidebar_user_info
+from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
 from utils.storage_client import fetch_and_upload_thumbnail
 from utils.supabase_client import (
     create_campaign_post,
@@ -36,7 +36,7 @@ if not profile:
     st.stop()
 
 is_admin = profile.get("role") == "admin"
-brand_id: str | None = profile.get("brand_id")
+brand_id: str | None = get_active_brand_id(profile) if not profile.get("role") == "admin" else profile.get("brand_id")
 
 if is_admin:
     brands = get_brands()
