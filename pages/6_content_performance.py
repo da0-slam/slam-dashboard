@@ -310,20 +310,25 @@ with tab1:
 
         st.divider()
 
-        view_mode = st.radio("게시물 보기 방식", ["썸네일", "목록"], horizontal=True, key="cp_view_mode")
+        view_mode = st.radio("게시물 보기 방식", ["브라우징", "목록"], horizontal=True, key="cp_view_mode")
 
-        with st.expander("🖼️ 썸네일 스크랩핑", expanded=False):
-            missing = [p for p in posts if not p.get("thumbnail_url")]
-            if missing:
-                st.write(f"썸네일이 없는 게시물 {len(missing)}개")
-                if st.button("썸네일 스크랩핑 실행", key="cp_scrape_thumbnails"):
-                    st.session_state.cp_scrape_results = _scrape_thumbnails_for_posts(missing)
+        # 썸네일 스크랩핑 (관리자 전용)
+        if is_admin:
+            with st.expander("🖼️ 썸네일 스크랩핑", expanded=False):
+                missing = [p for p in posts if not p.get("thumbnail_url")]
+                if missing:
+                    st.write(f"썸네일이 없는 게시물 {len(missing)}개")
+                    if st.button("썸네일 스크랩핑 실행", key="cp_scrape_thumbnails"):
+                        st.session_state.cp_scrape_results = _scrape_thumbnails_for_posts(missing)
 
-                if st.session_state.get("cp_scrape_results"):
-                    res_df = pd.DataFrame(st.session_state.cp_scrape_results)
-                    st.dataframe(res_df, use_container_width=True, hide_index=True)
-            else:
-                st.success("이미 모든 게시물에 썸네일이 있습니다.")
+                    if st.session_state.get("cp_scrape_results"):
+                        res_df = pd.DataFrame(st.session_state.cp_scrape_results)
+                        st.dataframe(res_df, use_container_width=True, hide_index=True)
+                else:
+                    st.success("이미 모든 게시물에 썸네일이 있습니다.")
+        else:
+            # 브랜드 사용자에게는 스크랩핑 UI를 표시하지 않음
+            pass
 
         disp = df.copy()
         disp["플랫폼"] = disp["platform"].map({"instagram": "Instagram", "tiktok": "TikTok"})
@@ -335,7 +340,11 @@ with tab1:
             show_cols = ["thumbnail_url"] + show_cols
 
         if sel_camp_label == "전체 캠페인":
-            disp["캠페인"] = disp["campaign_id"].map(campaign_map).fillna("–")
+            # campaign_id 컬럼이 없을 수 있으므로 안전하게 처리
+            if "campaign_id" in disp.columns:
+                disp["캠페인"] = disp["campaign_id"].map(campaign_map).fillna("–")
+            else:
+                disp["캠페인"] = "–"
             show_cols = ["캠페인"] + show_cols[1:]
 
         show_cols = [c for c in show_cols if c in disp.columns]
@@ -356,9 +365,8 @@ with tab1:
         }
         disp = disp[show_cols].rename(columns=rename)
 
-        if view_mode == "썸네일":
-            st.subheader("썸네일 뷰")
-            st.caption("썸네일 스크래핑은 내부 수집 로직을 사용하며, 기존 스크립트는 scripts/backfill_thumbnails.py에 있습니다.")
+        if view_mode == "브라우징":
+            # 브라우징형 썸네일 그리드 — '썸네일 뷰' 문구 제거, 썸네일이 없으면 빈 영역으로 표시
             rows = disp.to_dict(orient="records")
             for chunk in [rows[i:i + 4] for i in range(0, len(rows), 4)]:
                 cols = st.columns(4)
@@ -367,7 +375,8 @@ with tab1:
                     if thumb_url:
                         col.image(thumb_url, use_column_width=True)
                     else:
-                        col.markdown("#### 📷\n썸네일 없음")
+                        # 빈 화면(썸네일 없음)을 그대로 노출 — 카드 영역은 유지
+                        col.write("")
                     col.markdown(f"**{row.get('인플루언서','')}**")
                     col.markdown(f"{row.get('플랫폼','')}")
                     col.markdown(f"업로드일: {row.get('업로드일','-')}")
