@@ -315,9 +315,11 @@ with tab1:
         # 썸네일 스크랩핑 (관리자 전용)
         if is_admin:
             with st.expander("🖼️ 썸네일 스크랩핑", expanded=False):
-                missing = [p for p in posts if not p.get("thumbnail_url")]
+                missing = [p for p in posts
+                           if not p.get("thumbnail_url")
+                           or "supabase" not in (p.get("thumbnail_url") or "")]
                 if missing:
-                    st.write(f"썸네일이 없는 게시물 {len(missing)}개")
+                    st.write(f"썸네일이 없거나 재시도 필요한 게시물 {len(missing)}개")
                     if st.button("썸네일 스크랩핑 실행", key="cp_scrape_thumbnails"):
                         st.session_state.cp_scrape_results = _scrape_thumbnails_for_posts(missing)
                         _load_all.clear()

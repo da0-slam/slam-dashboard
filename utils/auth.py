@@ -31,12 +31,22 @@ def sidebar_user_info() -> None:
     with st.sidebar:
         from utils.supabase_client import get_user_profile, get_brands
         profile = get_user_profile(user.id)
-        if profile.get("role") == "admin":
+        is_admin = profile.get("role") == "admin"
+
+        if is_admin:
             st.markdown("**🔧 관리자 메뉴**")
             st.page_link("pages/_dashboard.py", label="📊 어드민 대시보드", use_container_width=True)
             st.page_link("pages/_brands.py",   label="🏢 브랜드 관리",     use_container_width=True)
             st.divider()
         else:
+            # 비관리자: 어드민 전용 페이지를 자동 생성 네비에서 숨김
+            st.markdown("""
+<style>
+[data-testid="stSidebarNav"] a[href*="_dashboard"],
+[data-testid="stSidebarNav"] li:has(a[href*="_dashboard"]) { display:none!important; }
+</style>
+""", unsafe_allow_html=True)
+
             brand_ids = profile.get("brand_ids") or []
             if len(brand_ids) > 1:
                 all_brands = get_brands()
@@ -47,7 +57,7 @@ def sidebar_user_info() -> None:
                     primary = profile.get("brand_id")
                     default_idx = options.index(primary) if primary in options else 0
                     selected = st.selectbox(
-                        "브랜드 (관리자)", labels, index=default_idx, key="_active_brand"
+                        "브랜드", labels, index=default_idx, key="_active_brand"
                     )
                     st.session_state["active_brand_id"] = options[labels.index(selected)]
                     st.divider()

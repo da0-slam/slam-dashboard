@@ -11,8 +11,14 @@ user = require_auth()
 sidebar_user_info()
 
 from utils.supabase_client import get_user_profile as _get_profile
-if _get_profile(user.id).get("role") != "admin":
-    st.error("관리자 전용 페이지입니다.")
+_profile = _get_profile(user.id)
+_is_admin = _profile.get("role") == "admin"
+_user_brand_ids = set((_profile.get("brand_ids") or []) + (
+    [_profile["brand_id"]] if _profile.get("brand_id") else []
+))
+
+if not _is_admin and not _user_brand_ids:
+    st.error("접근 권한이 없습니다.")
     st.stop()
 
 st.title("🏢 브랜드사 관리")
@@ -43,21 +49,31 @@ def _brand_fields(prefix: str, defaults: dict):
     }
 
 
-tab_list, tab_add = st.tabs(["📋 브랜드 목록", "➕ 새 브랜드 추가"])
+if _is_admin:
+    tab_list, tab_add = st.tabs(["📋 브랜드 목록", "➕ 새 브랜드 추가"])
+else:
+    tab_list, = st.tabs(["📋 내 브랜드"])
+    tab_add = None
 
 # ─── 브랜드 목록 ─────────────────────────────────────────────────────────────
 with tab_list:
-    brands = get_brands()
+    all_brands = get_brands()
+    brands = all_brands if _is_admin else [b for b in all_brands if b["id"] in _user_brand_ids]
 
     if not brands:
-        st.info("등록된 브랜드사가 없습니다. '새 브랜드 추가' 탭에서 추가하세요.")
+        st.info("등록된 브랜드사가 없습니다.")
     else:
-        st.caption(f"총 {len(brands)}개 브랜드사")
+        if _is_admin:
+            st.caption(f"총 {len(brands)}개 브랜드사")
 
         for brand in brands:
             bid = brand["id"]
             with st.container(border=True):
-                c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
+                if _is_admin:
+                    c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
+                else:
+                    c1, c2, c3 = st.columns([4, 1, 1])
+                    c4 = None
                 with c1:
                     cat = f" · {brand['category']}" if brand.get("category") else ""
                     st.markdown(f"**{brand['name']}**{cat}")
@@ -80,13 +96,14 @@ with tab_list:
                         st.session_state[f"reset_pw_{bid}"] = True
                         st.session_state.editing_brand  = None
                         st.session_state.confirm_delete = None
-                with c4:
-                    if st.button("🗑️ 삭제", key=f"del_{bid}", use_container_width=True):
-                        st.session_state.confirm_delete = bid
-                        st.session_state.editing_brand  = None
+                if c4:
+                    with c4:
+                        if st.button("🗑️ 삭제", key=f"del_{bid}", use_container_width=True):
+                            st.session_state.confirm_delete = bid
+                            st.session_state.editing_brand  = None
 
-                # 삭제 확인
-                if st.session_state.confirm_delete == bid:
+                # 삭제 확인 (관리자만)
+                if _is_admin and st.session_state.confirm_delete == bid:
                     st.warning(
                         f"**'{brand['name']}'** 을 삭제하시겠습니까? "
                         "연결된 인플루언서 정보도 함께 삭제됩니다."
@@ -127,7 +144,7 @@ with tab_list:
                                 st.session_state.editing_brand = None
                                 st.rerun()
 
-                # 캠페인 관리 비밀번호 재설정 폼
+                # 비밀번호 재설정 폼
                 if st.session_state.get(f"reset_pw_{bid}"):
                     st.divider()
                     st.caption("🔑 캠페인 관리 비밀번호 재설정")
@@ -153,14 +170,15 @@ with tab_list:
                                 st.session_state.pop(f"reset_pw_{bid}", None)
                                 st.rerun()
 
-# ─── 새 브랜드 추가 ──────────────────────────────────────────────────────────
-with tab_add:
-    with st.form("add_form"):
-        data = _brand_fields("add", {})
-        if st.form_submit_button("➕ 브랜드 추가", use_container_width=True, type="primary"):
-            if not data["name"]:
-                st.error("브랜드명을 입력하세요.")
-            else:
-                create_brand(data)
-                st.success(f"✅ '{data['name']}' 브랜드사가 추가되었습니다.")
-                st.rerun()
+# ─── 새 브랜드 추가 (관리자 전용) ─────────────────────────────────────────────
+if tab_add is not None:
+    with tab_add:
+        with st.form("add_form"):
+            data = _brand_fields("add", {})
+            if st.form_submit_button("➕ 브랜드 추가", use_container_width=True, type="primary"):
+                if not data["name"]:
+                    st.error("브랜드명을 입력하세요.")
+                else:
+                    create_brand(data)
+                    st.success(f"✅ '{data['name']}' 브랜드사가 추가되었습니다.")
+                    st.rerun()
