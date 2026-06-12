@@ -369,21 +369,52 @@ with tab1:
         disp = disp[show_cols].rename(columns=rename)
 
         if view_mode == "브라우징":
-            # 브라우징형 썸네일 그리드 — '썸네일 뷰' 문구 제거, 썸네일이 없으면 빈 영역으로 표시
-            rows = disp.to_dict(orient="records")
-            for chunk in [rows[i:i + 4] for i in range(0, len(rows), 4)]:
-                cols = st.columns(4)
-                for col, row in zip(cols, chunk):
-                    thumb_url = row.get("썸네일") or ""
-                    if thumb_url:
-                        col.image(thumb_url, use_column_width=True)
-                    else:
-                        # 빈 화면(썸네일 없음)을 그대로 노출 — 카드 영역은 유지
-                        col.write("")
-                    col.markdown(f"**{row.get('인플루언서','')}**")
-                    col.markdown(f"{row.get('플랫폼','')}")
-                    if row.get("게시물 URL"):
-                        col.markdown(f"[🔗 게시물 열기]({row.get('게시물 URL')})")
+            rows = [r for r in disp.to_dict(orient="records") if r.get("썸네일")]
+            if not rows:
+                st.info("썸네일이 있는 게시물이 없습니다. 썸네일 스크랩핑을 실행하거나 목록 보기를 이용하세요.")
+            else:
+                def _fmt(n) -> str:
+                    try:
+                        n = int(float(str(n)))
+                        if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
+                        if n >= 1_000:     return f"{n/1_000:.1f}K"
+                        return str(n)
+                    except Exception:
+                        return "-"
+
+                for chunk in [rows[i:i + 4] for i in range(0, len(rows), 4)]:
+                    cols = st.columns(4)
+                    for col, row in zip(cols, chunk):
+                        thumb = row.get("썸네일", "")
+                        url   = row.get("게시물 URL", "") or "#"
+                        name  = row.get("인플루언서", "")
+                        plat  = row.get("플랫폼", "")
+                        views = _fmt(row.get("조회수", 0))
+                        likes = _fmt(row.get("좋아요", 0))
+                        cmts  = _fmt(row.get("댓글", 0))
+                        er    = row.get("참여율(%)", 0)
+                        er_str = f"{float(er):.1f}%" if er else "-"
+                        plat_bg = "#010101" if plat == "TikTok" else "#c13584"
+
+                        col.markdown(f"""
+<a href="{url}" target="_blank" style="text-decoration:none;display:block;margin-bottom:4px;">
+  <div style="position:relative;border-radius:12px;overflow:hidden;background:#111;aspect-ratio:9/16;cursor:pointer;">
+    <img src="{thumb}" style="width:100%;height:100%;object-fit:cover;display:block;">
+    <div style="position:absolute;bottom:0;left:0;right:0;
+                background:linear-gradient(transparent,rgba(0,0,0,.85));
+                padding:28px 10px 10px;">
+      <p style="color:#fff;font-weight:700;font-size:13px;margin:0 0 4px;line-height:1.3;">{name}</p>
+      <p style="color:rgba(255,255,255,.85);font-size:11px;margin:0;">
+        👁 {views} &nbsp;❤️ {likes} &nbsp;💬 {cmts} &nbsp;ER {er_str}
+      </p>
+    </div>
+    <div style="position:absolute;top:8px;left:8px;background:{plat_bg};
+                border-radius:5px;padding:2px 8px;color:#fff;font-size:10px;font-weight:700;">
+      {plat}
+    </div>
+  </div>
+</a>
+""", unsafe_allow_html=True)
             st.divider()
         else:
             st.subheader("게시물 목록")
