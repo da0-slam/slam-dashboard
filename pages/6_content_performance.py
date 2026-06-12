@@ -1,10 +1,12 @@
 import io
+import re
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
 from utils.auth import require_auth, sidebar_user_info
+from utils.storage_client import fetch_and_upload_thumbnail
 from utils.supabase_client import (
     create_campaign_post,
     delete_campaign_post,
@@ -18,6 +20,7 @@ from utils.supabase_client import (
     migrate_google_sheet_rows,
     post_url_exists,
     update_campaign_post,
+    update_campaign_post_thumbnail,
 )
 
 st.set_page_config(page_title="콘텐츠 성과 관리", page_icon="📊", layout="wide")
@@ -78,6 +81,52 @@ campaigns = _load_campaigns(brand_id)
 campaign_map: dict[str, str] = {c["id"]: c["name"] for c in campaigns}
 campaign_name_to_id: dict[str, str] = {c["name"]: c["id"] for c in campaigns}
 
+def _extract_post_id(post_url: str) -> str | None:
+    if not post_url:
+        return None
+    path = post_url.split("?")[0].rstrip("/")
+    ttm = re.search(r"/video/(\d+)", path)
+    if ttm:
+        return ttm.group(1)
+    igm = re.search(r"/(?:reel|p|tv)/([^/]+)", path)
+    if igm:
+        return igm.group(1)
+    parts = [seg for seg in path.split("/") if seg]
+    return parts[-1] if parts else None
+
+
+def _sanitize_storage_key(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", (value or "unknown")).strip("_")[:60]
+
+
+def _scrape_thumbnails_for_posts(posts: list[dict]) -> list[dict]:
+    results: list[dict] = []
+    if not posts:
+        return results
+
+    progress = st.progress(0)
+    with st.spinner("썸네일을 스크랩핑하고 저장하는 중입니다..."):
+        for idx, post in enumerate(posts, start=1):
+            post_id = post.get("id")
+            post_url = post.get("post_url", "")
+            username = post.get("influencer_id") or post.get("influencer_name") or "unknown"
+            storage_key = post_id or _extract_post_id(post_url) or str(idx)
+            storage_key = _sanitize_storage_key(storage_key)
+
+            saved_url = fetch_and_upload_thumbnail(post_url, username, storage_key)
+            if saved_url and post_id:
+                update_campaign_post_thumbnail(post_id, brand_id, saved_url)
+
+            results.append({
+                "인플루언서": post.get("influencer_name", ""),
+                "플랫폼": post.get("platform", ""),
+                "게시물 URL": post_url,
+                "상태": "성공" if saved_url else "실패",
+                "썸네일 URL": saved_url or "",
+            })
+            progress.progress(idx / len(posts))
+
+    return results
 # ── 사이드바 필터 ─────────────────────────────────────────────────────────────
 
 st.sidebar.header("필터")
@@ -261,8 +310,20 @@ with tab1:
 
         st.divider()
 
-        # 게시물 목록 테이블
-        st.subheader("게시물 목록")
+        view_mode = st.radio("게시물 보기 방식", ["썸네일", "목록"], horizontal=True, key="cp_view_mode")
+
+        with st.expander("🖼️ 썸네일 스크랩핑", expanded=False):
+            missing = [p for p in posts if not p.get("thumbnail_url")]
+            if missing:
+                st.write(f"썸네일이 없는 게시물 {len(missing)}개")
+                if st.button("썸네일 스크랩핑 실행", key="cp_scrape_thumbnails"):
+                    st.session_state.cp_scrape_results = _scrape_thumbnails_for_posts(missing)
+
+                if st.session_state.get("cp_scrape_results"):
+                    res_df = pd.DataFrame(st.session_state.cp_scrape_results)
+                    st.dataframe(res_df, use_container_width=True, hide_index=True)
+            else:
+                st.success("이미 모든 게시물에 썸네일이 있습니다.")
 
         disp = df.copy()
         disp["플랫폼"] = disp["platform"].map({"instagram": "Instagram", "tiktok": "TikTok"})
@@ -270,9 +331,54 @@ with tab1:
         show_cols = ["influencer_name", "플랫폼", "post_url", "upload_date",
                      "views", "likes", "comments", "saves", "shares",
                      "engagement_rate", "last_tracked_at"]
+        if "thumbnail_url" in disp.columns:
+            show_cols = ["thumbnail_url"] + show_cols
+
         if sel_camp_label == "전체 캠페인":
             disp["캠페인"] = disp["campaign_id"].map(campaign_map).fillna("–")
-            show_cols = ["influencer_name", "캠페인"] + show_cols[1:]
+            show_cols = ["캠페인"] + show_cols[1:]
+
+        show_cols = [c for c in show_cols if c in disp.columns]
+        rename = {
+            "influencer_name":  "인플루언서",
+            "플랫폼":           "플랫폼",
+            "post_url":         "게시물 URL",
+            "upload_date":      "업로드일",
+            "views":            "조회수",
+            "likes":            "좋아요",
+            "comments":         "댓글",
+            "saves":            "저장",
+            "shares":           "공유",
+            "engagement_rate":  "참여율(%)",
+            "last_tracked_at":  "마지막 갱신",
+            "캠페인":           "캠페인",
+            "thumbnail_url":    "썸네일",
+        }
+        disp = disp[show_cols].rename(columns=rename)
+
+        if view_mode == "썸네일":
+            st.subheader("썸네일 뷰")
+            st.caption("썸네일 스크래핑은 내부 수집 로직을 사용하며, 기존 스크립트는 scripts/backfill_thumbnails.py에 있습니다.")
+            rows = disp.to_dict(orient="records")
+            for chunk in [rows[i:i + 4] for i in range(0, len(rows), 4)]:
+                cols = st.columns(4)
+                for col, row in zip(cols, chunk):
+                    thumb_url = row.get("썸네일") or ""
+                    if thumb_url:
+                        col.image(thumb_url, use_column_width=True)
+                    else:
+                        col.markdown("#### 📷\n썸네일 없음")
+                    col.markdown(f"**{row.get('인플루언서','')}**")
+                    col.markdown(f"{row.get('플랫폼','')}")
+                    col.markdown(f"업로드일: {row.get('업로드일','-')}")
+                    if row.get("게시물 URL"):
+                        col.markdown(f"[🔗 게시물 열기]({row.get('게시물 URL')})")
+            st.divider()
+        else:
+            st.subheader("게시물 목록")
+            if sel_camp_label == "전체 캠페인":
+                disp["캠페인"] = disp["campaign_id"].map(campaign_map).fillna("–")
+                show_cols = ["influencer_name", "캠페인"] + show_cols[1:]
 
         show_cols = [c for c in show_cols if c in disp.columns]
         rename = {

@@ -1,5 +1,6 @@
 """Supabase Storage helpers — upload images and return public CDN URLs."""
 import os
+import re
 
 import requests
 
@@ -83,6 +84,122 @@ def upload_image_from_url(
 def get_public_url(bucket: str, path: str) -> str:
     base = os.environ.get("SUPABASE_URL", "").rstrip("/")
     return f"{base}/storage/v1/object/public/{bucket}/{path}"
+
+
+def _request_headers() -> dict:
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/125.0.0.0 Safari/537.36",
+    }
+
+
+def _fetch_html(url: str) -> str | None:
+    try:
+        resp = requests.get(url, headers=_request_headers(), timeout=20)
+        if resp.status_code == 200:
+            return resp.text
+    except Exception:
+        pass
+    return None
+
+
+def _extract_og_image(html: str) -> str | None:
+    patterns = [
+        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+    ]
+    for pat in patterns:
+        m = re.search(pat, html, flags=re.IGNORECASE)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
+    try:
+        resp = requests.get(
+            "https://www.tiktok.com/oembed",
+            params={"url": post_url},
+            headers=_request_headers(),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("thumbnail_url"):
+                return data["thumbnail_url"]
+    except Exception:
+        pass
+
+    try:
+        resp = requests.post(
+            "https://tikwm.com/api/",
+            data={"url": post_url, "hd": 0},
+            headers=_request_headers(),
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("code") == 0:
+                return data.get("data", {}).get("cover")
+    except Exception:
+        pass
+    return None
+
+
+def _fetch_instagram_thumbnail(post_url: str) -> str | None:
+    html = _fetch_html(post_url)
+    if html:
+        return _extract_og_image(html)
+    return None
+
+
+def fetch_thumbnail_url(post_url: str, platform: str | None = None) -> str | None:
+    if not post_url:
+        return None
+    normalized = post_url.strip()
+    if platform:
+        platform = platform.lower()
+    if platform == "tiktok" or "tiktok.com" in normalized:
+        thumb = _fetch_tiktok_thumbnail(normalized)
+        if thumb:
+            return thumb
+    if platform == "instagram" or "instagram.com" in normalized:
+        thumb = _fetch_instagram_thumbnail(normalized)
+        if thumb:
+            return thumb
+    html = _fetch_html(normalized)
+    if html:
+        return _extract_og_image(html)
+    return None
+
+
+def extract_post_id(post_url: str) -> str | None:
+    if not post_url:
+        return None
+    path = post_url.split("?")[0].rstrip("/")
+    m = re.search(r"/video/(\d+)", path)
+    if m:
+        return m.group(1)
+    m = re.search(r"/(?:reel|p|tv)/([^/]+)", path)
+    if m:
+        return m.group(1)
+    parts = [p for p in path.split("/") if p]
+    return parts[-1] if parts else None
+
+
+def fetch_and_upload_thumbnail(
+    post_url: str,
+    username: str,
+    post_id: str,
+    apify_token: str = "",
+) -> str | None:
+    src_url = fetch_thumbnail_url(post_url)
+    if not src_url:
+        return None
+    stored = upload_thumbnail(src_url, username, post_id, apify_token)
+    return stored or src_url
 
 
 def upload_cover(src_url: str, username: str, apify_token: str = "") -> str | None:

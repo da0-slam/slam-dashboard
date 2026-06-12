@@ -767,6 +767,10 @@ def update_campaign_post(post_id: str, brand_id: str, data: dict) -> bool:
     return bool(res.data)
 
 
+def update_campaign_post_thumbnail(post_id: str, brand_id: str, thumbnail_url: str) -> bool:
+    return update_campaign_post(post_id, brand_id, {"thumbnail_url": thumbnail_url})
+
+
 def delete_campaign_post(post_id: str, brand_id: str) -> bool:
     get_supabase().table("campaign_posts").delete().eq("id", post_id).eq("brand_id", brand_id).execute()
     return True
