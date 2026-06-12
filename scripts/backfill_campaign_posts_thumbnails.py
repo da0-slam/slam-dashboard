@@ -18,7 +18,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.storage_client import fetch_and_upload_thumbnail, extract_post_id
-from utils.supabase_client import update_campaign_post_thumbnail
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
@@ -42,6 +41,17 @@ HEADERS = {
 }
 REST = f"{SUPABASE_URL}/rest/v1"
 PER_THREAD_DELAY = 0.3
+
+
+def update_campaign_post_thumbnail(post_id: str, brand_id: str, thumbnail_url: str) -> bool:
+    r = requests.patch(
+        f"{REST}/campaign_posts",
+        headers=HEADERS,
+        params={"id": f"eq.{post_id}", "brand_id": f"eq.{brand_id}"},
+        json={"thumbnail_url": thumbnail_url},
+        timeout=15,
+    )
+    return r.status_code in (200, 204)
 
 
 def fetch_rows_needing_thumbnail(limit):

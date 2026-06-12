@@ -347,7 +347,8 @@ with tab1:
                 disp["캠페인"] = disp["campaign_id"].map(campaign_map).fillna("–")
             else:
                 disp["캠페인"] = "–"
-            show_cols = ["캠페인"] + show_cols[1:]
+            # influencer_name 제거하고 캠페인 추가 (thumbnail_url 유지)
+            show_cols = ["캠페인"] + [c for c in show_cols if c != "influencer_name"]
 
         show_cols = [c for c in show_cols if c in disp.columns]
         rename = {
