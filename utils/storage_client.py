@@ -148,7 +148,23 @@ def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
     return None
 
 
+def _fetch_instagram_thumbnail_ytdlp(post_url: str) -> str | None:
+    try:
+        import yt_dlp
+        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(post_url, download=False)
+            return info.get("thumbnail") if info else None
+    except Exception:
+        return None
+
+
 def _fetch_instagram_thumbnail(post_url: str) -> str | None:
+    # 1차: yt-dlp (공개 게시물, 로그인 불필요)
+    thumb = _fetch_instagram_thumbnail_ytdlp(post_url)
+    if thumb:
+        return thumb
+    # 2차: OG 태그 HTML 파싱 (로그인 벽으로 거의 실패)
     html = _fetch_html(post_url)
     if html:
         return _extract_og_image(html)

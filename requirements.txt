@@ -4,3 +4,4 @@ supabase>=2.4.0
 pandas>=2.0.0
 plotly>=5.17.0
 python-dotenv>=1.0.0
+yt-dlp>=2024.1.0
