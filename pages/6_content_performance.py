@@ -1104,13 +1104,24 @@ with tab4:
                         f"✅ {len(rows_to_migrate)}개 행 이관 시작 (발송인원 {final_p_count}명 저장)",
                         key="mi_run",
                     ):
-                        with st.spinner("이관 중..."):
-                            created, errors = migrate_google_sheet_rows(
-                                mi_campaign_id, brand_id, rows_to_migrate,
-                                overwrite=overwrite_mode,
-                                participant_count=final_p_count,
-                                force_participant_count=(manual_p_count > 0),
+                        _mi_prog = st.progress(0)
+                        _mi_status = st.empty()
+
+                        def _mi_cb(cur, tot, name):
+                            _mi_prog.progress(cur / tot)
+                            _mi_status.caption(
+                                f"이관 중... ({cur}/{tot}) {name}"
                             )
+
+                        created, errors = migrate_google_sheet_rows(
+                            mi_campaign_id, brand_id, rows_to_migrate,
+                            overwrite=overwrite_mode,
+                            participant_count=final_p_count,
+                            force_participant_count=(manual_p_count > 0),
+                            progress_callback=_mi_cb,
+                        )
+                        _mi_prog.empty()
+                        _mi_status.empty()
                         verb = "업데이트" if overwrite_mode else "생성"
                         st.success(f"이관 완료: {created}개 게시물 {verb}")
                         if errors:

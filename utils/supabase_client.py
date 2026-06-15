@@ -920,6 +920,7 @@ def migrate_google_sheet_rows(
     overwrite: bool = False,
     participant_count: int | None = None,
     force_participant_count: bool = False,
+    progress_callback=None,  # callable(current: int, total: int, name: str)
 ) -> tuple[int, list[str]]:
     """Google Sheet 형식의 rows를 campaign_posts로 이관합니다.
 
@@ -964,8 +965,14 @@ def migrate_google_sheet_rows(
     created = 0
     errors: list[str] = []
 
+    total = len(rows)
     for i, row in enumerate(rows, 1):
         name = str(row.get("name") or "").strip()
+        if progress_callback:
+            try:
+                progress_callback(i, total, name or f"Row {i}")
+            except Exception:
+                pass
         if not name:
             errors.append(f"Row {i}: 인플루언서명 누락 → 건너뜀")
             continue
