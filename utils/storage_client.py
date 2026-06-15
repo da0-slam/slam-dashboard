@@ -254,7 +254,7 @@ def _fetch_instagram_thumbnail_imginn(post_url: str) -> str | None:
         og = _extract_og_image(html)
         if og:
             og = _decode_html_entities(og)
-            if _is_image_url(og) and "t51.2885" not in og:  # 프로필 사진 경로 제외
+            if _is_image_url(og) and "t51.2885-19" not in og:  # t51.2885-19 = 프로필 사진(150x150) 제외, t51.2885-15(일반 포스트)는 허용
                 return og
 
         # 2순위: imginn CDN URL 중 릴 썸네일 경로만 (t51.71878-15, t51.82787-15 등)
@@ -265,7 +265,7 @@ def _fetch_instagram_thumbnail_imginn(post_url: str) -> str | None:
         ]:
             for mm in re.finditer(pat, html):
                 candidate = _decode_html_entities(mm.group(1))
-                if _is_image_url(candidate) and "t51.2885" not in candidate:
+                if _is_image_url(candidate) and "t51.2885-19" not in candidate:
                     return candidate
     except Exception as e:
         print(f"  [imginn] error: {e}")
@@ -288,7 +288,7 @@ def _fetch_instagram_thumbnail_picuki(post_url: str) -> str | None:
         html = resp.text
         # OG 이미지 우선
         og = _extract_og_image(html)
-        if og and _is_image_url(og) and "t51.2885" not in og:
+        if og and _is_image_url(og) and "t51.2885-19" not in og:
             return og
         # 본문 이미지 태그
         mm = re.search(
@@ -297,7 +297,7 @@ def _fetch_instagram_thumbnail_picuki(post_url: str) -> str | None:
         )
         if mm:
             candidate = mm.group(1)
-            if _is_image_url(candidate) and "t51.2885" not in candidate:
+            if _is_image_url(candidate) and "t51.2885-19" not in candidate:
                 return candidate
     except Exception as e:
         print(f"  [picuki] error: {e}")
