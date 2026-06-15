@@ -10,11 +10,20 @@ _COOKIE_MAX_AGE = 30 * 24 * 3600  # 30 days
 
 # ─── Supabase REST (service key로만 접근) ─────────────────────────────────────
 
+def _get_env(name: str) -> str:
+    val = os.environ.get(name, "")
+    if not val:
+        try:
+            val = str(st.secrets.get(name, ""))
+        except Exception:
+            pass
+    return val.split("\n")[0].strip()
+
 def _sb_url() -> str:
-    return os.environ.get("SUPABASE_URL", "").rstrip("/")
+    return _get_env("SUPABASE_URL").rstrip("/")
 
 def _sb_headers() -> dict:
-    key = os.environ.get("SUPABASE_KEY", "")
+    key = _get_env("SUPABASE_KEY")
     return {
         "apikey":        key,
         "Authorization": f"Bearer {key}",

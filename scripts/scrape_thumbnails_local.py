@@ -61,8 +61,8 @@ def get_posts(campaign_id: str | None, platform: str | None, force: bool) -> lis
     if platform:
         params["platform"] = f"eq.{platform}"
     if not force:
-        # Supabase Storage URL 없는 것만 (null이거나 외부 URL — imginn 등 포함)
-        params["or"] = "(thumbnail_url.is.null,thumbnail_url.not.ilike.*supabase*)"
+        # 썸네일 없는 것만 (null인 경우만, 외부 URL 포함 기존 썸네일 있으면 건너뜀)
+        params["thumbnail_url"] = "is.null"
 
     r = requests.get(f"{REST}/campaign_posts", headers=HEADERS, params=params, timeout=30)
     r.raise_for_status()

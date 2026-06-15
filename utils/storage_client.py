@@ -381,6 +381,35 @@ def _is_x_profile_url(post_url: str) -> bool:
     return not bool(re.search(r'/(i/)?status/\d+', post_url))
 
 
+_X_RESERVED = frozenset({
+    'home', 'explore', 'search', 'notifications', 'messages',
+    'i', 'intent', 'settings', 'compose', 'login', 'logout',
+})
+
+
+def _fetch_x_profile_image(post_url: str) -> str | None:
+    """X 프로필 URL에서 unavatar.io를 통해 프로필 이미지 URL 추출."""
+    m = re.search(r'(?:twitter\.com|x\.com)/([^/?#&]+)', post_url)
+    if not m:
+        return None
+    username = m.group(1).lstrip('@')
+    if username.lower() in _X_RESERVED:
+        return None
+    try:
+        resp = requests.get(
+            f'https://unavatar.io/twitter/{username}',
+            headers=_request_headers(),
+            timeout=12,
+            allow_redirects=True,
+        )
+        if resp.status_code == 200 and 'image' in resp.headers.get('content-type', ''):
+            # unavatar.io가 이미지를 직접 서빙 → URL 그대로 반환
+            return f'https://unavatar.io/twitter/{username}'
+    except Exception as e:
+        print(f'  [unavatar] {username}: {e}')
+    return None
+
+
 def _fetch_x_thumbnail(post_url: str) -> str | None:
     """fxtwitter.com / vxtwitter.com 프록시로 X(트위터) 트윗의 미디어 썸네일 추출."""
     if _is_x_profile_url(post_url):
@@ -418,7 +447,7 @@ def fetch_thumbnail_url(post_url: str, platform: str | None = None) -> str | Non
             return thumb
     if platform == "x" or "x.com" in normalized or "twitter.com" in normalized:
         if _is_x_profile_url(normalized):
-            return None  # 프로필 URL → OG fallback으로 프로필 사진 저장되는 버그 방지
+            return _fetch_x_profile_image(normalized)
         thumb = _fetch_x_thumbnail(normalized)
         if thumb:
             return thumb

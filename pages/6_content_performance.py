@@ -454,9 +454,9 @@ with tab1:
             # imginn / picuki 프록시 CDN — 공개 접근 가능
             if "imginn.com" in url or "picuki.com" in url:
                 return True
-            # X(트위터) 미디어 CDN — 프로필 이미지는 제외
+            # X(트위터) 미디어 CDN — 프로필 이미지 포함 허용
             if "pbs.twimg.com" in url or "twimg.com" in url:
-                return "/profile_images/" not in url
+                return True
             # JS/CSS 파일
             if url.lower().split("?")[0].endswith((".js", ".css", ".json")):
                 return False
@@ -485,8 +485,6 @@ with tab1:
             _all_records = disp.to_dict(orient="records")
             rows = []
             for _r in _all_records:
-                if _r.get("플랫폼") == "X":
-                    continue
                 _thumb = _r.get("썸네일") or ""
                 if _is_displayable_thumb(_thumb):
                     rows.append({**_r, "_img": _thumb, "_is_cover": False})
@@ -497,7 +495,11 @@ with tab1:
                         rows.append({**_r, "_img": _cv, "_is_cover": True})
                     # 둘 다 없으면 그리드에서 제외
 
-            rows.sort(key=lambda r: r.get("참여율(%)", 0) or 0, reverse=True)
+            # X는 항상 마지막에, 나머지는 참여율 내림차순
+            rows.sort(key=lambda r: (
+                1 if r.get("플랫폼") == "X" else 0,
+                -(r.get("참여율(%)", 0) or 0),
+            ))
             # 중복 제거: 게시물 URL (쿼리 제거) + 썸네일 URL 둘 다 체크
             _seen_keys: set = set()
             _deduped: list = []
@@ -1026,6 +1028,48 @@ with tab4:
                 except Exception as fe:
                     st.error(f"CSV 파싱 오류: {fe}")
 
+        # ── 청크 이관 자동 실행 (Railway 타임아웃 방지: 20행씩 처리 후 rerun) ────
+        _CHUNK = 20
+        _mi_pending = st.session_state.get("mi_pending_rows")
+        if _mi_pending is not None:
+            _mi_offset = st.session_state.get("mi_offset", 0)
+            _mi_total  = len(_mi_pending)
+            _is_last   = (_mi_offset + _CHUNK) >= _mi_total
+            _chunk     = _mi_pending[_mi_offset : _mi_offset + _CHUNK]
+            _done_so_far = min(_mi_offset + len(_chunk), _mi_total)
+            st.progress(_done_so_far / _mi_total)
+            st.caption(f"이관 중... ({_done_so_far}/{_mi_total})")
+            _chunk_c, _chunk_e = migrate_google_sheet_rows(
+                st.session_state["mi_q_campaign"],
+                brand_id,
+                _chunk,
+                overwrite=st.session_state.get("mi_q_overwrite", False),
+                participant_count=st.session_state["mi_q_p_count"] if _is_last else None,
+                force_participant_count=st.session_state.get("mi_q_force_p", False),
+            )
+            st.session_state["mi_q_created"] = st.session_state.get("mi_q_created", 0) + _chunk_c
+            st.session_state["mi_q_errors"]  = st.session_state.get("mi_q_errors",  []) + _chunk_e
+            st.session_state["mi_offset"]    = _mi_offset + _CHUNK
+            if _is_last:
+                st.session_state["mi_done_result"] = (
+                    st.session_state.pop("mi_q_created", 0),
+                    st.session_state.pop("mi_q_errors",  []),
+                    "업데이트" if st.session_state.get("mi_q_overwrite", False) else "생성",
+                )
+                for _k in ("mi_pending_rows", "mi_offset", "mi_q_campaign",
+                           "mi_q_overwrite", "mi_q_p_count", "mi_q_force_p"):
+                    st.session_state.pop(_k, None)
+                _load_all.clear()
+            st.rerun()
+
+        if "mi_done_result" in st.session_state:
+            _dc, _de, _verb = st.session_state.pop("mi_done_result")
+            st.success(f"이관 완료: {_dc}개 게시물 {_verb}")
+            if _de:
+                with st.expander(f"경고 / 건너뜀 ({len(_de)}건)"):
+                    for _e in _de:
+                        st.warning(_e)
+
         # ── 공통 처리 로직 ────────────────────────────────────────────────────
         if raw_csv is not None:
             try:
@@ -1165,31 +1209,14 @@ with tab4:
                         f"✅ {len(rows_to_migrate)}개 행 이관 시작 (발송인원 {final_p_count}명 저장)",
                         key="mi_run",
                     ):
-                        _mi_prog = st.progress(0)
-                        _mi_status = st.empty()
-
-                        def _mi_cb(cur, tot, name):
-                            _mi_prog.progress(cur / tot)
-                            _mi_status.caption(
-                                f"이관 중... ({cur}/{tot}) {name}"
-                            )
-
-                        created, errors = migrate_google_sheet_rows(
-                            mi_campaign_id, brand_id, rows_to_migrate,
-                            overwrite=overwrite_mode,
-                            participant_count=final_p_count,
-                            force_participant_count=(manual_p_count > 0),
-                            progress_callback=_mi_cb,
-                        )
-                        _mi_prog.empty()
-                        _mi_status.empty()
-                        verb = "업데이트" if overwrite_mode else "생성"
-                        st.success(f"이관 완료: {created}개 게시물 {verb}")
-                        if errors:
-                            with st.expander(f"경고 / 건너뜀 ({len(errors)}건)"):
-                                for e in errors:
-                                    st.warning(e)
-                        _load_all.clear()
+                        st.session_state["mi_pending_rows"] = rows_to_migrate
+                        st.session_state["mi_offset"]       = 0
+                        st.session_state["mi_q_created"]    = 0
+                        st.session_state["mi_q_errors"]     = []
+                        st.session_state["mi_q_campaign"]   = mi_campaign_id
+                        st.session_state["mi_q_overwrite"]  = overwrite_mode
+                        st.session_state["mi_q_p_count"]    = final_p_count
+                        st.session_state["mi_q_force_p"]    = (manual_p_count > 0)
                         st.rerun()
 
             except Exception as ex:

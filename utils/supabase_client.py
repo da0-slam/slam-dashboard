@@ -39,8 +39,14 @@ def verify_password(password: str, stored: str) -> bool:
 
 @st.cache_resource
 def _clean_env(name: str) -> str:
-    """env var에 개행이 섞인 경우 첫 번째 줄만 사용."""
-    return os.environ.get(name, "").split("\n")[0].strip()
+    """env var에 개행이 섞인 경우 첫 번째 줄만 사용. st.secrets fallback 포함."""
+    val = os.environ.get(name, "")
+    if not val:
+        try:
+            val = str(st.secrets.get(name, ""))
+        except Exception:
+            pass
+    return val.split("\n")[0].strip()
 
 
 @st.cache_resource
