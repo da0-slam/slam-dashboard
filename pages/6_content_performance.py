@@ -127,6 +127,30 @@ def _scrape_thumbnails_for_posts(posts: list[dict]) -> list[dict]:
             progress.progress(idx / len(posts))
 
     return results
+# ── 캠페인 선택 (filter_campaign_id 먼저 정의 — 데이터 로드에서 사용) ──────────
+
+camp_choices = {"전체 캠페인": None}
+camp_choices.update({c["name"]: c["id"] for c in campaigns})
+camp_labels = list(camp_choices.keys())
+
+if len(campaigns) <= 7:
+    sel_camp_label = st.radio(
+        "캠페인",
+        camp_labels,
+        horizontal=True,
+        key="cp_camp",
+        label_visibility="collapsed",
+    )
+else:
+    sel_camp_label = st.selectbox(
+        "캠페인 선택",
+        camp_labels,
+        key="cp_camp",
+        label_visibility="collapsed",
+    )
+
+filter_campaign_id: str | None = camp_choices[sel_camp_label]
+
 # ── 사이드바 필터 ─────────────────────────────────────────────────────────────
 
 st.sidebar.header("필터")
@@ -207,36 +231,11 @@ df = pd.DataFrame(posts) if posts else pd.DataFrame(columns=[
     "shares", "engagement_rate", "last_tracked_at", "created_at",
 ])
 
-# ── 페이지 헤더 + 캠페인 선택 ────────────────────────────────────────────────
+# ── 페이지 헤더 ───────────────────────────────────────────────────────────────
 
 st.title("📊 콘텐츠 성과 관리")
-
-# 캠페인 quick-switch (메인 영역)
-camp_choices = {"전체 캠페인": None}
-camp_choices.update({c["name"]: c["id"] for c in campaigns})
-camp_labels = list(camp_choices.keys())
-
-if len(campaigns) <= 7:
-    sel_camp_label = st.radio(
-        "캠페인",
-        camp_labels,
-        horizontal=True,
-        key="cp_camp",
-        label_visibility="collapsed",
-    )
-else:
-    sel_camp_label = st.selectbox(
-        "캠페인 선택",
-        camp_labels,
-        key="cp_camp",
-        label_visibility="collapsed",
-    )
-
-filter_campaign_id: str | None = camp_choices[sel_camp_label]
-
 if filter_campaign_id:
     st.caption(f"캠페인: **{sel_camp_label}**  ·  플랫폼: {platform_choice}")
-
 st.divider()
 
 # ── 탭 ──────────────────────────────────────────────────────────────────────
