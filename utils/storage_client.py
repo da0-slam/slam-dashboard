@@ -364,20 +364,29 @@ def _fetch_instagram_thumbnail(post_url: str) -> str | None:
     return None
 
 
+def _is_x_profile_url(post_url: str) -> bool:
+    """x.com / twitter.com URL이 프로필 페이지인지 확인 (트윗 URL이 아니면 True)."""
+    # 트윗 URL 패턴: /status/TWEET_ID 또는 /i/status/TWEET_ID
+    return not bool(re.search(r'/(i/)?status/\d+', post_url))
+
+
 def _fetch_x_thumbnail(post_url: str) -> str | None:
-    """fxtwitter.com 프록시로 X(트위터) 트윗의 미디어 썸네일 추출."""
+    """fxtwitter.com 프록시로 X(트위터) 트윗의 미디어 썸네일 추출.
+    트윗 URL이 아닌 프로필 URL은 스킵 (프로필 사진 저장 방지).
+    """
+    # 트윗 URL이 아니면 (프로필 페이지) → 처리 안 함
+    if _is_x_profile_url(post_url):
+        return None
     try:
-        # x.com / twitter.com → fxtwitter.com
         fx_url = re.sub(r'https?://(www\.)?(x\.com|twitter\.com)', 'https://fxtwitter.com', post_url)
         resp = requests.get(fx_url, headers=_request_headers(), timeout=15, allow_redirects=True)
         if resp.status_code != 200:
             print(f"  [fxtwitter] HTTP {resp.status_code} for {fx_url[:80]}")
             return None
         html = resp.text
-        # OG image — fxtwitter는 실제 트윗 미디어를 og:image로 노출
         og = _extract_og_image(html)
-        if og and _is_image_url(og):
-            # fxtwitter의 og:image는 pbs.twimg.com CDN (공개 접근 가능)
+        # 프로필 이미지 경로(/profile_images/)는 제외
+        if og and _is_image_url(og) and "/profile_images/" not in og:
             return og
     except Exception as e:
         print(f"  [fxtwitter] error: {e}")

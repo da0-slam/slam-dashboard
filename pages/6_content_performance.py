@@ -454,9 +454,9 @@ with tab1:
             # imginn / picuki 프록시 CDN — 공개 접근 가능
             if "imginn.com" in url or "picuki.com" in url:
                 return True
-            # X(트위터) 미디어 CDN — 공개 접근 가능
+            # X(트위터) 미디어 CDN — 프로필 이미지는 제외
             if "pbs.twimg.com" in url or "twimg.com" in url:
-                return True
+                return "/profile_images/" not in url
             # JS/CSS 파일
             if url.lower().split("?")[0].endswith((".js", ".css", ".json")):
                 return False
