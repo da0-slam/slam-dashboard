@@ -242,7 +242,6 @@ def _fetch_instagram_thumbnail_imginn(post_url: str) -> str | None:
         if not m:
             return None
         shortcode = m.group(1)
-        # imginn은 /p/{shortcode}/ 경로로 접근
         url = f"https://imginn.com/p/{shortcode}/"
         headers = {**_request_headers(), "Referer": "https://imginn.com/"}
         resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
@@ -250,23 +249,24 @@ def _fetch_instagram_thumbnail_imginn(post_url: str) -> str | None:
             print(f"  [imginn] HTTP {resp.status_code} for {shortcode}")
             return None
         html = resp.text
-        for pat in [
-            # imginn 자체 CDN (s1~s9.imginn.com) — 공개 접근 가능
-            r'<img[^>]+src="(https://s\d+\.imginn\.com/[^"]+)"',
-            r'data-src="(https://s\d+\.imginn\.com/[^"]+)"',
-            r'<img[^>]+class="[^"]*media[^"]*"[^>]+src="([^"]+)"',
-            r'"image"\s*:\s*"(https://[^"]+(?:\.jpg|\.webp|\.jpeg)[^"]*)"',
-        ]:
-            mm = re.search(pat, html, re.DOTALL)
-            if mm:
-                candidate = _decode_html_entities(mm.group(1))
-                if _is_image_url(candidate):
-                    return candidate
+
+        # 1순위: OG 이미지 — 릴 썸네일을 정확히 가리킴 (프로필 사진 아님)
         og = _extract_og_image(html)
         if og:
             og = _decode_html_entities(og)
-            if _is_image_url(og):
+            if _is_image_url(og) and "t51.2885" not in og:  # 프로필 사진 경로 제외
                 return og
+
+        # 2순위: imginn CDN URL 중 릴 썸네일 경로만 (t51.71878-15, t51.82787-15 등)
+        # t51.2885-19 = 프로필 사진 → 제외
+        for pat in [
+            r'<img[^>]+src="(https://s\d+\.imginn\.com/[^"]+)"',
+            r'data-src="(https://s\d+\.imginn\.com/[^"]+)"',
+        ]:
+            for mm in re.finditer(pat, html):
+                candidate = _decode_html_entities(mm.group(1))
+                if _is_image_url(candidate) and "t51.2885" not in candidate:
+                    return candidate
     except Exception as e:
         print(f"  [imginn] error: {e}")
     return None
