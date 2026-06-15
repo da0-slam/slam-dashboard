@@ -7,13 +7,24 @@ import requests
 _BUCKET = "tiktok-thumbnails"  # 기존 Supabase Storage 버킷 재사용
 
 
+def _get_env(name: str) -> str:
+    val = os.environ.get(name, "")
+    if not val:
+        try:
+            import streamlit as _st
+            val = str(_st.secrets.get(name, ""))
+        except Exception:
+            pass
+    return val.split("\n")[0].strip()
+
+
 def _sb_storage_url() -> str:
-    base = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    base = _get_env("SUPABASE_URL").rstrip("/")
     return f"{base}/storage/v1"
 
 
 def _headers() -> dict:
-    key = os.environ.get("SUPABASE_KEY", "")
+    key = _get_env("SUPABASE_KEY")
     return {
         "apikey": key,
         "Authorization": f"Bearer {key}",
@@ -459,14 +470,23 @@ def fetch_and_upload_thumbnail(
     return src_url
 
 
+def _safe_path(value: str, max_len: int = 60) -> str:
+    """Storage 경로용 ASCII-safe 문자열로 변환 (한/일/특수문자 → _)."""
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", (value or "unknown")).strip("_")[:max_len] or "unknown"
+
+
 def upload_cover(src_url: str, username: str, apify_token: str = "") -> str | None:
     """인플루언서 대표 커버 이미지 업로드. covers/{username}.jpg 경로 사용."""
-    return upload_image_from_url(src_url, _BUCKET, f"covers/{username}.jpg", apify_token)
+    return upload_image_from_url(src_url, _BUCKET, f"covers/{_safe_path(username)}.jpg", apify_token)
 
 
 def upload_thumbnail(src_url: str, username: str, video_id: str, apify_token: str = "") -> str | None:
     """영상 썸네일 업로드. thumbnails/{username}/{video_id}.jpg 경로 사용."""
-    return upload_image_from_url(src_url, _BUCKET, f"thumbnails/{username}/{video_id}.jpg", apify_token)
+    return upload_image_from_url(
+        src_url, _BUCKET,
+        f"thumbnails/{_safe_path(username)}/{_safe_path(video_id)}.jpg",
+        apify_token,
+    )
 
 
 _STRATEGY_BUCKET = "strategy-files"

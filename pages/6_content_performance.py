@@ -471,10 +471,43 @@ with tab1:
             return True
 
         if view_mode == "그리드":
-            rows = [r for r in disp.to_dict(orient="records")
-                    if _is_displayable_thumb(r.get("썸네일") or "")
-                    and r.get("플랫폼") != "X"]
+            # 인플루언서 프로필 사진 (influencer_master.cover_url) — 썸네일 없을 때 fallback
+            _cover_map = get_influencer_cover_map()  # influencer_id.lower() → cover_url
+            # campaign_posts의 influencer_id / influencer_name → cover_url 매핑
+            _name_to_cover: dict = {}
+            for _p in posts:
+                _iid  = (_p.get("influencer_id")   or "").strip().lower()
+                _iname = (_p.get("influencer_name") or "").strip()
+                _cv = _cover_map.get(_iid) or _cover_map.get(_iname.lower())
+                if _cv and _iname:
+                    _name_to_cover[_iname] = _cv
+
+            _all_records = disp.to_dict(orient="records")
+            rows = []
+            for _r in _all_records:
+                if _r.get("플랫폼") == "X":
+                    continue
+                _thumb = _r.get("썸네일") or ""
+                if _is_displayable_thumb(_thumb):
+                    rows.append({**_r, "_img": _thumb, "_is_cover": False})
+                else:
+                    # 썸네일 없으면 프로필 사진으로 대체
+                    _cv = _name_to_cover.get(_r.get("인플루언서") or "")
+                    if _cv:
+                        rows.append({**_r, "_img": _cv, "_is_cover": True})
+                    # 둘 다 없으면 그리드에서 제외
+
             rows.sort(key=lambda r: r.get("참여율(%)", 0) or 0, reverse=True)
+            # 같은 게시물 URL 중복 제거 (전체 캠페인 보기 시 중복 노출 방지)
+            _seen_urls: set = set()
+            _deduped: list = []
+            for _r in rows:
+                _url_key = (_r.get("게시물 URL") or "").split("?")[0].rstrip("/")
+                if _url_key and _url_key in _seen_urls:
+                    continue
+                _seen_urls.add(_url_key)
+                _deduped.append(_r)
+            rows = _deduped
             if not rows:
                 st.info("썸네일이 있는 게시물이 없습니다. 썸네일 스크랩핑을 실행하거나 목록 보기를 이용하세요.")
             else:
@@ -490,7 +523,7 @@ with tab1:
                 for chunk in [rows[i:i + 4] for i in range(0, len(rows), 4)]:
                     cols = st.columns(4)
                     for col, row in zip(cols, chunk):
-                        thumb = row.get("썸네일", "")
+                        thumb = row.get("_img") or row.get("썸네일", "")
                         url   = row.get("게시물 URL", "") or "#"
                         name  = row.get("인플루언서", "")
                         plat  = row.get("플랫폼", "")
