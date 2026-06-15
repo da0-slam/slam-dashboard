@@ -997,14 +997,15 @@ def migrate_google_sheet_rows(
             "saves":    _int(row.get("ig_saves")),
             "shares":   _int(row.get("ig_shares")),
         }
-        # IG URL만 있고 ig_* 컬럼도 없으면 공통 지표를 IG에 적용
+        # IG URL만 있고 ig_* 컬럼도 없으면 공통/tt_* 지표를 IG에 적용
+        # (UI에서 "Views" 컬럼이 tt_views로 매핑되므로 tt_* fallback도 확인)
         if ig_url and not tt_url and not has_ig_specific:
             ig_metrics = {
-                "views":    _int(row.get("views")),
-                "likes":    _int(row.get("likes")),
-                "comments": _int(row.get("comments")),
-                "saves":    _int(row.get("saves")),
-                "shares":   _int(row.get("shares")),
+                "views":    _int(row.get("views")    or row.get("tt_views")),
+                "likes":    _int(row.get("likes")    or row.get("tt_likes")),
+                "comments": _int(row.get("comments") or row.get("tt_comments")),
+                "saves":    _int(row.get("saves")    or row.get("tt_saves")),
+                "shares":   _int(row.get("shares")   or row.get("tt_shares")),
             }
         # X 지표
         x_metrics = {
