@@ -451,8 +451,11 @@ with tab1:
             # TikTok CDN — 공개 접근 가능
             if "tiktokcdn" in url or "tiktok.com" in url:
                 return True
-            # imginn 프록시 CDN — 공개 접근 가능
-            if "imginn.com" in url:
+            # imginn / picuki 프록시 CDN — 공개 접근 가능
+            if "imginn.com" in url or "picuki.com" in url:
+                return True
+            # X(트위터) 미디어 CDN — 공개 접근 가능
+            if "pbs.twimg.com" in url or "twimg.com" in url:
                 return True
             # JS/CSS 파일
             if url.lower().split("?")[0].endswith((".js", ".css", ".json")):

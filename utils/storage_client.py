@@ -364,6 +364,26 @@ def _fetch_instagram_thumbnail(post_url: str) -> str | None:
     return None
 
 
+def _fetch_x_thumbnail(post_url: str) -> str | None:
+    """fxtwitter.com 프록시로 X(트위터) 트윗의 미디어 썸네일 추출."""
+    try:
+        # x.com / twitter.com → fxtwitter.com
+        fx_url = re.sub(r'https?://(www\.)?(x\.com|twitter\.com)', 'https://fxtwitter.com', post_url)
+        resp = requests.get(fx_url, headers=_request_headers(), timeout=15, allow_redirects=True)
+        if resp.status_code != 200:
+            print(f"  [fxtwitter] HTTP {resp.status_code} for {fx_url[:80]}")
+            return None
+        html = resp.text
+        # OG image — fxtwitter는 실제 트윗 미디어를 og:image로 노출
+        og = _extract_og_image(html)
+        if og and _is_image_url(og):
+            # fxtwitter의 og:image는 pbs.twimg.com CDN (공개 접근 가능)
+            return og
+    except Exception as e:
+        print(f"  [fxtwitter] error: {e}")
+    return None
+
+
 def fetch_thumbnail_url(post_url: str, platform: str | None = None) -> str | None:
     if not post_url:
         return None
@@ -376,6 +396,10 @@ def fetch_thumbnail_url(post_url: str, platform: str | None = None) -> str | Non
             return thumb
     if platform == "instagram" or "instagram.com" in normalized:
         thumb = _fetch_instagram_thumbnail(normalized)
+        if thumb:
+            return thumb
+    if platform == "x" or "x.com" in normalized or "twitter.com" in normalized:
+        thumb = _fetch_x_thumbnail(normalized)
         if thumb:
             return thumb
     html = _fetch_html(normalized)
