@@ -181,7 +181,7 @@ def _is_image_url(url: str) -> bool:
 def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
     """Instagram embed 페이지에서 썸네일 추출 (인증 불필요)."""
     try:
-        m = re.search(r'/(?:reel|p|tv)/([^/?#]+)', post_url)
+        m = re.search(r'/(?:reels?|p|tv)/([^/?#]+)', post_url)
         if not m:
             return None
         shortcode = m.group(1)
@@ -231,42 +231,51 @@ def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
     return None
 
 
+def _decode_html_entities(s: str) -> str:
+    return s.replace('&#38;', '&').replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"')
+
+
 def _fetch_instagram_thumbnail_imginn(post_url: str) -> str | None:
     """imginn.com 프록시를 통해 Instagram 썸네일 가져오기 (공개 이미지 URL 반환)."""
     try:
-        m = re.search(r'/(?:reel|p|tv)/([^/?#]+)', post_url)
+        m = re.search(r'/(?:reels?|p|tv)/([^/?#]+)', post_url)
         if not m:
             return None
         shortcode = m.group(1)
+        # imginn은 /p/{shortcode}/ 경로로 접근
         url = f"https://imginn.com/p/{shortcode}/"
         headers = {**_request_headers(), "Referer": "https://imginn.com/"}
         resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
         if resp.status_code != 200:
+            print(f"  [imginn] HTTP {resp.status_code} for {shortcode}")
             return None
         html = resp.text
         for pat in [
+            # imginn 자체 CDN (s1~s9.imginn.com) — 공개 접근 가능
+            r'<img[^>]+src="(https://s\d+\.imginn\.com/[^"]+)"',
+            r'data-src="(https://s\d+\.imginn\.com/[^"]+)"',
             r'<img[^>]+class="[^"]*media[^"]*"[^>]+src="([^"]+)"',
-            r'<div[^>]+class="[^"]*swiper[^"]*".*?<img[^>]+src="([^"]+)"',
-            r'"image"\s*:\s*"(https://[^"]+(?:\.jpg|\.webp)[^"]*)"',
-            r'<img[^>]+src="(https://imginn\.com/[^"]+)"',
+            r'"image"\s*:\s*"(https://[^"]+(?:\.jpg|\.webp|\.jpeg)[^"]*)"',
         ]:
             mm = re.search(pat, html, re.DOTALL)
             if mm:
-                candidate = mm.group(1)
+                candidate = _decode_html_entities(mm.group(1))
                 if _is_image_url(candidate):
                     return candidate
         og = _extract_og_image(html)
-        if og and _is_image_url(og):
-            return og
-    except Exception:
-        pass
+        if og:
+            og = _decode_html_entities(og)
+            if _is_image_url(og):
+                return og
+    except Exception as e:
+        print(f"  [imginn] error: {e}")
     return None
 
 
 def _fetch_instagram_thumbnail_instaloader(post_url: str) -> str | None:
     try:
         import instaloader
-        m = re.search(r'/(?:reel|p|tv)/([^/?#]+)', post_url)
+        m = re.search(r'/(?:reels?|p|tv)/([^/?#]+)', post_url)
         if not m:
             return None
         shortcode = m.group(1)
@@ -365,10 +374,18 @@ def fetch_and_upload_thumbnail(
     stored = upload_thumbnail(src_url, username, post_id, apify_token)
     if stored:
         return stored
-    # Instagram CDN URL은 브라우저에서 쿠키 없이 표시 불가 → fallback 사용 안 함
-    if any(d in src_url for d in ("cdninstagram.com", "fbcdn.net", "static.cdninstagram.com")):
-        print(f"  [storage] Instagram CDN upload failed, skipping fallback: {src_url[:80]}")
+    # URL 도메인만 체크 (query string에 cdninstagram.com이 포함될 수 있으므로)
+    try:
+        from urllib.parse import urlparse as _parse
+        src_domain = _parse(src_url).netloc
+    except Exception:
+        src_domain = src_url
+    # Instagram 자체 CDN은 쿠키 없이 표시 불가 → fallback 사용 안 함
+    _blocked = ("cdninstagram.com", "fbcdn.net", "scontent-")
+    if any(d in src_domain for d in _blocked):
+        print(f"  [storage] Instagram CDN upload failed, skipping fallback: {src_domain}")
         return None
+    # imginn 등 외부 프록시 URL은 fallback으로 저장 (공개 접근 가능)
     return src_url
 
 

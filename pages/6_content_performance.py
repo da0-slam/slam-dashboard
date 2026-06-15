@@ -426,11 +426,19 @@ with tab1:
             # TikTok CDN — 공개 접근 가능
             if "tiktokcdn" in url or "tiktok.com" in url:
                 return True
-            # Instagram CDN — 쿠키/세션 필요, 브라우저에서 직접 표시 불가
-            if any(d in url for d in ("cdninstagram.com", "fbcdn.net", "scontent-")):
-                return False
+            # imginn 프록시 CDN — 공개 접근 가능
+            if "imginn.com" in url:
+                return True
             # JS/CSS 파일
             if url.lower().split("?")[0].endswith((".js", ".css", ".json")):
+                return False
+            # Instagram 자체 CDN은 도메인 기준으로 차단 (query string 포함 오탐 방지)
+            try:
+                from urllib.parse import urlparse as _p
+                domain = _p(url).netloc
+            except Exception:
+                domain = url
+            if any(d in domain for d in ("cdninstagram.com", "fbcdn.net", "scontent-")):
                 return False
             return True
 
