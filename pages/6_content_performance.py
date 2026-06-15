@@ -448,10 +448,11 @@ with tab1:
 
         if view_mode == "그리드":
             rows = [r for r in disp.to_dict(orient="records")
-                    if _is_displayable_thumb(r.get("썸네일") or "")]
-            # 플랫폼 우선순위: TikTok·Instagram → X → 기타
-            _grid_plat_priority = {"TikTok": 0, "Instagram": 1, "X": 2, "기타": 3}
-            rows.sort(key=lambda r: _grid_plat_priority.get(r.get("플랫폼", "기타"), 4))
+                    if _is_displayable_thumb(r.get("썸네일") or "")
+                    and r.get("플랫폼") != "X"]
+            # 플랫폼 우선순위: TikTok → Instagram → 기타
+            _grid_plat_priority = {"TikTok": 0, "Instagram": 1, "기타": 2}
+            rows.sort(key=lambda r: _grid_plat_priority.get(r.get("플랫폼", "기타"), 3))
             if not rows:
                 st.info("썸네일이 있는 게시물이 없습니다. 썸네일 스크랩핑을 실행하거나 목록 보기를 이용하세요.")
             else:
