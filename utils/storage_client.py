@@ -371,25 +371,23 @@ def _is_x_profile_url(post_url: str) -> bool:
 
 
 def _fetch_x_thumbnail(post_url: str) -> str | None:
-    """fxtwitter.com 프록시로 X(트위터) 트윗의 미디어 썸네일 추출.
-    트윗 URL이 아닌 프로필 URL은 스킵 (프로필 사진 저장 방지).
-    """
-    # 트윗 URL이 아니면 (프로필 페이지) → 처리 안 함
+    """fxtwitter.com / vxtwitter.com 프록시로 X(트위터) 트윗의 미디어 썸네일 추출."""
     if _is_x_profile_url(post_url):
         return None
-    try:
-        fx_url = re.sub(r'https?://(www\.)?(x\.com|twitter\.com)', 'https://fxtwitter.com', post_url)
-        resp = requests.get(fx_url, headers=_request_headers(), timeout=15, allow_redirects=True)
-        if resp.status_code != 200:
-            print(f"  [fxtwitter] HTTP {resp.status_code} for {fx_url[:80]}")
-            return None
-        html = resp.text
-        og = _extract_og_image(html)
-        # 프로필 이미지 경로(/profile_images/)는 제외
-        if og and _is_image_url(og) and "/profile_images/" not in og:
-            return og
-    except Exception as e:
-        print(f"  [fxtwitter] error: {e}")
+    # /photo/N 접미사 제거 (프록시에서 OG 이미지 추출용)
+    base_url = re.sub(r'/photo/\d+$', '', post_url.rstrip('/'))
+    for proxy in ('fxtwitter.com', 'vxtwitter.com'):
+        try:
+            proxy_url = re.sub(r'https?://(www\.)?(x\.com|twitter\.com)', f'https://{proxy}', base_url)
+            resp = requests.get(proxy_url, headers=_request_headers(), timeout=20, allow_redirects=True)
+            if resp.status_code != 200:
+                print(f"  [{proxy}] HTTP {resp.status_code}")
+                continue
+            og = _extract_og_image(resp.text)
+            if og and _is_image_url(og) and "/profile_images/" not in og:
+                return og
+        except Exception as e:
+            print(f"  [{proxy}] error: {e}")
     return None
 
 
@@ -408,9 +406,12 @@ def fetch_thumbnail_url(post_url: str, platform: str | None = None) -> str | Non
         if thumb:
             return thumb
     if platform == "x" or "x.com" in normalized or "twitter.com" in normalized:
+        if _is_x_profile_url(normalized):
+            return None  # 프로필 URL → OG fallback으로 프로필 사진 저장되는 버그 방지
         thumb = _fetch_x_thumbnail(normalized)
         if thumb:
             return thumb
+        return None  # 트윗 URL이지만 미디어 없으면 OG fallback 스킵
     html = _fetch_html(normalized)
     if html:
         return _extract_og_image(html)
