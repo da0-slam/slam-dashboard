@@ -99,34 +99,55 @@ def _sanitize_storage_key(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", (value or "unknown")).strip("_")[:60]
 
 
-def _scrape_thumbnails_for_posts(posts: list[dict]) -> list[dict]:
-    results: list[dict] = []
+def _scrape_thumbnails_for_posts(posts: list[dict], workers: int = 5) -> list[dict]:
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     if not posts:
-        return results
+        return []
+
+    total = len(posts)
+    results = [None] * total
+    done_count = [0]
+    lock = threading.Lock()
 
     progress = st.progress(0)
+    status = st.empty()
+
+    def _scrape_one(idx: int, post: dict):
+        post_id  = post.get("id")
+        post_url = post.get("post_url", "")
+        username = post.get("influencer_id") or post.get("influencer_name") or "unknown"
+        storage_key = post_id or _extract_post_id(post_url) or str(idx)
+        storage_key = _sanitize_storage_key(storage_key)
+
+        saved_url = fetch_and_upload_thumbnail(post_url, username, storage_key)
+        if saved_url and post_id:
+            update_campaign_post_thumbnail(post_id, brand_id, saved_url)
+
+        result = {
+            "인플루언서": post.get("influencer_name", ""),
+            "플랫폼":     post.get("platform", ""),
+            "게시물 URL": post_url,
+            "상태":       "성공" if saved_url else "실패",
+            "썸네일 URL": saved_url or "",
+        }
+        with lock:
+            results[idx] = result
+            done_count[0] += 1
+            n = done_count[0]
+        progress.progress(n / total)
+        status.caption(f"스크랩핑 중... ({n}/{total})")
+        return result
+
     with st.spinner("썸네일을 스크랩핑하고 저장하는 중입니다..."):
-        for idx, post in enumerate(posts, start=1):
-            post_id = post.get("id")
-            post_url = post.get("post_url", "")
-            username = post.get("influencer_id") or post.get("influencer_name") or "unknown"
-            storage_key = post_id or _extract_post_id(post_url) or str(idx)
-            storage_key = _sanitize_storage_key(storage_key)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_scrape_one, i, p): i for i, p in enumerate(posts)}
+            for f in as_completed(futures):
+                f.result()  # 예외 전파
 
-            saved_url = fetch_and_upload_thumbnail(post_url, username, storage_key)
-            if saved_url and post_id:
-                update_campaign_post_thumbnail(post_id, brand_id, saved_url)
-
-            results.append({
-                "인플루언서": post.get("influencer_name", ""),
-                "플랫폼": post.get("platform", ""),
-                "게시물 URL": post_url,
-                "상태": "성공" if saved_url else "실패",
-                "썸네일 URL": saved_url or "",
-            })
-            progress.progress(idx / len(posts))
-
-    return results
+    status.empty()
+    return [r for r in results if r is not None]
 # ── 캠페인 선택 (filter_campaign_id 먼저 정의 — 데이터 로드에서 사용) ──────────
 
 camp_choices = {"전체 캠페인": None}
@@ -384,8 +405,16 @@ with tab1:
                            or (force_ig and p.get("platform") == "instagram")]
                 if missing:
                     st.write(f"스크랩 대상: {len(missing)}개")
+                    scrape_workers = st.slider(
+                        "동시 요청 수",
+                        min_value=1, max_value=10, value=5, step=1,
+                        key="cp_scrape_workers",
+                        help="높을수록 빠르지만 imginn/picuki 차단 위험 증가. 실패 많으면 낮추세요.",
+                    )
                     if st.button("썸네일 스크랩핑 실행", key="cp_scrape_thumbnails"):
-                        st.session_state.cp_scrape_results = _scrape_thumbnails_for_posts(missing)
+                        st.session_state.cp_scrape_results = _scrape_thumbnails_for_posts(
+                            missing, workers=scrape_workers
+                        )
                         _load_all.clear()
                         st.rerun()
 
