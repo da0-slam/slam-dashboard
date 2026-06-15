@@ -43,7 +43,6 @@ def _db_load(sid: str) -> str | None:
         if not rows:
             return None
         row = rows[0]
-        # 만료 체크
         from datetime import datetime, timezone
         exp = row.get("expires_at", "")
         if exp:
@@ -56,7 +55,6 @@ def _db_load(sid: str) -> str | None:
         return None
 
 def _db_update_refresh(sid: str, refresh_token: str) -> None:
-    """rotation 후 새 refresh_token으로 DB 업데이트."""
     try:
         requests.patch(
             f"{_sb_url()}/rest/v1/slam_sessions",
@@ -80,7 +78,7 @@ def _db_delete(sid: str) -> None:
         pass
 
 
-# ─── 인메모리 캐시 (서버 살아있는 동안 빠른 접근용) ──────────────────────────
+# ─── 인메모리 캐시 ────────────────────────────────────────────────────────────
 
 @st.cache_resource
 def _mem() -> dict:
@@ -93,19 +91,64 @@ def save_session(access_token: str, refresh_token: str) -> None:
     sid = str(uuid.uuid4())
     _mem()[sid] = {"access": access_token, "refresh": refresh_token}
     _db_save(sid, refresh_token)
-    # URL에 세션 토큰 노출 금지 — URL 공유 시 세션 탈취 방지
     st.session_state["_session_id"] = sid
     st.session_state.access_token = access_token
+    # URL에 토큰 저장 — restore_session()에서 읽은 뒤 즉시 제거됨
+    st.query_params[_QP_KEY] = sid
 
 
 def restore_session() -> bool:
-    """session_state 기반 세션 복원. URL 파라미터는 사용하지 않음."""
-    return bool(st.session_state.get("user"))
+    """session_state 우선, 없으면 URL 토큰으로 DB에서 복원 후 토큰 즉시 제거."""
+    if st.session_state.get("user"):
+        return True
+
+    sid = st.query_params.get(_QP_KEY)
+    if not sid:
+        return False
+
+    # 인메모리 캐시 확인
+    data = _mem().get(sid)
+
+    # 캐시 미스 → DB에서 복원 (서버 재시작 후)
+    if not data:
+        refresh_token = _db_load(sid)
+        if not refresh_token:
+            try:
+                del st.query_params[_QP_KEY]
+            except Exception:
+                pass
+            return False
+        data = {"access": "", "refresh": refresh_token}
+        _mem()[sid] = data
+
+    try:
+        from utils.supabase_client import refresh_session as _refresh
+        res = _refresh(data.get("access", ""), data["refresh"])
+        if res and res.user:
+            st.session_state.user           = res.user
+            st.session_state.access_token   = res.session.access_token
+            st.session_state["_session_id"] = sid
+            new_refresh = res.session.refresh_token
+            _mem()[sid] = {"access": res.session.access_token, "refresh": new_refresh}
+            _db_update_refresh(sid, new_refresh)
+            # 복원 성공 후 URL에서 토큰 제거 (URL 공유 방지)
+            try:
+                del st.query_params[_QP_KEY]
+            except Exception:
+                pass
+            return True
+    except Exception:
+        clear_session()
+
+    return False
 
 
 def ensure_session_in_url() -> None:
-    """URL에 세션 토큰을 노출하지 않습니다 (보안상 비활성화)."""
-    pass
+    """페이지 이동 후 URL에 토큰이 없으면 재주입 (restore_session이 읽고 즉시 삭제함)."""
+    if not st.query_params.get(_QP_KEY):
+        sid = st.session_state.get("_session_id")
+        if sid:
+            st.query_params[_QP_KEY] = sid
 
 
 def save_pkce_verifier(verifier: str, tid: str) -> None:
@@ -122,3 +165,7 @@ def clear_session() -> None:
         _mem().pop(sid, None)
         _db_delete(sid)
     st.session_state.pop("_session_id", None)
+    try:
+        del st.query_params[_QP_KEY]
+    except Exception:
+        pass

@@ -181,6 +181,10 @@ sort_by = sort_options[sort_label]
 
 all_posts_raw = _load_all(brand_id)
 
+# 삭제된 캠페인의 포스트 제외 (campaign_id가 현재 캠페인 목록에 없는 것)
+_valid_campaign_ids = {c["id"] for c in campaigns}
+all_posts_raw = [p for p in all_posts_raw if p.get("campaign_id") in _valid_campaign_ids]
+
 # Python-side 필터링 (DB 재쿼리 없이 처리)
 raw = all_posts_raw
 if filter_campaign_id:
