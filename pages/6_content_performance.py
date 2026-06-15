@@ -136,8 +136,8 @@ camp_choices.update({c["name"]: c["id"] for c in campaigns})
 sel_camp_label = st.sidebar.selectbox("캠페인", list(camp_choices.keys()), key="cp_camp")
 filter_campaign_id: str | None = camp_choices[sel_camp_label]
 
-platform_choice = st.sidebar.selectbox("플랫폼", ["전체", "Instagram", "TikTok"], index=0, key="cp_plat")
-filter_platform = {"전체": None, "Instagram": "instagram", "TikTok": "tiktok"}[platform_choice]
+platform_choice = st.sidebar.selectbox("플랫폼", ["전체", "Instagram", "TikTok", "X", "기타"], index=0, key="cp_plat")
+filter_platform = {"전체": None, "Instagram": "instagram", "TikTok": "tiktok", "X": "x", "기타": "other"}[platform_choice]
 
 st.sidebar.markdown("**업로드 기간**")
 sc1, sc2 = st.sidebar.columns(2)
@@ -240,6 +240,8 @@ with tab1:
         total_posts       = len(df)
         ig_posts          = int((df["platform"] == "instagram").sum())
         tt_posts          = int((df["platform"] == "tiktok").sum())
+        x_posts           = int((df["platform"] == "x").sum())
+        other_posts       = int((df["platform"] == "other").sum())
         total_views       = int(df["views"].sum())
         total_likes       = int(df["likes"].sum())
         total_comments    = int(df["comments"].sum())
@@ -247,20 +249,33 @@ with tab1:
         total_shares      = int(df["shares"].sum())
         avg_er            = round(float(df["engagement_rate"].mean()), 2)
 
+        # 업로드율 (캠페인 선택 + participant_count 있을 때만)
+        if filter_campaign_id:
+            camp_data = next((c for c in campaigns if c["id"] == filter_campaign_id), {})
+            p_count = camp_data.get("participant_count")
+            if p_count:
+                u_count = df["influencer_name"].nunique()
+                u_rate  = round(u_count / p_count * 100, 1) if p_count > 0 else 0
+                ur1, ur2, ur3 = st.columns(3)
+                ur1.metric("📦 발송 인원", f"{p_count:,}명")
+                ur2.metric("📤 업로드 인원", f"{u_count:,}명")
+                ur3.metric("📊 업로드율", f"{u_rate:.1f}%")
+                st.divider()
+
         # KPI 카드 (5 + 5)
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("참여 인플루언서", f"{total_influencers:,}")
         c2.metric("총 게시물",       f"{total_posts:,}")
         c3.metric("Instagram",      f"{ig_posts:,}")
         c4.metric("TikTok",         f"{tt_posts:,}")
-        c5.metric("평균 참여율",    f"{avg_er:.1f}%")
+        c5.metric("X / 기타",       f"{x_posts + other_posts:,}")
 
         c6, c7, c8, c9, c10 = st.columns(5)
-        c6.metric("총 조회수",  f"{total_views:,}")
-        c7.metric("총 좋아요",  f"{total_likes:,}")
-        c8.metric("총 댓글",    f"{total_comments:,}")
-        c9.metric("총 저장",    f"{total_saves:,}")
-        c10.metric("총 공유",   f"{total_shares:,}")
+        c6.metric("평균 참여율",f"{avg_er:.1f}%")
+        c7.metric("총 조회수",  f"{total_views:,}")
+        c8.metric("총 좋아요",  f"{total_likes:,}")
+        c9.metric("총 댓글",    f"{total_comments:,}")
+        c10.metric("총 저장",   f"{total_saves:,}")
 
         st.divider()
 
@@ -337,7 +352,8 @@ with tab1:
             pass
 
         disp = df.copy()
-        disp["플랫폼"] = disp["platform"].map({"instagram": "Instagram", "tiktok": "TikTok"})
+        _plat_map = {"instagram": "Instagram", "tiktok": "TikTok", "x": "X", "other": "기타"}
+        disp["플랫폼"] = disp["platform"].map(_plat_map).fillna("기타")
 
         show_cols = ["influencer_name", "플랫폼", "post_url",
                      "views", "likes", "comments", "saves", "shares",
@@ -398,7 +414,8 @@ with tab1:
                         cmts  = _fmt(row.get("댓글", 0))
                         er    = row.get("참여율(%)", 0)
                         er_str = f"{float(er):.1f}%" if er else "-"
-                        plat_bg = "#010101" if plat == "TikTok" else "#c13584"
+                        _plat_colors = {"TikTok": "#010101", "Instagram": "#c13584", "X": "#1a8cd8", "기타": "#888888"}
+                        plat_bg = _plat_colors.get(plat, "#555555")
 
                         col.markdown(f"""
 <a href="{url}" target="_blank" style="text-decoration:none;display:block;margin-bottom:4px;">
@@ -455,6 +472,7 @@ with tab2:
                 총_게시물    =("id",              "count"),
                 Instagram    =("platform",         lambda x: (x == "instagram").sum()),
                 TikTok       =("platform",         lambda x: (x == "tiktok").sum()),
+                X            =("platform",         lambda x: (x == "x").sum()),
                 총_조회수    =("views",            "sum"),
                 총_좋아요    =("likes",            "sum"),
                 총_댓글      =("comments",         "sum"),
@@ -797,19 +815,18 @@ with tab4:
         st.markdown("""
 **CSV 형식 안내**
 
-헤더 행이 반드시 포함되어야 합니다. TikTok · Instagram 지표를 각각 입력할 수 있습니다.
+헤더 행이 반드시 포함되어야 합니다. TikTok · Instagram · X · LIPS 지표를 각각 입력할 수 있습니다.
 
-| name | ig_url | tt_url | upload_day | tt_views | tt_likes | tt_comments | tt_saves | ig_views | ig_likes | ig_comments | ig_saves |
-|------|--------|--------|------------|----------|----------|-------------|----------|----------|----------|-------------|----------|
-| Adriana | https://instagram.com/... | https://tiktok.com/... | 2026/05/10 | 5000 | 300 | 40 | 80 | 1156 | 25 | 3 | 0 |
+| name | tt_url | ig_url | x_url | lips_url | upload_day | tt_views | tt_likes | ig_views | ig_likes |
+|------|--------|--------|-------|----------|------------|----------|----------|----------|----------|
+| Adriana | https://tiktok.com/... | https://instagram.com/... | | | 2026/05/10 | 5000 | 300 | 1156 | 25 |
 
 **매핑 규칙**
-- `tt_url` + `ig_url` 둘 다 있으면 → **각각 별도 게시물**로 등록, `tt_*` 지표는 TikTok에, `ig_*` 지표는 Instagram에 적용
-- `tt_url`만 있으면 → TikTok 게시물 1개 (`tt_views` 또는 `views` 컬럼 사용)
-- `ig_url`만 있으면 → Instagram 게시물 1개 (`ig_views` 또는 `views` 컬럼 사용)
-- 구 형식(`views/likes/…` 단일 컬럼)도 그대로 지원됩니다.
+- `tt_url` / `ig_url` / `x_url` / `lips_url` 각각 별도 게시물로 등록 (있는 것만)
+- URL 없는 행도 **발송 인원**으로 집계되어 업로드율 계산에 포함됩니다
+- 구 형식(`views/likes/…` 단일 컬럼)도 그대로 지원됩니다
 
-**Google Sheet 컬럼명 자동 인식**: `Posting URL (TT)`, `Views`, `Likes▼`, `Comments`, `Saves`, `Posting URL (IG)`, `Views(IG)`, `Likes▼(IG)`, `Comments(IG)`
+**Google Sheet 컬럼명 자동 인식**: `Posting URL (TT)`, `Posting URL (IG)`, `Posting URL (X)`, `others(LIPS)`, `Views`, `Likes▼`, `Comments`, `Saves`
 """)
 
         mi_camp_label = st.selectbox(
@@ -819,30 +836,105 @@ with tab4:
         )
         mi_campaign_id = campaign_name_to_id[mi_camp_label]
 
-        uploaded = st.file_uploader("CSV 파일 업로드", type=["csv"], key="mi_csv")
+        import_method = st.radio(
+            "가져오기 방법",
+            ["🔗 Google Sheets URL", "📎 CSV 파일 업로드"],
+            horizontal=True,
+            key="mi_method",
+        )
 
-        if uploaded:
+        raw_csv = None
+
+        # ── Google Sheets URL 방식 ────────────────────────────────────────────
+        if import_method == "🔗 Google Sheets URL":
+            st.caption("시트를 **'링크가 있는 모든 사용자 → 뷰어'** 로 공유한 후 URL을 붙여넣으세요.")
+            sheets_url = st.text_input(
+                "Google Sheets URL",
+                placeholder="https://docs.google.com/spreadsheets/d/...",
+                key="mi_sheets_url",
+            )
+
+            if sheets_url:
+                m = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", sheets_url)
+                if not m:
+                    st.error("올바른 Google Sheets URL이 아닙니다.")
+                else:
+                    sheet_id = m.group(1)
+                    gid_m = re.search(r"[#&?]gid=(\d+)", sheets_url)
+                    gid = gid_m.group(1) if gid_m else "0"
+                    csv_export_url = (
+                        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+                        f"/export?format=csv&gid={gid}"
+                    )
+
+                    fetch_col, info_col = st.columns([1, 3])
+                    if fetch_col.button("📥 시트 불러오기", key="mi_fetch_btn"):
+                        try:
+                            import requests as _http
+                            resp = _http.get(csv_export_url, timeout=20)
+                            resp.raise_for_status()
+                            fetched = pd.read_csv(
+                                io.StringIO(resp.content.decode("utf-8-sig"))
+                            )
+                            st.session_state["mi_fetched_csv"] = fetched.to_dict(orient="list")
+                            st.session_state["mi_fetched_url"] = sheets_url
+                            st.success(f"시트 불러오기 완료: {len(fetched)}행")
+                        except Exception as fe:
+                            st.error(f"불러오기 실패: {fe}")
+                            st.caption(
+                                "시트가 '링크가 있는 모든 사용자' 공유인지 확인하거나, "
+                                "URL의 gid 값(탭 번호)이 맞는지 확인하세요."
+                            )
+
+                    # 같은 URL로 이미 불러온 데이터가 있으면 재사용
+                    if (
+                        st.session_state.get("mi_fetched_url") == sheets_url
+                        and "mi_fetched_csv" in st.session_state
+                    ):
+                        raw_csv = pd.DataFrame(st.session_state["mi_fetched_csv"])
+                        info_col.caption(f"✅ 불러온 시트: {len(raw_csv)}행 · URL이 바뀌면 다시 '불러오기'를 누르세요.")
+
+        # ── CSV 파일 업로드 방식 ──────────────────────────────────────────────
+        else:
+            f = st.file_uploader("CSV 파일 업로드", type=["csv"], key="mi_csv")
+            if f:
+                try:
+                    raw_csv = pd.read_csv(io.StringIO(f.getvalue().decode("utf-8-sig")))
+                except Exception as fe:
+                    st.error(f"CSV 파싱 오류: {fe}")
+
+        # ── 공통 처리 로직 ────────────────────────────────────────────────────
+        if raw_csv is not None:
             try:
-                raw_csv = pd.read_csv(io.StringIO(uploaded.getvalue().decode("utf-8-sig")))
                 raw_csv.columns = [c.strip().lower() for c in raw_csv.columns]
 
                 col_aliases = {
-                    "name":        ["name", "full name", "인플루언서", "influencer", "influencer_name"],
-                    "ig_url":      ["ig_url", "posting url (ig)", "ig url", "instagram_url", "instagram url"],
-                    "tt_url":      ["tt_url", "posting url (tt)", "tt url", "tiktok_url", "tiktok url"],
-                    "upload_day":  ["upload_day", "upload day", "uploadday", "날짜", "date", "visit date"],
-                    # TikTok 지표 (tt_* 우선, 없으면 공통 컬럼 fallback)
-                    "tt_views":    ["tt_views", "views", "view", "조회수", "재생수"],
-                    "tt_likes":    ["tt_likes", "likes", "likes▼", "likes♥", "like", "좋아요"],
-                    "tt_comments": ["tt_comments", "comments", "comment", "댓글"],
-                    "tt_saves":    ["tt_saves", "saves", "save", "저장"],
-                    "tt_shares":   ["tt_shares", "shares", "share", "공유"],
-                    # Instagram 지표 (없으면 0)
-                    "ig_views":    ["ig_views", "views(ig)", "views_ig"],
-                    "ig_likes":    ["ig_likes", "likes(ig)", "likes▼(ig)", "likes♥(ig)", "likes_ig"],
-                    "ig_comments": ["ig_comments", "comments(ig)", "comments_ig"],
-                    "ig_saves":    ["ig_saves", "saves(ig)", "saves_ig"],
-                    "ig_shares":   ["ig_shares", "shares(ig)", "shares_ig"],
+                    "name":          ["name", "full name", "인플루언서", "influencer", "influencer_name"],
+                    "ig_url":        ["ig_url", "posting url (ig)", "ig url", "instagram_url", "instagram url"],
+                    "tt_url":        ["tt_url", "posting url (tt)", "tt url", "tiktok_url", "tiktok url"],
+                    "x_url":         ["x_url", "posting url (x)", "x url", "twitter_url", "x/twitter url"],
+                    "lips_url":      ["lips_url", "others(lips)", "others(lip)", "lips url", "lips posting url", "other url"],
+                    "upload_day":    ["upload_day", "upload day", "uploadday", "날짜", "date", "visit date"],
+                    "tt_views":      ["tt_views", "views", "view", "조회수", "재생수"],
+                    "tt_likes":      ["tt_likes", "likes", "likes▼", "likes♥", "like", "좋아요"],
+                    "tt_comments":   ["tt_comments", "comments", "comment", "댓글"],
+                    "tt_saves":      ["tt_saves", "saves", "save", "저장"],
+                    "tt_shares":     ["tt_shares", "shares", "share", "공유"],
+                    "ig_views":      ["ig_views", "views(ig)", "views_ig"],
+                    "ig_likes":      ["ig_likes", "likes(ig)", "likes▼(ig)", "likes♥(ig)", "likes_ig"],
+                    "ig_comments":   ["ig_comments", "comments(ig)", "comments_ig"],
+                    "ig_saves":      ["ig_saves", "saves(ig)", "saves_ig"],
+                    "ig_shares":     ["ig_shares", "shares(ig)", "shares_ig"],
+                    "x_views":       ["x_views", "views(x)", "views_x"],
+                    "x_likes":       ["x_likes", "likes(x)", "likes_x"],
+                    "x_comments":    ["x_comments", "comments(x)", "comments_x"],
+                    "x_saves":       ["x_saves", "saves(x)", "saves_x"],
+                    "x_shares":      ["x_shares", "shares(x)", "shares_x"],
+                    "other_views":   ["other_views", "lips_views", "views(lips)", "views(other)"],
+                    "other_likes":   ["other_likes", "lips_likes", "likes(lips)", "likes(other)"],
+                    "other_comments":["other_comments", "lips_comments", "comments(lips)"],
+                    "other_saves":   ["other_saves", "lips_saves", "saves(lips)"],
+                    "other_shares":  ["other_shares", "lips_shares", "shares(lips)"],
                 }
 
                 def _find_col(aliases: list[str]) -> str | None:
@@ -854,61 +946,97 @@ with tab4:
                 mapped = {field: _find_col(aliases) for field, aliases in col_aliases.items()}
 
                 if not mapped.get("name"):
-                    st.error("필수 컬럼 누락: name (인플루언서명). CSV 헤더를 확인해주세요.")
+                    st.error("필수 컬럼 누락: name (인플루언서명). 헤더를 확인해주세요.")
                 else:
                     def _val(r, field, default=0):
                         col = mapped.get(field)
                         return r[col] if col and col in r.index else default
 
+                    def _clean(v): return "" if str(v).strip().lower() in ("","nan","none","-") else str(v).strip()
+
                     rows_to_migrate = []
                     for _, r in raw_csv.iterrows():
                         rows_to_migrate.append({
-                            "name":        str(_val(r, "name", "")),
-                            "ig_url":      str(_val(r, "ig_url", "")),
-                            "tt_url":      str(_val(r, "tt_url", "")),
-                            "upload_day":  str(_val(r, "upload_day", "")),
-                            "tt_views":    _val(r, "tt_views"),
-                            "tt_likes":    _val(r, "tt_likes"),
-                            "tt_comments": _val(r, "tt_comments"),
-                            "tt_saves":    _val(r, "tt_saves"),
-                            "tt_shares":   _val(r, "tt_shares"),
-                            "ig_views":    _val(r, "ig_views"),
-                            "ig_likes":    _val(r, "ig_likes"),
-                            "ig_comments": _val(r, "ig_comments"),
-                            "ig_saves":    _val(r, "ig_saves"),
-                            "ig_shares":   _val(r, "ig_shares"),
+                            "name":           str(_val(r, "name", "")),
+                            "ig_url":         str(_val(r, "ig_url", "")),
+                            "tt_url":         str(_val(r, "tt_url", "")),
+                            "x_url":          str(_val(r, "x_url", "")),
+                            "lips_url":       str(_val(r, "lips_url", "")),
+                            "upload_day":     str(_val(r, "upload_day", "")),
+                            "tt_views":       _val(r, "tt_views"),
+                            "tt_likes":       _val(r, "tt_likes"),
+                            "tt_comments":    _val(r, "tt_comments"),
+                            "tt_saves":       _val(r, "tt_saves"),
+                            "tt_shares":      _val(r, "tt_shares"),
+                            "ig_views":       _val(r, "ig_views"),
+                            "ig_likes":       _val(r, "ig_likes"),
+                            "ig_comments":    _val(r, "ig_comments"),
+                            "ig_saves":       _val(r, "ig_saves"),
+                            "ig_shares":      _val(r, "ig_shares"),
+                            "x_views":        _val(r, "x_views"),
+                            "x_likes":        _val(r, "x_likes"),
+                            "x_comments":     _val(r, "x_comments"),
+                            "x_saves":        _val(r, "x_saves"),
+                            "x_shares":       _val(r, "x_shares"),
+                            "other_views":    _val(r, "other_views"),
+                            "other_likes":    _val(r, "other_likes"),
+                            "other_comments": _val(r, "other_comments"),
+                            "other_saves":    _val(r, "other_saves"),
+                            "other_shares":   _val(r, "other_shares"),
                         })
 
-                    # 미리보기: TT/IG 지표 구분해서 표시
-                    st.markdown(f"**미리보기** ({len(rows_to_migrate)}행)")
-                    preview_cols = ["name", "tt_url", "ig_url", "upload_day",
-                                    "tt_views", "tt_likes", "ig_views", "ig_likes"]
-                    preview_df = pd.DataFrame(rows_to_migrate)[
-                        [c for c in preview_cols if c in pd.DataFrame(rows_to_migrate).columns]
-                    ].head(5)
-                    st.dataframe(preview_df, use_container_width=True, hide_index=True)
-
-                    # TT/IG 둘 다 있는 행 수 표시
-                    dual_count = sum(
+                    # ── 업로드율 미리보기 ──────────────────────────────────
+                    _url_keys = ("tt_url", "ig_url", "x_url", "lips_url")
+                    uploaded_cnt = sum(
                         1 for r in rows_to_migrate
-                        if str(r.get("tt_url","")).strip() not in ("","nan","None")
-                        and str(r.get("ig_url","")).strip() not in ("","nan","None")
+                        if any(_clean(r.get(k, "")) for k in _url_keys)
                     )
-                    if dual_count:
-                        st.info(f"TikTok + Instagram 동시 등록: **{dual_count}명** → 게시물 {dual_count*2}개 생성 예정")
+                    no_url_cnt   = len(rows_to_migrate) - uploaded_cnt
+                    u_rate       = round(uploaded_cnt / len(rows_to_migrate) * 100, 1) if rows_to_migrate else 0
+
+                    pv1, pv2, pv3, pv4 = st.columns(4)
+                    pv1.metric("📦 총 발송 인원", f"{len(rows_to_migrate)}명")
+                    pv2.metric("📤 업로드 인원",  f"{uploaded_cnt}명")
+                    pv3.metric("📊 업로드율",      f"{u_rate:.1f}%")
+                    pv4.metric("⏳ 미업로드",      f"{no_url_cnt}명")
+
+                    # ── 미리보기 테이블 ────────────────────────────────────
+                    st.markdown("**미리보기** (상위 5행)")
+                    preview_cols = ["name", "tt_url", "ig_url", "x_url", "lips_url", "upload_day",
+                                    "tt_views", "tt_likes", "ig_views", "ig_likes"]
+                    pv_df = pd.DataFrame(rows_to_migrate)
+                    st.dataframe(
+                        pv_df[[c for c in preview_cols if c in pv_df.columns]].head(5),
+                        use_container_width=True, hide_index=True,
+                    )
+
+                    # ── 플랫폼별 현황 ──────────────────────────────────────
+                    info_parts = []
+                    dual_cnt  = sum(1 for r in rows_to_migrate if _clean(r.get("tt_url","")) and _clean(r.get("ig_url","")))
+                    x_cnt     = sum(1 for r in rows_to_migrate if _clean(r.get("x_url","")))
+                    lips_cnt  = sum(1 for r in rows_to_migrate if _clean(r.get("lips_url","")))
+                    if dual_cnt:  info_parts.append(f"TikTok+Instagram 동시: **{dual_cnt}명**")
+                    if x_cnt:     info_parts.append(f"X: **{x_cnt}명**")
+                    if lips_cnt:  info_parts.append(f"LIPS/기타: **{lips_cnt}명**")
+                    if info_parts:
+                        st.info("  ·  ".join(info_parts))
 
                     overwrite_mode = st.checkbox(
-                        "🔄 기존 데이터 덮어쓰기 (좋아요 등 수치가 잘못 저장된 경우 체크)",
+                        "🔄 기존 데이터 덮어쓰기 (수치가 잘못 저장된 경우)",
                         value=False,
                         key="mi_overwrite",
-                        help="이미 등록된 URL의 지표를 CSV 값으로 업데이트합니다.",
+                        help="이미 등록된 URL의 지표를 현재 데이터로 업데이트합니다.",
                     )
 
-                    if st.button(f"✅ {len(rows_to_migrate)}개 행 이관 시작", key="mi_run"):
+                    if st.button(
+                        f"✅ {len(rows_to_migrate)}개 행 이관 시작 (발송인원 {len(rows_to_migrate)}명 저장)",
+                        key="mi_run",
+                    ):
                         with st.spinner("이관 중..."):
                             created, errors = migrate_google_sheet_rows(
                                 mi_campaign_id, brand_id, rows_to_migrate,
                                 overwrite=overwrite_mode,
+                                participant_count=len(rows_to_migrate),
                             )
                         verb = "업데이트" if overwrite_mode else "생성"
                         st.success(f"이관 완료: {created}개 게시물 {verb}")
@@ -920,4 +1048,4 @@ with tab4:
                         st.rerun()
 
             except Exception as ex:
-                st.error(f"CSV 파싱 오류: {ex}")
+                st.error(f"처리 오류: {ex}")

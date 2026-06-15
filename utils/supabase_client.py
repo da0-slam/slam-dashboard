@@ -918,6 +918,7 @@ def migrate_google_sheet_rows(
     brand_id: str,
     rows: list[dict],
     overwrite: bool = False,
+    participant_count: int | None = None,
 ) -> tuple[int, list[str]]:
     """Google Sheet 형식의 rows를 campaign_posts로 이관합니다.
 
@@ -925,10 +926,12 @@ def migrate_google_sheet_rows(
         name         : 인플루언서 표시 이름
         ig_url       : Instagram 게시물 URL
         tt_url       : TikTok 게시물 URL
+        x_url        : X(트위터) 게시물 URL
+        lips_url     : LIPS 등 기타 플랫폼 URL
         upload_day   : 업로드 날짜 (YYYY/MM/DD 또는 YYYY-MM-DD)
-        tt_views/tt_likes/tt_comments/tt_saves/tt_shares : TikTok 지표
-        ig_views/ig_likes/ig_comments/ig_saves/ig_shares : Instagram 지표
-        views/likes/comments/saves/shares : 단일 지표 (하위 호환, tt_ 없을 때 TikTok에 적용)
+        tt_*/ig_*/x_*/other_* : 플랫폼별 지표 (views/likes/comments/saves/shares)
+        views/likes/... : 단일 지표 (하위 호환, tt_ 없을 때 TikTok에 적용)
+    participant_count: 전체 발송 인원 수 (A열 전체 행수). 제공 시 campaigns에 저장.
     """
     import re
     campaign = get_campaign_if_owned(campaign_id, brand_id)
@@ -953,6 +956,10 @@ def migrate_google_sheet_rows(
         except Exception:
             return 0
 
+    def _clean_url(u: str) -> str:
+        u = str(u or "").strip()
+        return "" if u.lower() in ("nan", "none", "-") else u
+
     created = 0
     errors: list[str] = []
 
@@ -962,14 +969,12 @@ def migrate_google_sheet_rows(
             errors.append(f"Row {i}: 인플루언서명 누락 → 건너뜀")
             continue
 
-        ig_url = str(row.get("ig_url") or "").strip()
-        tt_url = str(row.get("tt_url") or "").strip()
+        ig_url   = _clean_url(row.get("ig_url", ""))
+        tt_url   = _clean_url(row.get("tt_url", ""))
+        x_url    = _clean_url(row.get("x_url", ""))
+        lips_url = _clean_url(row.get("lips_url", ""))
 
-        # URL 정리 (nan/None 문자열 제거)
-        ig_url = "" if ig_url.lower() in ("nan", "none", "-") else ig_url
-        tt_url = "" if tt_url.lower() in ("nan", "none", "-") else tt_url
-
-        if not ig_url and not tt_url:
+        if not ig_url and not tt_url and not x_url and not lips_url:
             errors.append(f"Row {i} ({name}): URL 없음 → 건너뜀")
             continue
 
@@ -983,7 +988,7 @@ def migrate_google_sheet_rows(
             "saves":    _int(row.get("tt_saves")    or row.get("saves")),
             "shares":   _int(row.get("tt_shares")   or row.get("shares")),
         }
-        # Instagram 지표: ig_* 컬럼 우선, 없으면 0 (TT URL 없을 때만 공통 컬럼 fallback)
+        # Instagram 지표: ig_* 컬럼 우선
         has_ig_specific = any(row.get(k) for k in ("ig_views", "ig_likes", "ig_comments", "ig_saves"))
         ig_metrics = {
             "views":    _int(row.get("ig_views")),
@@ -1001,12 +1006,32 @@ def migrate_google_sheet_rows(
                 "saves":    _int(row.get("saves")),
                 "shares":   _int(row.get("shares")),
             }
+        # X 지표
+        x_metrics = {
+            "views":    _int(row.get("x_views")),
+            "likes":    _int(row.get("x_likes")),
+            "comments": _int(row.get("x_comments")),
+            "saves":    _int(row.get("x_saves")),
+            "shares":   _int(row.get("x_shares")),
+        }
+        # 기타(LIPS 등) 지표
+        other_metrics = {
+            "views":    _int(row.get("other_views") or row.get("lips_views")),
+            "likes":    _int(row.get("other_likes") or row.get("lips_likes")),
+            "comments": _int(row.get("other_comments") or row.get("lips_comments")),
+            "saves":    _int(row.get("other_saves")  or row.get("lips_saves")),
+            "shares":   _int(row.get("other_shares") or row.get("lips_shares")),
+        }
 
         to_create: list[dict] = []
         if tt_url:
-            to_create.append({"platform": "tiktok",    "post_url": tt_url, **tt_metrics})
+            to_create.append({"platform": "tiktok",    "post_url": tt_url,   **tt_metrics})
         if ig_url:
-            to_create.append({"platform": "instagram", "post_url": ig_url, **ig_metrics})
+            to_create.append({"platform": "instagram", "post_url": ig_url,   **ig_metrics})
+        if x_url:
+            to_create.append({"platform": "x",         "post_url": x_url,    **x_metrics})
+        if lips_url:
+            to_create.append({"platform": "other",     "post_url": lips_url, **other_metrics})
 
         for post_data in to_create:
             existing = (
@@ -1040,5 +1065,12 @@ def migrate_google_sheet_rows(
                 created += 1
             else:
                 errors.append(f"Row {i} ({name}): DB 저장 실패 ({post_data['platform']})")
+
+    # 발송 인원 수 campaigns 테이블에 저장 (업로드율 계산용)
+    if participant_count is not None:
+        get_supabase().table("campaigns").update({
+            "participant_count": participant_count,
+            "updated_at": _now(),
+        }).eq("id", campaign_id).execute()
 
     return created, errors
