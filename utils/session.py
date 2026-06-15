@@ -3,7 +3,10 @@ import os
 import requests
 import streamlit as st
 
-_QP_KEY = "_s"
+_QP_KEY = "_s"          # URL param — legacy fallback only (cleared after reading)
+_COOKIE_KEY = "slam_s"  # Browser cookie key
+_COOKIE_MAX_AGE = 30 * 24 * 3600  # 30 days
+
 
 # ─── Supabase REST (service key로만 접근) ─────────────────────────────────────
 
@@ -85,6 +88,40 @@ def _mem() -> dict:
     return {}
 
 
+# ─── 쿠키 읽기/쓰기 ──────────────────────────────────────────────────────────
+
+def _cookie_read(key: str):
+    """st.context.cookies로 HTTP 요청 쿠키를 동기적으로 읽음 (Streamlit >= 1.35)."""
+    try:
+        return st.context.cookies.get(key)
+    except AttributeError:
+        return None
+
+def _cookie_write(key: str, value: str) -> None:
+    """CookieController 컴포넌트로 브라우저에 쿠키 저장."""
+    try:
+        from streamlit_cookies_controller import CookieController
+        ctrl = _get_ctrl()
+        ctrl.set(key, value, max_age=_COOKIE_MAX_AGE)
+    except Exception:
+        pass
+
+def _cookie_delete(key: str) -> None:
+    """브라우저 쿠키 삭제."""
+    try:
+        ctrl = _get_ctrl()
+        ctrl.remove(key)
+    except Exception:
+        pass
+
+def _get_ctrl():
+    """CookieController를 session_state에 캐시 (페이지당 1회 렌더링)."""
+    if "_cookie_ctrl" not in st.session_state:
+        from streamlit_cookies_controller import CookieController
+        st.session_state["_cookie_ctrl"] = CookieController()
+    return st.session_state["_cookie_ctrl"]
+
+
 # ─── 공개 API ─────────────────────────────────────────────────────────────────
 
 def save_session(access_token: str, refresh_token: str) -> None:
@@ -93,62 +130,33 @@ def save_session(access_token: str, refresh_token: str) -> None:
     _db_save(sid, refresh_token)
     st.session_state["_session_id"] = sid
     st.session_state.access_token = access_token
-    # URL에 토큰 저장 — restore_session()에서 읽은 뒤 즉시 제거됨
-    st.query_params[_QP_KEY] = sid
+    # 쿠키에 세션 ID 저장 (URL 노출 없이 새로고침 복원)
+    _cookie_write(_COOKIE_KEY, sid)
 
 
 def restore_session() -> bool:
-    """session_state 우선, 없으면 URL 토큰으로 DB에서 복원 후 토큰 즉시 제거."""
+    """session_state 우선, 없으면 쿠키(동기) → URL 순으로 복원."""
     if st.session_state.get("user"):
+        # 이미 인증됨 — URL에 남은 레거시 토큰 정리
+        _clear_url_token()
         return True
 
-    sid = st.query_params.get(_QP_KEY)
+    # 1) HTTP 쿠키에서 sid 동기적으로 읽기 (st.context.cookies)
+    sid = _cookie_read(_COOKIE_KEY)
+
+    # 2) 레거시 URL 파라미터 fallback
+    if not sid:
+        sid = st.query_params.get(_QP_KEY)
+
     if not sid:
         return False
 
-    # 인메모리 캐시 확인
-    data = _mem().get(sid)
-
-    # 캐시 미스 → DB에서 복원 (서버 재시작 후)
-    if not data:
-        refresh_token = _db_load(sid)
-        if not refresh_token:
-            try:
-                del st.query_params[_QP_KEY]
-            except Exception:
-                pass
-            return False
-        data = {"access": "", "refresh": refresh_token}
-        _mem()[sid] = data
-
-    try:
-        from utils.supabase_client import refresh_session as _refresh
-        res = _refresh(data.get("access", ""), data["refresh"])
-        if res and res.user:
-            st.session_state.user           = res.user
-            st.session_state.access_token   = res.session.access_token
-            st.session_state["_session_id"] = sid
-            new_refresh = res.session.refresh_token
-            _mem()[sid] = {"access": res.session.access_token, "refresh": new_refresh}
-            _db_update_refresh(sid, new_refresh)
-            # 복원 성공 후 URL에서 토큰 제거 (URL 공유 방지)
-            try:
-                del st.query_params[_QP_KEY]
-            except Exception:
-                pass
-            return True
-    except Exception:
-        clear_session()
-
-    return False
+    return _restore_from_sid(sid)
 
 
 def ensure_session_in_url() -> None:
-    """페이지 이동 후 URL에 토큰이 없으면 재주입 (restore_session이 읽고 즉시 삭제함)."""
-    if not st.query_params.get(_QP_KEY):
-        sid = st.session_state.get("_session_id")
-        if sid:
-            st.query_params[_QP_KEY] = sid
+    """쿠키 기반 세션으로 전환 — URL 토큰 재주입 불필요. 레거시 토큰만 정리."""
+    _clear_url_token()
 
 
 def save_pkce_verifier(verifier: str, tid: str) -> None:
@@ -165,7 +173,47 @@ def clear_session() -> None:
         _mem().pop(sid, None)
         _db_delete(sid)
     st.session_state.pop("_session_id", None)
+    _cookie_delete(_COOKIE_KEY)
+    _clear_url_token()
+
+
+# ─── 내부 헬퍼 ────────────────────────────────────────────────────────────────
+
+def _clear_url_token() -> None:
+    if st.query_params.get(_QP_KEY):
+        try:
+            del st.query_params[_QP_KEY]
+        except Exception:
+            pass
+
+
+def _restore_from_sid(sid: str) -> bool:
+    """sid로 인메모리 캐시 또는 DB에서 세션 복원."""
+    data = _mem().get(sid)
+
+    if not data:
+        refresh_token = _db_load(sid)
+        if not refresh_token:
+            _clear_url_token()
+            return False
+        data = {"access": "", "refresh": refresh_token}
+        _mem()[sid] = data
+
     try:
-        del st.query_params[_QP_KEY]
+        from utils.supabase_client import refresh_session as _refresh
+        res = _refresh(data.get("access", ""), data["refresh"])
+        if res and res.user:
+            st.session_state.user           = res.user
+            st.session_state.access_token   = res.session.access_token
+            st.session_state["_session_id"] = sid
+            new_refresh = res.session.refresh_token
+            _mem()[sid] = {"access": res.session.access_token, "refresh": new_refresh}
+            _db_update_refresh(sid, new_refresh)
+            # 쿠키 갱신 (만료 연장) + URL 토큰 제거
+            _cookie_write(_COOKIE_KEY, sid)
+            _clear_url_token()
+            return True
     except Exception:
-        pass
+        clear_session()
+
+    return False

@@ -6,3 +6,4 @@ plotly>=5.17.0
 python-dotenv>=1.0.0
 yt-dlp>=2024.1.0
 instaloader>=4.10
+streamlit-cookies-controller>=0.0.4
