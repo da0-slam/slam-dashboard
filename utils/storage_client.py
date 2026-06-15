@@ -272,6 +272,38 @@ def _fetch_instagram_thumbnail_imginn(post_url: str) -> str | None:
     return None
 
 
+def _fetch_instagram_thumbnail_picuki(post_url: str) -> str | None:
+    """picuki.com 프록시를 통해 Instagram 썸네일 추출."""
+    try:
+        m = re.search(r'/(?:reels?|p|tv)/([^/?#]+)', post_url)
+        if not m:
+            return None
+        shortcode = m.group(1)
+        url = f"https://www.picuki.com/media/{shortcode}"
+        headers = {**_request_headers(), "Referer": "https://www.picuki.com/"}
+        resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+        if resp.status_code != 200:
+            print(f"  [picuki] HTTP {resp.status_code} for {shortcode}")
+            return None
+        html = resp.text
+        # OG 이미지 우선
+        og = _extract_og_image(html)
+        if og and _is_image_url(og) and "t51.2885" not in og:
+            return og
+        # 본문 이미지 태그
+        mm = re.search(
+            r'<img[^>]+class=["\'][^"\']*photo[^"\']*["\'][^>]+src=["\']([^"\']+)["\']',
+            html, re.IGNORECASE,
+        )
+        if mm:
+            candidate = mm.group(1)
+            if _is_image_url(candidate) and "t51.2885" not in candidate:
+                return candidate
+    except Exception as e:
+        print(f"  [picuki] error: {e}")
+    return None
+
+
 def _fetch_instagram_thumbnail_instaloader(post_url: str) -> str | None:
     try:
         import instaloader
@@ -303,23 +335,27 @@ def _fetch_instagram_thumbnail_ytdlp(post_url: str) -> str | None:
 
 
 def _fetch_instagram_thumbnail(post_url: str) -> str | None:
-    # 1순위: imginn.com 프록시 (공개 URL 반환, Railway IP 차단 우회)
+    # 1순위: imginn.com 프록시
     thumb = _fetch_instagram_thumbnail_imginn(post_url)
     if thumb:
         return thumb
-    # 2순위: embed 페이지
+    # 2순위: picuki.com 프록시 (imginn 차단 시 대체)
+    thumb = _fetch_instagram_thumbnail_picuki(post_url)
+    if thumb:
+        return thumb
+    # 3순위: embed 페이지
     thumb = _fetch_instagram_thumbnail_embed(post_url)
     if thumb:
         return thumb
-    # 3순위: yt-dlp
+    # 4순위: yt-dlp
     thumb = _fetch_instagram_thumbnail_ytdlp(post_url)
     if thumb:
         return thumb
-    # 4순위: instaloader
+    # 5순위: instaloader
     thumb = _fetch_instagram_thumbnail_instaloader(post_url)
     if thumb:
         return thumb
-    # 5순위: OG 태그 직접 파싱
+    # 6순위: OG 태그 직접 파싱
     html = _fetch_html(post_url)
     if html:
         og = _extract_og_image(html)
