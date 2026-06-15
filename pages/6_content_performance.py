@@ -498,14 +498,19 @@ with tab1:
                     # 둘 다 없으면 그리드에서 제외
 
             rows.sort(key=lambda r: r.get("참여율(%)", 0) or 0, reverse=True)
-            # 같은 게시물 URL 중복 제거 (전체 캠페인 보기 시 중복 노출 방지)
-            _seen_urls: set = set()
+            # 중복 제거: 게시물 URL (쿼리 제거) + 썸네일 URL 둘 다 체크
+            _seen_keys: set = set()
             _deduped: list = []
             for _r in rows:
-                _url_key = (_r.get("게시물 URL") or "").split("?")[0].rstrip("/")
-                if _url_key and _url_key in _seen_urls:
+                _url_key   = (_r.get("게시물 URL") or "").split("?")[0].rstrip("/")
+                _thumb_key = (_r.get("_img") or _r.get("썸네일") or "").split("?")[0]
+                # 둘 중 하나라도 이미 본 적 있으면 중복으로 판단
+                _dup = (_url_key and _url_key in _seen_keys) or \
+                       (_thumb_key and _thumb_key in _seen_keys)
+                if _dup:
                     continue
-                _seen_urls.add(_url_key)
+                if _url_key:   _seen_keys.add(_url_key)
+                if _thumb_key: _seen_keys.add(_thumb_key)
                 _deduped.append(_r)
             rows = _deduped
             if not rows:
