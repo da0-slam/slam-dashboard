@@ -314,13 +314,15 @@ with tab1:
 
         with ch2:
             st.markdown("#### 📊 플랫폼별 성과 비교")
+            _plat_label_map = {"instagram": "Instagram", "tiktok": "TikTok", "x": "X", "other": "기타"}
             plat_df = (
-                df.groupby("platform")
+                df[df["platform"].notna() & df["platform"].isin(_plat_label_map)]
+                .groupby("platform")
                 .agg(총_조회수=("views", "sum"), 총_좋아요=("likes", "sum"),
                      평균_ER=("engagement_rate", "mean"))
                 .reset_index()
             )
-            plat_df["platform"] = plat_df["platform"].map({"instagram": "Instagram", "tiktok": "TikTok"})
+            plat_df["platform"] = plat_df["platform"].map(_plat_label_map)
             plat_df = plat_df.set_index("platform")
             st.bar_chart(plat_df[["총_조회수", "총_좋아요"]])
 
