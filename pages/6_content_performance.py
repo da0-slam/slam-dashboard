@@ -260,7 +260,15 @@ with tab1:
         st.info("게시물 데이터가 없습니다. '게시물 관리' 탭에서 게시물을 추가해주세요.")
     else:
         # KPI 계산
-        total_influencers = df["influencer_name"].nunique()
+        _HDR = {
+            "name", "full name", "인플루언서", "인플루언서명", "influencer",
+            "influencer_name", "이름", "계정", "아이디", "id",
+        }
+        _df_valid = df[
+            df["influencer_name"].str.strip().str.lower()
+            .apply(lambda x: x not in _HDR and x != "")
+        ]
+        total_influencers = _df_valid["influencer_name"].nunique()
         total_posts       = len(df)
         ig_posts          = int((df["platform"] == "instagram").sum())
         tt_posts          = int((df["platform"] == "tiktok").sum())
@@ -278,7 +286,14 @@ with tab1:
             camp_data = next((c for c in campaigns if c["id"] == filter_campaign_id), {})
             p_count = camp_data.get("participant_count")
             if p_count:
-                u_count = df["influencer_name"].nunique()
+                _HEADER_NAMES = {
+                    "name", "full name", "인플루언서", "인플루언서명", "influencer",
+                    "influencer_name", "이름", "계정", "아이디", "id",
+                }
+                u_count = df[
+                    df["influencer_name"].str.strip().str.lower()
+                    .apply(lambda x: x not in _HEADER_NAMES and x != "")
+                ]["influencer_name"].nunique()
                 if p_count < u_count:
                     st.warning(
                         f"발송 인원({p_count:,}명)이 업로드 인원({u_count:,}명)보다 적습니다. "

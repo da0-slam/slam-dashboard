@@ -962,6 +962,12 @@ def migrate_google_sheet_rows(
         u = str(u or "").strip()
         return "" if u.lower() in ("nan", "none", "-") else u
 
+    # 헤더 행으로 판단해 건너뛸 이름 목록
+    _HEADER_NAMES = {
+        "name", "full name", "인플루언서", "인플루언서명", "influencer",
+        "influencer_name", "이름", "계정", "아이디", "id",
+    }
+
     created = 0
     errors: list[str] = []
 
@@ -975,6 +981,9 @@ def migrate_google_sheet_rows(
                 pass
         if not name:
             errors.append(f"Row {i}: 인플루언서명 누락 → 건너뜀")
+            continue
+        if name.lower() in _HEADER_NAMES:
+            errors.append(f"Row {i}: 헤더 행으로 판단 → 건너뜀 ({name})")
             continue
 
         ig_url   = _clean_url(row.get("ig_url", ""))
