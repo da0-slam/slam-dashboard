@@ -416,8 +416,27 @@ with tab1:
         }
         disp = disp[show_cols].rename(columns=rename)
 
+        def _is_displayable_thumb(url: str) -> bool:
+            """브라우저에서 실제로 표시 가능한 썸네일 URL인지 확인."""
+            if not url:
+                return False
+            # Supabase Storage URL — 항상 OK
+            if "supabase" in url:
+                return True
+            # TikTok CDN — 공개 접근 가능
+            if "tiktokcdn" in url or "tiktok.com" in url:
+                return True
+            # Instagram CDN — 쿠키/세션 필요, 브라우저에서 직접 표시 불가
+            if any(d in url for d in ("cdninstagram.com", "fbcdn.net", "scontent-")):
+                return False
+            # JS/CSS 파일
+            if url.lower().split("?")[0].endswith((".js", ".css", ".json")):
+                return False
+            return True
+
         if view_mode == "그리드":
-            rows = [r for r in disp.to_dict(orient="records") if r.get("썸네일")]
+            rows = [r for r in disp.to_dict(orient="records")
+                    if _is_displayable_thumb(r.get("썸네일") or "")]
             # 플랫폼 우선순위: TikTok·Instagram → X → 기타
             _grid_plat_priority = {"TikTok": 0, "Instagram": 1, "X": 2, "기타": 3}
             rows.sort(key=lambda r: _grid_plat_priority.get(r.get("플랫폼", "기타"), 4))
