@@ -55,10 +55,19 @@ def upload_image_from_url(
 
         resp = requests.get(src_url, headers=dl_headers, timeout=20)
         if resp.status_code != 200:
+            print(f"  [storage] download failed {resp.status_code}: {src_url[:80]}")
             return None
 
         content_type = resp.headers.get("Content-Type", "image/jpeg").split(";")[0]
+        # HTML이 돌아오면 CDN이 로그인 페이지로 리디렉션한 것 — 업로드 중단
+        if "text/html" in content_type or "text/plain" in content_type:
+            print(f"  [storage] non-image content_type={content_type}: {src_url[:80]}")
+            return None
+
         img_bytes = resp.content
+        if len(img_bytes) < 1000:
+            print(f"  [storage] suspiciously small response ({len(img_bytes)}B): {src_url[:80]}")
+            return None
 
         for attempt in range(3):
             try:
@@ -74,6 +83,7 @@ def upload_image_from_url(
                 )
                 if upload_resp.status_code in (200, 201):
                     return get_public_url(bucket, path)
+                print(f"  [storage] upload HTTP {upload_resp.status_code}: {upload_resp.text[:120]}")
                 return None
             except requests.exceptions.ConnectionError:
                 if attempt < 2:
@@ -152,6 +162,22 @@ def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
     return None
 
 
+_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp")
+_NON_IMAGE_EXTS = (".js", ".css", ".json", ".html", ".xml", ".txt", ".svg", ".woff", ".ttf")
+
+
+def _is_image_url(url: str) -> bool:
+    """URL이 이미지 파일인지 확인 (JS·CSS 등 제외)."""
+    path = url.lower().split("?")[0].split("#")[0]
+    if any(path.endswith(ext) for ext in _NON_IMAGE_EXTS):
+        return False
+    # CDN URL이면 이미지로 간주 (확장자 없어도)
+    if any(d in url for d in ("cdninstagram.com/v/", "fbcdn.net/v/", "scontent-")):
+        return True
+    # 명시적 이미지 확장자
+    return any(path.endswith(ext) for ext in _IMAGE_EXTS)
+
+
 def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
     """Instagram embed 페이지에서 썸네일 추출 (인증 불필요)."""
     try:
@@ -183,7 +209,8 @@ def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
                     r'"display_url"\s*:\s*"([^"]+)"',
                     r'"thumbnail_src"\s*:\s*"([^"]+)"',
                     r'"poster"\s*:\s*"([^"]+)"',
-                    r'src="(https://[^"]*(?:cdninstagram\.com|fbcdn\.net)[^"]{20,})"',
+                    # img 태그의 src만 (script src 제외)
+                    r'<img[^>]+src="(https://[^"]*(?:cdninstagram\.com|fbcdn\.net)[^"]{20,})"',
                 ]:
                     mm = re.search(pat, html)
                     if mm:
@@ -192,10 +219,10 @@ def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
                                   .replace('\\/', '/')
                                   .replace('\\n', '')
                                   .strip())
-                        if url.startswith('http'):
+                        if url.startswith('http') and _is_image_url(url):
                             return url
                 og = _extract_og_image(html)
-                if og:
+                if og and _is_image_url(og):
                     return og
             except Exception:
                 continue
@@ -298,7 +325,13 @@ def fetch_and_upload_thumbnail(
     if not src_url:
         return None
     stored = upload_thumbnail(src_url, username, post_id, apify_token)
-    return stored or src_url
+    if stored:
+        return stored
+    # Instagram CDN URL은 브라우저에서 쿠키 없이 표시 불가 → fallback 사용 안 함
+    if any(d in src_url for d in ("cdninstagram.com", "fbcdn.net", "static.cdninstagram.com")):
+        print(f"  [storage] Instagram CDN upload failed, skipping fallback: {src_url[:80]}")
+        return None
+    return src_url
 
 
 def upload_cover(src_url: str, username: str, apify_token: str = "") -> str | None:
