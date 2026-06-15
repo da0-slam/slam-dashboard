@@ -388,7 +388,7 @@ _X_RESERVED = frozenset({
 
 
 def _fetch_x_profile_image(post_url: str) -> str | None:
-    """X 프로필 URL에서 unavatar.io를 통해 프로필 이미지 URL 추출."""
+    """X 프로필 URL에서 OG 메타태그로 프로필 이미지 URL 추출."""
     m = re.search(r'(?:twitter\.com|x\.com)/([^/?#&]+)', post_url)
     if not m:
         return None
@@ -396,17 +396,17 @@ def _fetch_x_profile_image(post_url: str) -> str | None:
     if username.lower() in _X_RESERVED:
         return None
     try:
-        resp = requests.get(
-            f'https://unavatar.io/twitter/{username}',
-            headers=_request_headers(),
-            timeout=12,
-            allow_redirects=True,
-        )
-        if resp.status_code == 200 and 'image' in resp.headers.get('content-type', ''):
-            # unavatar.io가 이미지를 직접 서빙 → URL 그대로 반환
-            return f'https://unavatar.io/twitter/{username}'
+        profile_url = f'https://x.com/{username}'
+        resp = requests.get(profile_url, headers=_request_headers(), timeout=15)
+        if resp.status_code != 200:
+            return None
+        og = _extract_og_image(resp.text)
+        if og and 'pbs.twimg.com' in og:
+            # _200x200 → _400x400 로 해상도 업그레이드
+            og = re.sub(r'_\d+x\d+(\.[a-z]+)$', r'_400x400\1', og)
+            return og
     except Exception as e:
-        print(f'  [unavatar] {username}: {e}')
+        print(f'  [x-profile] {username}: {e}')
     return None
 
 
