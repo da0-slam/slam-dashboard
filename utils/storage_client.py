@@ -69,10 +69,14 @@ def upload_image_from_url(
             print(f"  [storage] download failed {resp.status_code}: {src_url[:80]}")
             return None
 
-        content_type = resp.headers.get("Content-Type", "image/jpeg").split(";")[0]
+        content_type = resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
         # HTML이 돌아오면 CDN이 로그인 페이지로 리디렉션한 것 — 업로드 중단
         if "text/html" in content_type or "text/plain" in content_type:
             print(f"  [storage] non-image content_type={content_type}: {src_url[:80]}")
+            return None
+        # 브라우저 미지원 포맷 (HEIC/HEIF 등) — 저장해도 표시 불가
+        if content_type in ("image/heic", "image/heif", "image/tiff"):
+            print(f"  [storage] browser-unsupported format {content_type}: {src_url[:80]}")
             return None
 
         img_bytes = resp.content
@@ -494,6 +498,11 @@ def fetch_and_upload_thumbnail(
     _blocked = ("cdninstagram.com", "fbcdn.net", "scontent-")
     if any(d in src_domain for d in _blocked):
         print(f"  [storage] Instagram CDN upload failed, skipping fallback: {src_domain}")
+        return None
+    # 브라우저 미지원 포맷 URL은 fallback으로도 저장 안 함
+    _unsupported_ext = (".heic", ".heif", ".tiff", ".tif")
+    if any(src_url.lower().split("?")[0].endswith(ext) for ext in _unsupported_ext):
+        print(f"  [storage] unsupported format fallback skipped: {src_url[:80]}")
         return None
     # imginn 등 외부 프록시 URL은 fallback으로 저장 (공개 접근 가능)
     return src_url
