@@ -416,9 +416,9 @@ with tab1:
         }
         disp = disp[show_cols].rename(columns=rename)
 
-        def _is_displayable_thumb(url: str) -> bool:
+        def _is_displayable_thumb(url) -> bool:
             """브라우저에서 실제로 표시 가능한 썸네일 URL인지 확인."""
-            if not url:
+            if not url or not isinstance(url, str) or url != url:  # None / NaN / float
                 return False
             # Supabase Storage URL — 항상 OK
             if "supabase" in url:
