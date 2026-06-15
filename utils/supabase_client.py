@@ -1007,7 +1007,8 @@ def migrate_google_sheet_rows(
                 "saves":    _int(row.get("saves")    or row.get("tt_saves")),
                 "shares":   _int(row.get("shares")   or row.get("tt_shares")),
             }
-        # X 지표
+        # X 지표: x_* 컬럼 우선, X만 있고 x_* 없으면 공통 지표 fallback (3순위)
+        has_x_specific = any(row.get(k) for k in ("x_views", "x_likes", "x_comments"))
         x_metrics = {
             "views":    _int(row.get("x_views")),
             "likes":    _int(row.get("x_likes")),
@@ -1015,7 +1016,17 @@ def migrate_google_sheet_rows(
             "saves":    _int(row.get("x_saves")),
             "shares":   _int(row.get("x_shares")),
         }
-        # 기타(LIPS 등) 지표
+        if x_url and not tt_url and not ig_url and not has_x_specific:
+            x_metrics = {
+                "views":    _int(row.get("views")    or row.get("tt_views")),
+                "likes":    _int(row.get("likes")    or row.get("tt_likes")),
+                "comments": _int(row.get("comments") or row.get("tt_comments")),
+                "saves":    _int(row.get("saves")    or row.get("tt_saves")),
+                "shares":   _int(row.get("shares")   or row.get("tt_shares")),
+            }
+
+        # 기타(LIPS 등) 지표: other_* 컬럼 우선, 기타만 있고 없으면 공통 지표 fallback (4순위)
+        has_other_specific = any(row.get(k) for k in ("other_views", "other_likes", "lips_views"))
         other_metrics = {
             "views":    _int(row.get("other_views") or row.get("lips_views")),
             "likes":    _int(row.get("other_likes") or row.get("lips_likes")),
@@ -1023,6 +1034,14 @@ def migrate_google_sheet_rows(
             "saves":    _int(row.get("other_saves")  or row.get("lips_saves")),
             "shares":   _int(row.get("other_shares") or row.get("lips_shares")),
         }
+        if lips_url and not tt_url and not ig_url and not x_url and not has_other_specific:
+            other_metrics = {
+                "views":    _int(row.get("views")    or row.get("tt_views")),
+                "likes":    _int(row.get("likes")    or row.get("tt_likes")),
+                "comments": _int(row.get("comments") or row.get("tt_comments")),
+                "saves":    _int(row.get("saves")    or row.get("tt_saves")),
+                "shares":   _int(row.get("shares")   or row.get("tt_shares")),
+            }
 
         to_create: list[dict] = []
         if tt_url:
