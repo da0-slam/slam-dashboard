@@ -93,54 +93,19 @@ def save_session(access_token: str, refresh_token: str) -> None:
     sid = str(uuid.uuid4())
     _mem()[sid] = {"access": access_token, "refresh": refresh_token}
     _db_save(sid, refresh_token)
-    st.query_params[_QP_KEY] = sid
+    # URL에 세션 토큰 노출 금지 — URL 공유 시 세션 탈취 방지
     st.session_state["_session_id"] = sid
     st.session_state.access_token = access_token
 
 
 def restore_session() -> bool:
-    if st.session_state.get("user"):
-        return True
-
-    sid = st.query_params.get(_QP_KEY)
-    if not sid:
-        return False
-
-    # 1) 인메모리 캐시 확인 (서버 재시작 전 빠른 경로)
-    data = _mem().get(sid)
-
-    # 2) 메모리 미스 → DB에서 복원 (서버 재시작 후)
-    if not data:
-        refresh_token = _db_load(sid)
-        if not refresh_token:
-            return False
-        data = {"access": "", "refresh": refresh_token}
-        _mem()[sid] = data  # 이후 접근을 위해 캐시에 올림
-
-    try:
-        from utils.supabase_client import refresh_session as _refresh
-        res = _refresh(data.get("access", ""), data["refresh"])
-        if res and res.user:
-            st.session_state.user           = res.user
-            st.session_state.access_token   = res.session.access_token
-            st.session_state["_session_id"] = sid
-            # rotation된 새 토큰 모두 업데이트
-            new_refresh = res.session.refresh_token
-            _mem()[sid] = {"access": res.session.access_token, "refresh": new_refresh}
-            _db_update_refresh(sid, new_refresh)  # DB도 최신 refresh token으로 교체
-            return True
-    except Exception:
-        clear_session()
-
-    return False
+    """session_state 기반 세션 복원. URL 파라미터는 사용하지 않음."""
+    return bool(st.session_state.get("user"))
 
 
 def ensure_session_in_url() -> None:
-    """서브 페이지 이동 후 URL에서 _s가 사라진 경우 복원."""
-    if not st.query_params.get(_QP_KEY):
-        sid = st.session_state.get("_session_id")
-        if sid:
-            st.query_params[_QP_KEY] = sid
+    """URL에 세션 토큰을 노출하지 않습니다 (보안상 비활성화)."""
+    pass
 
 
 def save_pkce_verifier(verifier: str, tid: str) -> None:
@@ -152,12 +117,8 @@ def pop_pkce_verifier(tid: str) -> str | None:
 
 
 def clear_session() -> None:
-    sid = st.query_params.get(_QP_KEY) or st.session_state.get("_session_id")
+    sid = st.session_state.get("_session_id")
     if sid:
         _mem().pop(sid, None)
-        _db_delete(sid)               # DB에서도 삭제
+        _db_delete(sid)
     st.session_state.pop("_session_id", None)
-    try:
-        del st.query_params[_QP_KEY]
-    except Exception:
-        pass

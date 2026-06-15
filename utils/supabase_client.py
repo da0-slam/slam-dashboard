@@ -919,6 +919,7 @@ def migrate_google_sheet_rows(
     rows: list[dict],
     overwrite: bool = False,
     participant_count: int | None = None,
+    force_participant_count: bool = False,
 ) -> tuple[int, list[str]]:
     """Google Sheet 형식의 rows를 campaign_posts로 이관합니다.
 
@@ -1086,11 +1087,14 @@ def migrate_google_sheet_rows(
             else:
                 errors.append(f"Row {i} ({name}): DB 저장 실패 ({post_data['platform']})")
 
-    # 발송 인원 수 campaigns 테이블에 저장 (업로드율 계산용)
+    # 발송 인원 수 campaigns 테이블에 저장
+    # force_participant_count=True(수동 입력)면 항상 업데이트, 아니면 기존 값보다 클 때만
     if participant_count is not None:
-        get_supabase().table("campaigns").update({
-            "participant_count": participant_count,
-            "updated_at": _now(),
-        }).eq("id", campaign_id).execute()
+        existing_count = (campaign or {}).get("participant_count") or 0
+        if force_participant_count or participant_count > existing_count:
+            get_supabase().table("campaigns").update({
+                "participant_count": participant_count,
+                "updated_at": _now(),
+            }).eq("id", campaign_id).execute()
 
     return created, errors

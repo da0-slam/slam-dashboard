@@ -275,12 +275,18 @@ with tab1:
             p_count = camp_data.get("participant_count")
             if p_count:
                 u_count = df["influencer_name"].nunique()
-                u_rate  = round(u_count / p_count * 100, 1) if p_count > 0 else 0
-                ur1, ur2, ur3 = st.columns(3)
-                ur1.metric("📦 발송 인원", f"{p_count:,}명")
-                ur2.metric("📤 업로드 인원", f"{u_count:,}명")
-                ur3.metric("📊 업로드율", f"{u_rate:.1f}%")
-                st.divider()
+                if p_count < u_count:
+                    st.warning(
+                        f"발송 인원({p_count:,}명)이 업로드 인원({u_count:,}명)보다 적습니다. "
+                        "'게시물 관리' 탭의 Google Sheet 이관에서 발송 인원을 수정해주세요."
+                    )
+                else:
+                    u_rate  = round(u_count / p_count * 100, 1)
+                    ur1, ur2, ur3 = st.columns(3)
+                    ur1.metric("📦 발송 인원", f"{p_count:,}명")
+                    ur2.metric("📤 업로드 인원", f"{u_count:,}명")
+                    ur3.metric("📊 업로드율", f"{u_rate:.1f}%")
+                    st.divider()
 
         # KPI 카드 (5 + 5)
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -412,6 +418,9 @@ with tab1:
 
         if view_mode == "그리드":
             rows = [r for r in disp.to_dict(orient="records") if r.get("썸네일")]
+            # 플랫폼 우선순위: TikTok·Instagram → X → 기타
+            _grid_plat_priority = {"TikTok": 0, "Instagram": 1, "X": 2, "기타": 3}
+            rows.sort(key=lambda r: _grid_plat_priority.get(r.get("플랫폼", "기타"), 4))
             if not rows:
                 st.info("썸네일이 있는 게시물이 없습니다. 썸네일 스크랩핑을 실행하거나 목록 보기를 이용하세요.")
             else:
@@ -1043,22 +1052,33 @@ with tab4:
                     if info_parts:
                         st.info("  ·  ".join(info_parts))
 
-                    overwrite_mode = st.checkbox(
+                    oc1, oc2 = st.columns([2, 1])
+                    overwrite_mode = oc1.checkbox(
                         "🔄 기존 데이터 덮어쓰기 (수치가 잘못 저장된 경우)",
                         value=False,
                         key="mi_overwrite",
                         help="이미 등록된 URL의 지표를 현재 데이터로 업데이트합니다.",
                     )
+                    manual_p_count = oc2.number_input(
+                        "발송 인원 직접 입력 (0=시트 행수 사용)",
+                        min_value=0,
+                        value=0,
+                        step=1,
+                        key="mi_p_count_override",
+                        help="0이면 시트 행수를 자동 사용. 잘못 저장된 경우 여기서 수정하세요.",
+                    )
+                    final_p_count = int(manual_p_count) if manual_p_count > 0 else len(rows_to_migrate)
 
                     if st.button(
-                        f"✅ {len(rows_to_migrate)}개 행 이관 시작 (발송인원 {len(rows_to_migrate)}명 저장)",
+                        f"✅ {len(rows_to_migrate)}개 행 이관 시작 (발송인원 {final_p_count}명 저장)",
                         key="mi_run",
                     ):
                         with st.spinner("이관 중..."):
                             created, errors = migrate_google_sheet_rows(
                                 mi_campaign_id, brand_id, rows_to_migrate,
                                 overwrite=overwrite_mode,
-                                participant_count=len(rows_to_migrate),
+                                participant_count=final_p_count,
+                                force_participant_count=(manual_p_count > 0),
                             )
                         verb = "업데이트" if overwrite_mode else "생성"
                         st.success(f"이관 완료: {created}개 게시물 {verb}")
