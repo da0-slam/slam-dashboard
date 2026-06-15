@@ -50,6 +50,8 @@ def upload_image_from_url(
             dl_headers["Authorization"] = f"Bearer {apify_token}"
         if "imginn.com" in src_url:
             dl_headers["Referer"] = "https://imginn.com/"
+        if "cdninstagram.com" in src_url or "fbcdn.net" in src_url:
+            dl_headers["Referer"] = "https://www.instagram.com/"
 
         resp = requests.get(src_url, headers=dl_headers, timeout=20)
         if resp.status_code != 200:
@@ -150,6 +152,58 @@ def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
     return None
 
 
+def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
+    """Instagram embed 페이지에서 썸네일 추출 (인증 불필요)."""
+    try:
+        m = re.search(r'/(?:reel|p|tv)/([^/?#]+)', post_url)
+        if not m:
+            return None
+        shortcode = m.group(1)
+        headers = {
+            **_request_headers(),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        for path in [
+            f"/p/{shortcode}/embed/captioned/",
+            f"/reel/{shortcode}/embed/captioned/",
+            f"/p/{shortcode}/embed/",
+        ]:
+            try:
+                resp = requests.get(
+                    f"https://www.instagram.com{path}",
+                    headers=headers,
+                    timeout=15,
+                    allow_redirects=True,
+                )
+                if resp.status_code != 200:
+                    continue
+                html = resp.text
+                for pat in [
+                    r'"display_url"\s*:\s*"([^"]+)"',
+                    r'"thumbnail_src"\s*:\s*"([^"]+)"',
+                    r'"poster"\s*:\s*"([^"]+)"',
+                    r'src="(https://[^"]*(?:cdninstagram\.com|fbcdn\.net)[^"]{20,})"',
+                ]:
+                    mm = re.search(pat, html)
+                    if mm:
+                        url = mm.group(1)
+                        url = (url.replace('\\u0026', '&')
+                                  .replace('\\/', '/')
+                                  .replace('\\n', '')
+                                  .strip())
+                        if url.startswith('http'):
+                            return url
+                og = _extract_og_image(html)
+                if og:
+                    return og
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 def _fetch_instagram_thumbnail_instaloader(post_url: str) -> str | None:
     try:
         import instaloader
@@ -170,30 +224,30 @@ def _fetch_instagram_thumbnail_instaloader(post_url: str) -> str | None:
 def _fetch_instagram_thumbnail_ytdlp(post_url: str) -> str | None:
     try:
         import yt_dlp
-        for opts_extra in [{"cookiesfrombrowser": ("chrome",)}, {}]:
-            try:
-                ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, **opts_extra}
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(post_url, download=False)
-                    if info and info.get("thumbnail"):
-                        return info["thumbnail"]
-            except Exception:
-                continue
-    except ImportError:
+        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(post_url, download=False)
+            if info and info.get("thumbnail"):
+                return info["thumbnail"]
+    except Exception:
         pass
     return None
 
 
 def _fetch_instagram_thumbnail(post_url: str) -> str | None:
-    # 1차: instaloader (공개 게시물, 실제 Instagram CDN URL 반환)
-    thumb = _fetch_instagram_thumbnail_instaloader(post_url)
+    # 1순위: embed 페이지 (인증 불필요, 서버 환경에서 가장 안정적)
+    thumb = _fetch_instagram_thumbnail_embed(post_url)
     if thumb:
         return thumb
-    # 2차: yt-dlp (설치된 경우, 크롬 쿠키 자동 사용)
+    # 2순위: yt-dlp
     thumb = _fetch_instagram_thumbnail_ytdlp(post_url)
     if thumb:
         return thumb
-    # 3차: OG 태그 직접 파싱 (로그인 벽으로 거의 실패)
+    # 3순위: instaloader
+    thumb = _fetch_instagram_thumbnail_instaloader(post_url)
+    if thumb:
+        return thumb
+    # 4순위: OG 태그 직접 파싱
     html = _fetch_html(post_url)
     if html:
         return _extract_og_image(html)
