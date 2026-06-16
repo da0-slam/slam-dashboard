@@ -175,7 +175,7 @@ def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
     except Exception:
         pass
 
-    # 마지막 수단: yt-dlp
+    # 마지막 수단: yt-dlp (쿠키 없이)
     try:
         import yt_dlp
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
@@ -184,6 +184,19 @@ def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
                 return info["thumbnail"]
     except Exception:
         pass
+
+    # yt-dlp + 브라우저 쿠키 (IP 차단 우회)
+    for browser in ("chrome", "firefox", "edge"):
+        try:
+            import yt_dlp
+            opts = {"quiet": True, "no_warnings": True, "skip_download": True,
+                    "cookiesfrombrowser": (browser,)}
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(post_url, download=False)
+                if info and info.get("thumbnail"):
+                    return info["thumbnail"]
+        except Exception:
+            continue
     return None
 
 
