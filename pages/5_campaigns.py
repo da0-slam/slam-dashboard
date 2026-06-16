@@ -273,7 +273,8 @@ if st.session_state.get("selected_campaign"):
                 usage_col   = _find_col(["usage"])
                 url_col     = _find_col(["url"])
 
-                _STATUS_MAP = {"agree": "confirmed", "agreed": "confirmed", "nego": "candidate", "negotiating": "candidate"}
+                # "agree"는 인플루언서가 협업 의향 표시일 뿐 → 캠페인 내 상태는 후보로 시작
+                _STATUS_MAP = {"confirmed": "confirmed", "rejected": "rejected", "nego": "candidate", "negotiating": "candidate"}
 
                 def _clean(val):
                     s = str(val).strip() if val is not None else ""

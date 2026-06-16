@@ -547,6 +547,23 @@ def bulk_add_to_campaign(
             to_insert, on_conflict="campaign_id,influencer_id"
         ).execute()
 
+        # followers 있는 인플루언서는 influencer_master에도 반영
+        master_rows = [
+            {
+                "influencer_id":      row["influencer_id"],
+                "instagram_followers": row["followers"],
+                "account_url":         row.get("platform_url") or None,
+            }
+            for row in to_insert if row.get("followers")
+        ]
+        if master_rows:
+            try:
+                sb.table("influencer_master").upsert(
+                    master_rows, on_conflict="influencer_id"
+                ).execute()
+            except Exception:
+                pass  # influencer_master 업데이트 실패는 무시
+
     return len(to_insert), skipped, errors
 
 
@@ -693,14 +710,26 @@ def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
     rows = (
         get_supabase()
         .table("koc_contents")
-        .select("influencer_id,thumbnail_url,video_url,play_count")
+        .select("influencer_id,thumbnail_url,video_url,play_count,like_count,comment_count,share_count,save_count,caption")
         .in_("influencer_id", influencer_ids)
-        .order("play_count", desc=True)
-        .limit(len(influencer_ids) * 5)
+        .limit(len(influencer_ids) * 10)
         .execute()
     ).data or []
+
+    # browse 뷰와 동일한 우선순위: supabase 썸네일 → 뷰티 키워드 → ER → 조회수
+    _BEAUTY = r"(skincare|skin care|makeup|make up|grwm|beauty|foundation|serum|routine|화장|스킨케어|메이크업|뷰티|루틴)"
+    import re as _re
+
+    def _sort_key(r):
+        has_supabase = 0 if "supabase" in (r.get("thumbnail_url") or "") else 1
+        play = r.get("play_count") or 0
+        eng  = sum(r.get(k) or 0 for k in ("like_count", "comment_count", "share_count", "save_count"))
+        er   = eng / play if play > 0 else 0
+        is_beauty = 0 if _re.search(_BEAUTY, (r.get("caption") or "").lower()) else 1
+        return (has_supabase, is_beauty, -er, -play)
+
     result: dict[str, dict] = {}
-    for r in rows:
+    for r in sorted(rows, key=_sort_key):
         iid = r["influencer_id"]
         if iid not in result:
             result[iid] = {
