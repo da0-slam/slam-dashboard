@@ -388,6 +388,30 @@ if st.session_state.get("selected_campaign"):
     for s in selections:
         s["_price"] = _parse_price(s.get("after_nego")) or _parse_price(s.get("ratecard"))
 
+    # ── 검색 + 플랫폼 필터 ─────────────────────────────────────────────────────
+    sf1, sf2 = st.columns([3, 2])
+    with sf1:
+        _search = st.text_input(
+            "인플루언서 검색", placeholder="@username",
+            key=f"inf_search_{camp_id}", label_visibility="collapsed",
+        )
+    with sf2:
+        _plat_filter = st.selectbox(
+            "플랫폼", ["전체", "🎵 TikTok", "📸 Instagram"],
+            key=f"plat_filter_{camp_id}", label_visibility="collapsed",
+        )
+
+    if _search:
+        _q = _search.lstrip("@").lower()
+        selections = [s for s in selections if _q in s["influencer_id"].lower()]
+    if _plat_filter != "전체":
+        _plat_kw = "tiktok" if "TikTok" in _plat_filter else "instagram"
+        selections = [
+            s for s in selections
+            if _plat_kw in (thumb_map.get(s["influencer_id"], {}).get("platforms") or [])
+            or _plat_kw in (inf_map.get(s["influencer_id"], {}).get("platform") or "").lower()
+        ]
+
     # ── 어드민 전용: 가격 정렬/필터 ────────────────────────────────────────────
     sort_price  = "등록순"
     price_range = None
