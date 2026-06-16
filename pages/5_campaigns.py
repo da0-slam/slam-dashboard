@@ -120,16 +120,14 @@ def _parse_price(text: str) -> float | None:
     return float(m.group(1).replace(",", "")) if m else None
 
 
-@st.dialog("콘텐츠 전체보기", width="large")
-def show_contents_dialog(influencer_id: str):
-    st.caption(f"@{influencer_id}")
-    contents = get_influencer_contents(influencer_id)
-    if not contents:
-        st.info("등록된 콘텐츠 데이터가 없습니다.")
-        return
+_PLAT_LABEL = {"tiktok": "🎵 TikTok", "instagram": "📸 Instagram", "youtube": "▶ YouTube", "other": "기타"}
+_PLAT_ICON  = {"tiktok": "🎵", "instagram": "📸", "youtube": "▶", "other": "🔗"}
+
+
+def _render_content_grid(items: list[dict]):
     COLS = 4
-    for chunk in range(0, len(contents), COLS):
-        row_items = contents[chunk:chunk + COLS]
+    for chunk in range(0, len(items), COLS):
+        row_items = items[chunk:chunk + COLS]
         cols = st.columns(COLS)
         for col, c in zip(cols, row_items):
             thumb     = c.get("thumbnail_url") or ""
@@ -151,6 +149,32 @@ def show_contents_dialog(influencer_id: str):
                         unsafe_allow_html=True,
                     )
                 st.caption(f"▶ {_fmt(play)}")
+
+
+@st.dialog("콘텐츠 전체보기", width="large")
+def show_contents_dialog(influencer_id: str):
+    st.caption(f"@{influencer_id}")
+    contents = get_influencer_contents(influencer_id)
+    if not contents:
+        st.info("등록된 콘텐츠 데이터가 없습니다.")
+        return
+
+    # 플랫폼별 분류
+    by_plat: dict[str, list] = {}
+    for c in contents:
+        p = c.get("platform", "other")
+        by_plat.setdefault(p, []).append(c)
+
+    plat_order = [p for p in ["tiktok", "instagram", "youtube", "other"] if p in by_plat]
+
+    if len(plat_order) > 1:
+        tab_labels = [f"{_PLAT_LABEL.get(p, p)} ({len(by_plat[p])})" for p in plat_order]
+        tabs = st.tabs(tab_labels)
+        for tab, plat in zip(tabs, plat_order):
+            with tab:
+                _render_content_grid(by_plat[plat])
+    else:
+        _render_content_grid(contents)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -421,6 +445,8 @@ if st.session_state.get("selected_campaign"):
                     thumb     = thumb_map.get(inf_id, {})
                     thumbnail = thumb.get("thumbnail") or inf.get("cover_url") or ""
                     video_url = thumb.get("video_url", "")
+                    _plats     = thumb.get("platforms") or ([inf.get("platform")] if inf.get("platform") else [])
+                    _plat_disp = "  ".join(_PLAT_ICON.get(p, p) for p in _plats) if _plats else ""
                     _img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-mini-ph">🎬</div>'
                     img_tag = (
                         f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{_img_inner}</a>'
@@ -434,7 +460,7 @@ if st.session_state.get("selected_campaign"):
   <div class="r">#{rank}</div>
   <div class="info">
     <p class="n">@{inf_id}</p>
-    <p class="s">{inf.get('platform','')} · {STATUS_LABEL[status]}</p>
+    <p class="s">{_plat_disp} {STATUS_LABEL[status]}</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -480,10 +506,11 @@ if st.session_state.get("selected_campaign"):
                             st.markdown("🎬")
                     with c2:
                         st.markdown(f"{STATUS_COLOR[status]} **@{inf_id}** `{STATUS_LABEL[status]}`")
-                        _purl = item.get("platform_url") or ""
-                        _plat = inf.get("platform", "")
-                        _link = f"[↗ 프로필]({_purl})" if _purl else (f"[↗ 영상]({video_url})" if video_url else "")
-                        _fol  = f"👥 {_fmt(item['followers'])}" if item.get("followers") else ""
+                        _purl  = item.get("platform_url") or ""
+                        _plats = thumb.get("platforms") or ([inf.get("platform")] if inf.get("platform") else [])
+                        _plat  = "  ".join(_PLAT_ICON.get(p, p) + " " + p for p in _plats) if _plats else ""
+                        _link  = f"[↗ 프로필]({_purl})" if _purl else (f"[↗ 영상]({video_url})" if video_url else "")
+                        _fol   = f"👥 {_fmt(item['followers'])}" if item.get("followers") else ""
                         st.caption(f"{_plat}  {_fol}  {_link}".strip())
                         _price_info = [
                             f"💰 {item['ratecard']}" if item.get("ratecard") else "",

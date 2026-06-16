@@ -82,6 +82,14 @@ def _wrap(data: dict):
     return SimpleNamespace(user=user, session=session)
 
 
+def _detect_platform(url: str) -> str:
+    url = (url or "").lower()
+    if "tiktok.com" in url:    return "tiktok"
+    if "instagram.com" in url: return "instagram"
+    if "youtube.com" in url:   return "youtube"
+    return "other"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -629,8 +637,10 @@ def get_influencer_contents(influencer_id: str) -> list[dict]:
         .order("play_count", desc=True)
         .execute()
     ).data or []
-    # 썸네일 있는 영상을 앞으로, 조회수 순은 유지
-    rows.sort(key=lambda r: 0 if "supabase" in (r.get("thumbnail_url") or "") else 1)
+    for r in rows:
+        r["platform"] = _detect_platform(r.get("video_url") or "")
+    # 썸네일 있는 영상을 앞으로, 조회수 순 유지
+    rows.sort(key=lambda r: (0 if "supabase" in (r.get("thumbnail_url") or "") else 1, -(r.get("play_count") or 0)))
     return rows
 
 
@@ -728,6 +738,13 @@ def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
         is_beauty = 0 if _re.search(_BEAUTY, (r.get("caption") or "").lower()) else 1
         return (has_supabase, is_beauty, -er, -play)
 
+    # 인플루언서별 플랫폼 목록 수집 (video_url 기반 감지)
+    platforms_map: dict[str, set] = {}
+    for r in rows:
+        iid  = r["influencer_id"]
+        plat = _detect_platform(r.get("video_url") or "")
+        platforms_map.setdefault(iid, set()).add(plat)
+
     result: dict[str, dict] = {}
     for r in sorted(rows, key=_sort_key):
         iid = r["influencer_id"]
@@ -735,6 +752,7 @@ def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
             result[iid] = {
                 "thumbnail": r.get("thumbnail_url") or "",
                 "video_url": r.get("video_url") or "",
+                "platforms": sorted(platforms_map.get(iid, set())),
             }
     return result
 
