@@ -476,7 +476,7 @@ def get_campaign_selections(campaign_id: str, status: str | None = None) -> list
     q = (
         get_supabase()
         .table("campaign_selections")
-        .select("id,influencer_id,status,note,selected_at")
+        .select("id,influencer_id,status,note,selected_at,followers,contact_email,ratecard,after_nego,usage_rights,platform_url")
         .eq("campaign_id", campaign_id)
     )
     if status:
@@ -528,6 +528,12 @@ def bulk_add_to_campaign(
             "influencer_id": iid,
             "status":        e.get("status", "candidate"),
             "note":          e.get("note") or None,
+            "followers":     e.get("followers") or None,
+            "contact_email": e.get("contact_email") or None,
+            "ratecard":      e.get("ratecard") or None,
+            "after_nego":    e.get("after_nego") or None,
+            "usage_rights":  e.get("usage_rights") or None,
+            "platform_url":  e.get("platform_url") or None,
         })
 
     if to_insert:
@@ -839,6 +845,35 @@ def update_campaign_post_thumbnail(post_id: str, brand_id: str, thumbnail_url: s
 def delete_campaign_post(post_id: str, brand_id: str) -> bool:
     get_supabase().table("campaign_posts").delete().eq("id", post_id).eq("brand_id", brand_id).execute()
     return True
+
+
+def bulk_upsert_koc_contents(rows: list[dict]) -> tuple[int, list[str]]:
+    """koc_contents에 Apify 형식 행을 일괄 upsert합니다.
+    rows: [{"influencer_id", "video_url", "play_count", ...}, ...]
+    returns: (upserted_count, errors)
+    """
+    sb = get_supabase()
+    errors: list[str] = []
+    valid = []
+    for r in rows:
+        if not r.get("influencer_id") or not r.get("video_url"):
+            errors.append(f"influencer_id 또는 video_url 누락 → 건너뜀")
+            continue
+        valid.append(r)
+
+    if not valid:
+        return 0, errors
+
+    CHUNK = 500
+    upserted = 0
+    for i in range(0, len(valid), CHUNK):
+        chunk = valid[i:i + CHUNK]
+        try:
+            sb.table("koc_contents").upsert(chunk, on_conflict="video_url").execute()
+            upserted += len(chunk)
+        except Exception as e:
+            errors.append(f"청크 {i}~{i+len(chunk)}: {e}")
+    return upserted, errors
 
 
 def get_campaign_participants_info(campaign_id: str, brand_id: str) -> list[dict]:

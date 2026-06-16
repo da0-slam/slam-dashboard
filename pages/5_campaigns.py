@@ -1,4 +1,6 @@
 import io
+import re
+import requests
 import pandas as pd
 import streamlit as st
 from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
@@ -8,7 +10,7 @@ from utils.supabase_client import (
     get_campaigns, create_campaign, update_campaign, delete_campaign,
     get_campaign_selections, update_campaign_selection, remove_campaign_selection,
     update_selection_note, get_note_counts,
-    get_influencer_thumbnails, get_user_profile,
+    get_influencer_thumbnails, get_influencer_contents, get_user_profile,
     get_campaign_if_owned, get_brand_access_password_hash,
     set_brand_access_password, verify_password,
     bulk_add_to_campaign,
@@ -110,6 +112,39 @@ def _fmt(n):
     return str(n)
 
 
+@st.dialog("콘텐츠 전체보기", width="large")
+def show_contents_dialog(influencer_id: str):
+    st.caption(f"@{influencer_id}")
+    contents = get_influencer_contents(influencer_id)
+    if not contents:
+        st.info("등록된 콘텐츠 데이터가 없습니다.")
+        return
+    COLS = 4
+    for chunk in range(0, len(contents), COLS):
+        row_items = contents[chunk:chunk + COLS]
+        cols = st.columns(COLS)
+        for col, c in zip(cols, row_items):
+            thumb     = c.get("thumbnail_url") or ""
+            video_url = c.get("video_url") or ""
+            play      = c.get("play_count") or 0
+            with col:
+                if thumb and video_url:
+                    st.markdown(
+                        f'<a href="{video_url}" target="_blank">'
+                        f'<img src="{thumb}" style="width:100%;border-radius:8px;aspect-ratio:9/16;object-fit:cover;display:block;"></a>',
+                        unsafe_allow_html=True,
+                    )
+                elif thumb:
+                    st.image(thumb, use_container_width=True)
+                else:
+                    st.markdown(
+                        '<div style="aspect-ratio:9/16;background:#1a1a2e;border-radius:8px;'
+                        'display:flex;align-items:center;justify-content:center;font-size:2rem;">🎬</div>',
+                        unsafe_allow_html=True,
+                    )
+                st.caption(f"▶ {_fmt(play)}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 캠페인 상세 뷰
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -170,47 +205,109 @@ if st.session_state.get("selected_campaign"):
 
     with st.expander("📥 인플루언서 일괄 등록 (CSV)"):
         st.markdown("""
-**CSV 형식 안내** — 헤더 행 필수
+**CSV 형식 안내** — 헤더 행 필수. Google Sheet에서 그대로 내보내도 됩니다.
 
-| influencer_id | status | note |
-|---------------|--------|------|
-| ___sarah101 | candidate | 방문형 |
-| oreo_leo | confirmed | |
+| influencer_id | status | followers | contact_email | ratecard | after_nego | usage_rights | platform_url | note |
+|---|---|---|---|---|---|---|---|---|
+| kelseyohcriner | confirmed | 66300 | kelsey@gmail.com | $700/video | $500 | organic only | tiktok.com/@kelseyohcriner | |
 
-- `influencer_id`: TikTok/IG 유저명 (`@` 제외, 필수)
-- `status`: `candidate` / `confirmed` / `rejected` (생략 시 `candidate`)
-- `note`: 메모 (선택)
+- `influencer_id` (필수): TikTok/IG 유저명 (`@` 제외). Google Sheet의 `Influencer ID` 컬럼 그대로 사용 가능.
+- `status`: `candidate` / `confirmed` / `rejected` / `agree` / `nego` (생략 시 `candidate`)
+- 나머지 컬럼은 모두 선택사항이며, Google Sheet 원본 컬럼명도 자동 인식합니다.
 - 이미 등록된 인플루언서는 자동으로 건너뜁니다.
-
-**Google Sheet에서 복사할 때**: Full Name 컬럼 대신 TikTok 유저명(@제외) 컬럼을 `influencer_id`로 사용하세요.
 """)
 
-        uploaded_csv = st.file_uploader("CSV 파일 업로드", type=["csv"], key=f"bulk_csv_{camp_id}")
+        sheet_url = st.text_input(
+            "Google Sheet URL 붙여넣기 (링크 공유된 시트)",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            key=f"sheet_url_{camp_id}",
+        )
 
+        _csv_bytes = None
+        if sheet_url and sheet_url.startswith("https://docs.google.com/spreadsheets"):
+            _m = re.search(r"/spreadsheets/d/([^/]+)", sheet_url)
+            _gid = re.search(r"[#&?]gid=(\d+)", sheet_url)
+            if _m:
+                _sid  = _m.group(1)
+                _gid  = _gid.group(1) if _gid else "0"
+                _csv_url = f"https://docs.google.com/spreadsheets/d/{_sid}/export?format=csv&gid={_gid}"
+                try:
+                    with st.spinner("시트 불러오는 중..."):
+                        _resp = requests.get(_csv_url, timeout=15)
+                    if _resp.status_code == 200:
+                        _csv_bytes = _resp.content
+                        st.success("시트 불러오기 완료")
+                    else:
+                        st.error(f"불러오기 실패 ({_resp.status_code}). 시트 공유 설정을 확인하세요.")
+                except Exception as _e:
+                    st.error(f"네트워크 오류: {_e}")
+            else:
+                st.warning("올바른 Google Sheets URL이 아닙니다.")
+
+        st.caption("또는 CSV 파일 직접 업로드")
+        uploaded_csv = st.file_uploader("CSV 파일 업로드", type=["csv"], key=f"bulk_csv_{camp_id}")
         if uploaded_csv:
+            _csv_bytes = uploaded_csv.getvalue()
+
+        if _csv_bytes:
             try:
-                df_csv = pd.read_csv(io.StringIO(uploaded_csv.getvalue().decode("utf-8-sig")))
+                df_csv = pd.read_csv(io.StringIO(_csv_bytes.decode("utf-8-sig")))
                 df_csv.columns = [c.strip().lower() for c in df_csv.columns]
 
-                # 컬럼명 유연하게 인식
-                id_col = next((c for c in df_csv.columns if c in (
-                    "influencer_id", "username", "tiktok_id", "tiktok", "id", "유저명", "아이디"
-                )), df_csv.columns[0])
+                def _find_col(candidates):
+                    return next((c for c in df_csv.columns if any(k in c for k in candidates)), None)
 
-                status_col = next((c for c in df_csv.columns if "status" in c), None)
-                note_col   = next((c for c in df_csv.columns if c in ("note", "memo", "notes", "메모")), None)
+                # 컬럼명 유연하게 인식 (Google Sheet 원본명 포함)
+                id_col      = _find_col(["influencer_id", "influencer id", "username", "tiktok_id", "tiktok", "유저명", "아이디"]) or df_csv.columns[0]
+                status_col  = _find_col(["status"])
+                note_col    = _find_col(["note", "memo", "메모"])
+                follow_col  = _find_col(["follower"])
+                # "Contact DM TT"(체크박스)보다 순수 "contact" 또는 email 컬럼 우선
+                contact_col = (
+                    next((c for c in df_csv.columns if c in ("contact", "email", "contact email", "컨택", "이메일")), None)
+                    or next((c for c in df_csv.columns if "email" in c), None)
+                    or next((c for c in df_csv.columns if "contact" in c and "dm" not in c), None)
+                )
+                rate_col    = _find_col(["ratecard", "rate card", "rate"])
+                nego_col    = _find_col(["after nego", "after_nego", "nego"])
+                usage_col   = _find_col(["usage"])
+                url_col     = _find_col(["url"])
+
+                _STATUS_MAP = {"agree": "confirmed", "agreed": "confirmed", "nego": "candidate", "negotiating": "candidate"}
+
+                def _clean(val):
+                    s = str(val).strip() if val is not None else ""
+                    return "" if s.lower() in ("nan", "none", "") else s
+
+                def _followers(val):
+                    s = _clean(val).replace(",", "").replace("K", "000").replace("k", "000").replace("M", "000000").replace("m", "000000")
+                    try:
+                        return int(float(s))
+                    except Exception:
+                        return None
 
                 entries = []
                 for _, row in df_csv.iterrows():
                     iid = str(row.get(id_col) or "").strip().lstrip("@")
                     if not iid or iid.lower() in ("nan", "none", ""):
                         continue
-                    status = str(row[status_col]).strip() if status_col else "candidate"
+
+                    raw_status = _clean(row[status_col]) if status_col else ""
+                    status = _STATUS_MAP.get(raw_status.lower(), raw_status)
                     if status not in ("candidate", "confirmed", "rejected"):
                         status = "candidate"
-                    note = str(row[note_col]).strip() if note_col else ""
-                    note = "" if note.lower() in ("nan", "none") else note
-                    entries.append({"influencer_id": iid, "status": status, "note": note})
+
+                    entries.append({
+                        "influencer_id": iid,
+                        "status":        status,
+                        "note":          _clean(row[note_col])    if note_col    else "",
+                        "followers":     _followers(row[follow_col]) if follow_col else None,
+                        "contact_email": _clean(row[contact_col]) if contact_col else "",
+                        "ratecard":      _clean(row[rate_col])    if rate_col    else "",
+                        "after_nego":    _clean(row[nego_col])    if nego_col    else "",
+                        "usage_rights":  _clean(row[usage_col])   if usage_col   else "",
+                        "platform_url":  _clean(row[url_col])     if url_col     else "",
+                    })
 
                 if not entries:
                     st.warning("유효한 influencer_id 행이 없습니다.")
@@ -268,9 +365,13 @@ if st.session_state.get("selected_campaign"):
                     status    = item["status"]
                     inf       = inf_map.get(inf_id, {})
                     thumb     = thumb_map.get(inf_id, {})
-                    thumbnail = thumb.get("thumbnail", "")
+                    thumbnail = thumb.get("thumbnail") or inf.get("cover_url") or ""
                     video_url = thumb.get("video_url", "")
-                    img_tag   = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-mini-ph">🎬</div>'
+                    _img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-mini-ph">🎬</div>'
+                    img_tag = (
+                        f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{_img_inner}</a>'
+                        if video_url else _img_inner
+                    )
                     with col:
                         st.markdown(f"""
 <div class="koc-mini">
@@ -283,8 +384,6 @@ if st.session_state.get("selected_campaign"):
   </div>
 </div>
 """, unsafe_allow_html=True)
-                        if video_url:
-                            st.markdown(f"[↗ 영상]({video_url})")
                         b1, b2 = st.columns(2)
                         next_s = {"candidate": "confirmed", "confirmed": "rejected", "rejected": "candidate"}[status]
                         next_l = {"candidate": "✅확정", "confirmed": "🔴제외", "rejected": "🟡후보"}[status]
@@ -296,20 +395,24 @@ if st.session_state.get("selected_campaign"):
                             if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
                                 remove_campaign_selection(item["id"])
                                 st.rerun()
-                        # 댓글 버튼
-                        nc = note_cnt_map.get(inf_id, 0)
-                        if st.button(f"💬 {nc}" if nc else "💬 메모", key=f"{prefix}_g_note_{item['id']}", use_container_width=True):
-                            show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
+                        b3, b4 = st.columns(2)
+                        with b3:
+                            nc = note_cnt_map.get(inf_id, 0)
+                            if st.button(f"💬 {nc}" if nc else "💬", key=f"{prefix}_g_note_{item['id']}", use_container_width=True):
+                                show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
+                        with b4:
+                            if st.button("📷 전체", key=f"{prefix}_g_all_{item['id']}", use_container_width=True):
+                                show_contents_dialog(inf_id)
         else:
             for item in items:
                 inf_id    = item["influencer_id"]
                 status    = item["status"]
                 inf       = inf_map.get(inf_id, {})
                 thumb     = thumb_map.get(inf_id, {})
-                thumbnail = thumb.get("thumbnail", "")
+                thumbnail = thumb.get("thumbnail") or inf.get("cover_url") or ""
                 video_url = thumb.get("video_url", "")
                 with st.container(border=True):
-                    c1, c2, c3, c4, c5 = st.columns([1, 4, 2, 1, 1])
+                    c1, c2, c3, c4, c5, c6 = st.columns([1, 4, 2, 1, 1, 1])
                     with c1:
                         if thumbnail:
                             try:
@@ -320,7 +423,16 @@ if st.session_state.get("selected_campaign"):
                             st.markdown("🎬")
                     with c2:
                         st.markdown(f"{STATUS_COLOR[status]} **@{inf_id}** `{STATUS_LABEL[status]}`")
-                        st.caption(f"{inf.get('platform','')}  {f'[↗ 영상]({video_url})' if video_url else ''}")
+                        _purl = item.get("platform_url") or ""
+                        _plat = inf.get("platform", "")
+                        _link = f"[↗ 프로필]({_purl})" if _purl else (f"[↗ 영상]({video_url})" if video_url else "")
+                        _fol  = f"👥 {_fmt(item['followers'])}" if item.get("followers") else ""
+                        st.caption(f"{_plat}  {_fol}  {_link}".strip())
+                        _meta = "  |  ".join(filter(None, [
+                            item.get("usage_rights"),
+                        ]))
+                        if _meta:
+                            st.caption(_meta)
                         if item.get("note"):
                             st.caption(f"📝 {item['note']}")
                     with c3:
@@ -337,6 +449,9 @@ if st.session_state.get("selected_campaign"):
                         if st.button("삭제", key=f"{prefix}_l_rm_{item['id']}", use_container_width=True):
                             remove_campaign_selection(item["id"])
                             st.rerun()
+                    with c6:
+                        if st.button("📷", key=f"{prefix}_l_all_{item['id']}", use_container_width=True, help="콘텐츠 전체보기"):
+                            show_contents_dialog(inf_id)
 
     with tab_all:  render_selections(selections, "all")
     with tab_cand: render_selections([s for s in selections if s["status"] == "candidate"], "cand")

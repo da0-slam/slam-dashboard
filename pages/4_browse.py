@@ -1,3 +1,7 @@
+import io
+import re
+import requests
+import pandas as pd
 import streamlit as st
 from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
 from utils.supabase_client import (
@@ -7,6 +11,7 @@ from utils.supabase_client import (
     select_influencer, update_selection_status, remove_selection,
     add_to_campaign, update_campaign_selection, remove_campaign_selection,
     get_user_profile, get_note_counts, get_recent_notes,
+    bulk_upsert_koc_contents,
 )
 from utils.notes_ui import show_notes_dialog, render_notes_inline, _avatar_color, _time_label
 
@@ -580,6 +585,119 @@ with _grid_col:
     # ─── 하단 페이지 네비게이션 ─────────────────────────────────────────────
     st.markdown("")
     _page_nav("bottom")
+
+
+# ─── 어드민 전용: koc_contents 데이터 임포트 ──────────────────────────────────
+if is_admin:
+    st.divider()
+    with st.expander("🔧 [Admin] 게시물 데이터 임포트 (Apify → koc_contents)"):
+        st.markdown("""
+Google Sheet 또는 CSV 파일에서 Apify TikTok 스크래퍼 데이터를 바로 업로드합니다.
+
+**자동 인식 컬럼** (Apify 원본명 그대로 사용 가능):
+`authorMeta.name` → influencer_id · `webVideoUrl` → video_url · `playCount` → play_count ·
+`diggCount` → like_count · `commentCount` → comment_count · `shareCount` → share_count ·
+`collectCount` → save_count · `text` → caption · `createTimeISO` → posted_at · `authorMeta.avatar` → thumbnail_url
+""")
+
+        _sheet_url = st.text_input(
+            "Google Sheet URL (링크 공유된 시트)",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            key="koc_import_sheet_url",
+        )
+
+        _csv_bytes = None
+        if _sheet_url and "docs.google.com/spreadsheets" in _sheet_url:
+            _m = re.search(r"/spreadsheets/d/([^/]+)", _sheet_url)
+            _g = re.search(r"[#&?]gid=(\d+)", _sheet_url)
+            if _m:
+                _export_url = (
+                    f"https://docs.google.com/spreadsheets/d/{_m.group(1)}"
+                    f"/export?format=csv&gid={_g.group(1) if _g else '0'}"
+                )
+                try:
+                    with st.spinner("시트 불러오는 중..."):
+                        _r = requests.get(_export_url, timeout=15)
+                    if _r.status_code == 200:
+                        _csv_bytes = _r.content
+                        st.success("시트 불러오기 완료")
+                    else:
+                        st.error(f"불러오기 실패 ({_r.status_code}). 시트 공유 설정 확인.")
+                except Exception as _e:
+                    st.error(f"네트워크 오류: {_e}")
+
+        st.caption("또는 CSV 직접 업로드")
+        _uploaded = st.file_uploader("CSV 파일", type=["csv"], key="koc_import_csv")
+        if _uploaded:
+            _csv_bytes = _uploaded.getvalue()
+
+        if _csv_bytes:
+            try:
+                _df = pd.read_csv(io.StringIO(_csv_bytes.decode("utf-8-sig")))
+                _df.columns = [c.strip().lower().replace(".", "_") for c in _df.columns]
+
+                def _fc(candidates):
+                    return next((c for c in _df.columns if any(k in c for k in candidates)), None)
+
+                _id_col    = _fc(["authormeta_name", "author_name", "influencer_id", "username"])
+                _url_col   = _fc(["webvideourl", "video_url", "videourl"])
+                _play_col  = _fc(["playcount", "play_count"])
+                _like_col  = _fc(["diggcount", "likecount", "like_count"])
+                _cmt_col   = _fc(["commentcount", "comment_count"])
+                _shr_col   = _fc(["sharecount", "share_count"])
+                _save_col  = _fc(["collectcount", "save_count"])
+                _cap_col   = _fc(["text", "caption"])
+                _date_col  = _fc(["createtimeiso", "createtime", "posted_at"])
+                _thumb_col = _fc(["thumbnail_url", "authormeta_avatar", "avatar", "cover"])
+
+                st.caption(f"인식된 컬럼: influencer_id={_id_col}, video_url={_url_col}, play={_play_col}, like={_like_col}")
+
+                if not _id_col or not _url_col:
+                    st.error("influencer_id 또는 video_url 컬럼을 찾을 수 없습니다. 컬럼명을 확인하세요.")
+                else:
+                    def _int(val):
+                        try: return int(float(str(val).replace(",", "")))
+                        except: return None
+
+                    def _clean(val):
+                        s = str(val).strip() if val is not None else ""
+                        return None if s.lower() in ("nan", "none", "") else s
+
+                    rows = []
+                    for _, row in _df.iterrows():
+                        iid = _clean(row.get(_id_col))
+                        vurl = _clean(row.get(_url_col))
+                        if not iid or not vurl:
+                            continue
+                        rows.append({
+                            "influencer_id": iid,
+                            "video_url":     vurl,
+                            "play_count":    _int(row[_play_col])  if _play_col  else None,
+                            "like_count":    _int(row[_like_col])  if _like_col  else None,
+                            "comment_count": _int(row[_cmt_col])   if _cmt_col   else None,
+                            "share_count":   _int(row[_shr_col])   if _shr_col   else None,
+                            "save_count":    _int(row[_save_col])  if _save_col  else None,
+                            "caption":       (_clean(row[_cap_col]) or "")[:500] if _cap_col else None,
+                            "posted_at":     _clean(row[_date_col]) if _date_col else None,
+                            "thumbnail_url": _clean(row[_thumb_col]) if _thumb_col else None,
+                        })
+
+                    st.markdown(f"**미리보기** — {len(rows)}행")
+                    st.dataframe(
+                        pd.DataFrame(rows)[["influencer_id", "video_url", "play_count", "like_count"]].head(10),
+                        use_container_width=True, hide_index=True,
+                    )
+
+                    if rows and st.button(f"✅ {len(rows)}행 koc_contents에 업로드", type="primary", key="koc_import_run"):
+                        with st.spinner("업로드 중..."):
+                            _cnt, _errs = bulk_upsert_koc_contents(rows)
+                        st.success(f"완료: {_cnt}행 업로드")
+                        if _errs:
+                            with st.expander(f"오류 {len(_errs)}건"):
+                                for e in _errs: st.warning(e)
+
+            except Exception as _ex:
+                st.error(f"파싱 오류: {_ex}")
 
 # ─── 댓글 패널 ────────────────────────────────────────────────────────────────
 if _panel_open and _panel_col:
