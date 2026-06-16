@@ -174,6 +174,16 @@ def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
                 return data.get("data", {}).get("cover")
     except Exception:
         pass
+
+    # 마지막 수단: yt-dlp
+    try:
+        import yt_dlp
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+            info = ydl.extract_info(post_url, download=False)
+            if info and info.get("thumbnail"):
+                return info["thumbnail"]
+    except Exception:
+        pass
     return None
 
 

@@ -113,11 +113,23 @@ def _fmt(n):
 
 
 def _parse_price(text: str) -> float | None:
-    """텍스트에서 첫 번째 달러 금액 추출. '$1,100/VT' → 1100.0"""
+    """텍스트에서 가격 추출. '$1,100', '$3K', '3k', '3.5K' 모두 지원."""
     if not text:
         return None
-    m = re.search(r'\$([\d,]+)', str(text))
-    return float(m.group(1).replace(",", "")) if m else None
+    s = str(text)
+    # $숫자K 형식: "$3K", "$4.5K"
+    m = re.search(r'\$\s*([\d,]+(?:\.\d+)?)\s*[kK]\b', s)
+    if m:
+        return float(m.group(1).replace(",", "")) * 1000
+    # $숫자 형식: "$3,000", "$900"
+    m = re.search(r'\$([\d,]+(?:\.\d+)?)', s)
+    if m:
+        return float(m.group(1).replace(",", ""))
+    # 숫자K 형식 ($ 없이): "3k", "7K", "3.5K"
+    m = re.search(r'\b([\d,]+(?:\.\d+)?)\s*[kK]\b', s)
+    if m:
+        return float(m.group(1).replace(",", "")) * 1000
+    return None
 
 
 _PLAT_LABEL = {"tiktok": "🎵 TikTok", "instagram": "📸 Instagram", "youtube": "▶ YouTube", "other": "기타"}
