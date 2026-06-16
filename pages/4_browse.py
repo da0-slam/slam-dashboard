@@ -436,16 +436,30 @@ if not contents:
 
 # 페이지 네비게이션 렌더링 함수
 def _page_nav(suffix: str):
-    c_prev, c_info, c_next = st.columns([1, 4, 1])
+    c_prev, c_num, c_slash, c_total, c_next = st.columns([1, 1, 0.3, 2, 1])
     with c_prev:
         if st.button("◀ 이전", disabled=(page == 0), key=f"prev_{suffix}", use_container_width=True):
             st.session_state["browse_page"] = page - 1
             st.rerun()
-    with c_info:
+    with c_num:
+        jumped = st.number_input(
+            "페이지", min_value=1, max_value=total_pages,
+            value=page + 1, step=1,
+            key=f"page_input_{suffix}",
+            label_visibility="collapsed",
+        )
+        if jumped - 1 != page:
+            st.session_state["browse_page"] = jumped - 1
+            st.rerun()
+    with c_slash:
         st.markdown(
-            f"<div style='text-align:center;padding:6px 0;color:#666;'>"
-            f"<b>{page+1}</b> / {total_pages} 페이지 &nbsp;·&nbsp; 총 <b>{len(contents):,}</b>명"
-            f"</div>",
+            f"<div style='text-align:center;padding:8px 0;color:#888;'>/</div>",
+            unsafe_allow_html=True,
+        )
+    with c_total:
+        st.markdown(
+            f"<div style='padding:8px 0;color:#666;'>"
+            f"{total_pages} 페이지 &nbsp;·&nbsp; 총 <b>{len(contents):,}</b>명</div>",
             unsafe_allow_html=True,
         )
     with c_next:
