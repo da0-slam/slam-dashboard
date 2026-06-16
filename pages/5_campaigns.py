@@ -112,6 +112,14 @@ def _fmt(n):
     return str(n)
 
 
+def _parse_price(text: str) -> float | None:
+    """텍스트에서 첫 번째 달러 금액 추출. '$1,100/VT' → 1100.0"""
+    if not text:
+        return None
+    m = re.search(r'\$([\d,]+)', str(text))
+    return float(m.group(1).replace(",", "")) if m else None
+
+
 @st.dialog("콘텐츠 전체보기", width="large")
 def show_contents_dialog(influencer_id: str):
     st.caption(f"@{influencer_id}")
@@ -339,6 +347,51 @@ if st.session_state.get("selected_campaign"):
     thumb_map     = get_influencer_thumbnails(inf_ids)
     inf_map       = {r["influencer_id"]: r for r in get_influencers()}
     note_cnt_map  = get_note_counts(inf_ids, selected_brand_id)
+
+    # 가격 파싱 (after_nego 우선, 없으면 ratecard)
+    for s in selections:
+        s["_price"] = _parse_price(s.get("after_nego")) or _parse_price(s.get("ratecard"))
+
+    # ── 어드민 전용: 가격 정렬/필터 ────────────────────────────────────────────
+    sort_price  = "등록순"
+    price_range = None
+    if is_admin:
+        priced_vals = [s["_price"] for s in selections if s["_price"] is not None]
+        if priced_vals:
+            p_min, p_max = int(min(priced_vals)), int(max(priced_vals))
+            with st.container(border=True):
+                fc1, fc2, fc3 = st.columns([2, 3, 2])
+                with fc1:
+                    sort_price = st.selectbox(
+                        "💰 가격 정렬",
+                        ["등록순", "낮은 가격순 ↑", "높은 가격순 ↓"],
+                        key=f"sort_price_{camp_id}",
+                        label_visibility="collapsed",
+                    )
+                with fc2:
+                    price_range = st.slider(
+                        "가격 범위",
+                        min_value=0, max_value=p_max,
+                        value=(0, p_max), step=50,
+                        format="$%d",
+                        key=f"price_range_{camp_id}",
+                    )
+                with fc3:
+                    hide_unpriced = st.checkbox("가격 없는 항목 숨기기", key=f"hide_unpriced_{camp_id}")
+
+            # 필터 적용
+            def _price_filter(s):
+                p = s["_price"]
+                if p is None:
+                    return not hide_unpriced
+                return price_range[0] <= p <= price_range[1]
+            selections = [s for s in selections if _price_filter(s)]
+
+            # 정렬 적용
+            if "낮은" in sort_price:
+                selections = sorted(selections, key=lambda s: (s["_price"] is None, s["_price"] or 0))
+            elif "높은" in sort_price:
+                selections = sorted(selections, key=lambda s: (s["_price"] is None, -(s["_price"] or 0)))
 
     view_col, _ = st.columns([2, 6])
     with view_col:
