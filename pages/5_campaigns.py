@@ -480,7 +480,7 @@ if st.session_state.get("selected_campaign"):
             return
 
         if "그리드" in view_mode:
-            COLS = 4
+            COLS = 5
             for chunk_start in range(0, len(items), COLS):
                 row  = items[chunk_start:chunk_start + COLS]
                 cols = st.columns(COLS)
@@ -536,9 +536,6 @@ if st.session_state.get("selected_campaign"):
                                 if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
                                     remove_campaign_selection(item["id"])
                                     st.rerun()
-                        if is_admin and (item.get("ratecard") or item.get("after_nego")):
-                            _p = "  →  ".join(filter(None, [item.get("ratecard"), item.get("after_nego")]))
-                            st.caption(f"💰 {_p}")
                         b3, b4 = st.columns(2)
                         with b3:
                             nc = note_cnt_map.get(inf_id, 0)
@@ -547,6 +544,9 @@ if st.session_state.get("selected_campaign"):
                         with b4:
                             if st.button("📷 전체", key=f"{prefix}_g_all_{item['id']}", use_container_width=True):
                                 show_contents_dialog(inf_id)
+                        if is_admin and (item.get("ratecard") or item.get("after_nego")):
+                            _p = "  →  ".join(filter(None, [item.get("ratecard"), item.get("after_nego")]))
+                            st.caption(f"💰 {_p}")
         else:
             for item in items:
                 inf_id    = item["influencer_id"]
