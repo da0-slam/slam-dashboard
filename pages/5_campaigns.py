@@ -113,22 +113,32 @@ def _fmt(n):
 
 
 def _parse_price(text: str) -> float | None:
-    """텍스트에서 가격 추출. '$1,100', '$3K', '3k', '3.5K' 모두 지원."""
+    """텍스트에서 가격 추출.
+    지원 형식: $1,100 / $3K / 3k / 3.5K / 5.500,- USD (유럽식) / 5500 USD
+    """
     if not text:
         return None
     s = str(text)
-    # $숫자K 형식: "$3K", "$4.5K"
+    # $숫자K: "$3K", "$4.5K"
     m = re.search(r'\$\s*([\d,]+(?:\.\d+)?)\s*[kK]\b', s)
     if m:
         return float(m.group(1).replace(",", "")) * 1000
-    # $숫자 형식: "$3,000", "$900"
+    # $숫자: "$3,000", "$900"
     m = re.search(r'\$([\d,]+(?:\.\d+)?)', s)
     if m:
         return float(m.group(1).replace(",", ""))
-    # 숫자K 형식 ($ 없이): "3k", "7K", "3.5K"
+    # 숫자K ($ 없이): "3k", "7K", "3.5K"
     m = re.search(r'\b([\d,]+(?:\.\d+)?)\s*[kK]\b', s)
     if m:
         return float(m.group(1).replace(",", "")) * 1000
+    # 유럽식: "5.500,-" / "5.500,- USD" (점=천단위 구분자, 3자리마다)
+    m = re.search(r'\b(\d{1,3}(?:\.\d{3})+)(?:,-)?', s)
+    if m:
+        return float(m.group(1).replace(".", ""))
+    # 숫자 + USD/EUR: "5500 USD", "4500 EUR"
+    m = re.search(r'\b(\d[\d,]*)\s*(?:USD|EUR)\b', s, re.IGNORECASE)
+    if m:
+        return float(m.group(1).replace(",", ""))
     return None
 
 
