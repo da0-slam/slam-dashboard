@@ -857,6 +857,7 @@ def delete_campaign_post(post_id: str, brand_id: str) -> bool:
 
 def bulk_upsert_koc_contents(rows: list[dict]) -> tuple[int, list[str]]:
     """koc_contents에 Apify 형식 행을 일괄 upsert합니다.
+    influencer_master에 없는 influencer_id는 자동 등록 후 삽입합니다.
     rows: [{"influencer_id", "video_url", "play_count", ...}, ...]
     returns: (upserted_count, errors)
     """
@@ -865,14 +866,46 @@ def bulk_upsert_koc_contents(rows: list[dict]) -> tuple[int, list[str]]:
     valid = []
     for r in rows:
         if not r.get("influencer_id") or not r.get("video_url"):
-            errors.append(f"influencer_id 또는 video_url 누락 → 건너뜀")
             continue
         valid.append(r)
 
     if not valid:
         return 0, errors
 
+    # influencer_master에 없는 인플루언서 자동 등록
+    unique_ids = list({r["influencer_id"] for r in valid})
+    existing_ids: set[str] = set()
     CHUNK = 500
+    for i in range(0, len(unique_ids), CHUNK):
+        res = (
+            sb.table("influencer_master")
+            .select("influencer_id")
+            .in_("influencer_id", unique_ids[i:i + CHUNK])
+            .execute()
+        )
+        existing_ids.update(r["influencer_id"] for r in (res.data or []))
+
+    missing = [iid for iid in unique_ids if iid not in existing_ids]
+    if missing:
+        def _platform(row_map: dict, iid: str) -> str:
+            vurl = row_map.get(iid, {}).get("video_url", "")
+            if "instagram" in vurl: return "instagram"
+            if "youtube" in vurl:   return "youtube"
+            return "tiktok"
+
+        row_map = {r["influencer_id"]: r for r in valid}
+        master_rows = [
+            {"influencer_id": iid, "platform": _platform(row_map, iid), "apify_status": "done"}
+            for iid in missing
+        ]
+        for i in range(0, len(master_rows), CHUNK):
+            try:
+                sb.table("influencer_master").upsert(
+                    master_rows[i:i + CHUNK], on_conflict="influencer_id"
+                ).execute()
+            except Exception as e:
+                errors.append(f"influencer_master 등록 오류: {e}")
+
     upserted = 0
     for i in range(0, len(valid), CHUNK):
         chunk = valid[i:i + CHUNK]
