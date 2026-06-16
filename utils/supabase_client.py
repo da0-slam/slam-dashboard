@@ -536,8 +536,16 @@ def bulk_add_to_campaign(
             "platform_url":  e.get("platform_url") or None,
         })
 
+    # CSV 내부 중복 제거 (같은 influencer_id가 여러 행일 때)
+    seen: dict = {}
+    for row in to_insert:
+        seen[row["influencer_id"]] = row
+    to_insert = list(seen.values())
+
     if to_insert:
-        sb.table("campaign_selections").insert(to_insert).execute()
+        sb.table("campaign_selections").upsert(
+            to_insert, on_conflict="campaign_id,influencer_id"
+        ).execute()
 
     return len(to_insert), skipped, errors
 
