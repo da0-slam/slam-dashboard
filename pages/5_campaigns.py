@@ -396,6 +396,9 @@ if st.session_state.get("selected_campaign"):
                             if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
                                 remove_campaign_selection(item["id"])
                                 st.rerun()
+                        if is_admin and (item.get("ratecard") or item.get("after_nego")):
+                            _p = "  →  ".join(filter(None, [item.get("ratecard"), item.get("after_nego")]))
+                            st.caption(f"💰 {_p}")
                         b3, b4 = st.columns(2)
                         with b3:
                             nc = note_cnt_map.get(inf_id, 0)
@@ -429,7 +432,11 @@ if st.session_state.get("selected_campaign"):
                         _link = f"[↗ 프로필]({_purl})" if _purl else (f"[↗ 영상]({video_url})" if video_url else "")
                         _fol  = f"👥 {_fmt(item['followers'])}" if item.get("followers") else ""
                         st.caption(f"{_plat}  {_fol}  {_link}".strip())
-                        _meta = "  |  ".join(filter(None, [
+                        _price_info = [
+                            f"💰 {item['ratecard']}" if item.get("ratecard") else "",
+                            f"→ {item['after_nego']}" if item.get("after_nego") else "",
+                        ] if is_admin else []
+                        _meta = "  |  ".join(filter(None, _price_info + [
                             item.get("usage_rights"),
                         ]))
                         if _meta:
