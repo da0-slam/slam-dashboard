@@ -123,6 +123,20 @@ _LANG_ORDER = [
 # #fypシ / #fypシ゚ 등 영어권도 사용하는 TikTok 바이럴 태그 제거용
 _FYP_RE = _re.compile(r'#fyp\S*', _re.IGNORECASE)
 
+_BEAUTY_KW = {
+    "skincare","makeup","beauty","cosmetic","serum","moisturizer","foundation",
+    "concealer","blush","mascara","lipstick","eyeshadow","contour","highlighter",
+    "primer","toner","sunscreen","spf","cleanser","exfoliant","retinol","vitamin c",
+    "hyaluronic","collagen","acne","pore","glow","glam","routine","tutorial",
+    "review","unboxing","ugc","beautytok","skincaretok","skintok","makeuptok",
+    "antiaging","anti-aging","selfcare","bodycare","haircare","fragrance","perfume",
+    "skincareroutine","makeuptutorial","glowup","dewy","complexion","blemish",
+}
+
+def _has_beauty_kw(r) -> bool:
+    cap = (r.get("caption") or "").lower()
+    return any(kw in cap for kw in _BEAUTY_KW)
+
 def detect_lang(caption: str) -> str:
     if not caption or not caption.strip():
         return "❓ Others"
@@ -228,8 +242,12 @@ elif sort_by == "Date (최신순)":
     contents.sort(key=lambda r: r.get("posted_at") or "", reverse=True)
 elif sort_by == "Date (오래된순)":
     contents.sort(key=lambda r: r.get("posted_at") or "")
-else:  # Rank (기본) — 영어권 먼저, ER 내림차순
-    contents.sort(key=lambda r: (0 if r["lang"] == "🌐 English" else 1, -r["er"]))
+else:  # Rank (기본) — 영어권 먼저, 뷰티키워드, 조회수 내림차순
+    contents.sort(key=lambda r: (
+        0 if r["lang"] == "🌐 English" else 1,
+        0 if _has_beauty_kw(r) else 1,
+        -(r.get("play_count") or 0),
+    ))
 
 # ─── 페이지네이션 상태 ────────────────────────────────────────────────────────
 PAGE_SIZE = 48  # 4열×12행 or 3열×16행
