@@ -1250,8 +1250,50 @@ def _comment_avatar_color(name: str) -> str:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _load_comments(aweme_id: str) -> list[dict]:
-    return get_post_comments(aweme_id)
+def _load_comments_tt(aweme_id: str) -> list[dict]:
+    return get_post_comments(aweme_id=aweme_id)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_comments_ig(post_url: str) -> list[dict]:
+    return get_post_comments(post_url=post_url)
+
+def _render_comments(comments: list[dict]) -> None:
+    st.markdown("""
+    <style>
+    .cmt-card{padding:10px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;}
+    .cmt-av{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;
+            justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;
+            vertical-align:top;margin-right:9px;}
+    .cmt-body{display:inline-block;vertical-align:top;max-width:calc(100% - 48px);}
+    .cmt-user{font-size:12px;font-weight:700;color:#111;margin:0 0 1px;}
+    .cmt-meta{font-size:11px;color:#9ca3af;margin:0 0 4px;}
+    .cmt-text{font-size:13px;color:#374151;margin:0;word-break:break-word;}
+    .cmt-like{font-size:11px;color:#6b7280;margin-top:4px;}
+    </style>
+    """, unsafe_allow_html=True)
+    for cmt in comments:
+        uname    = cmt.get("username") or cmt.get("display_name") or "?"
+        dname    = cmt.get("display_name") or uname
+        initial  = uname[0].upper() if uname != "?" else "?"
+        color    = _comment_avatar_color(uname)
+        time_str = _fmt_time(cmt.get("created_at") or "")
+        text     = (cmt.get("text") or "").replace("<","&lt;").replace(">","&gt;")
+        likes    = cmt.get("like_count") or 0
+        lang     = cmt.get("language") or ""
+        region   = cmt.get("user_region") or ""
+        meta_parts = [p for p in [time_str, lang.upper() if lang else "", region] if p]
+        st.markdown(
+            f"""<div class='cmt-card'>
+                <span class='cmt-av' style='background:{color};'>{initial}</span>
+                <span class='cmt-body'>
+                    <p class='cmt-user'>@{uname} <span style='font-weight:400;color:#6b7280;'>· {dname}</span></p>
+                    <p class='cmt-meta'>{" · ".join(meta_parts)}</p>
+                    <p class='cmt-text'>{text}</p>
+                    <p class='cmt-like'>❤️ {likes:,}</p>
+                </span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
 
 with tab5:
@@ -1261,33 +1303,51 @@ with tab5:
     if df.empty:
         st.info("게시물 데이터가 없습니다. '게시물 관리' 탭에서 게시물을 추가해주세요.")
     else:
-        tiktok_posts = [p for p in posts if p.get("platform") == "tiktok" and _aweme_id_from_url(p.get("post_url",""))]
+        # TikTok + Instagram 모두 선택 가능
+        viewable_posts = [
+            p for p in posts
+            if (p.get("platform") == "tiktok" and _aweme_id_from_url(p.get("post_url","")))
+            or (p.get("platform") == "instagram" and p.get("post_url",""))
+        ]
 
-        if not tiktok_posts:
-            st.info("현재 필터에 TikTok 게시물이 없습니다.")
+        if not viewable_posts:
+            st.info("현재 필터에 댓글을 볼 수 있는 게시물이 없습니다.")
         else:
-            post_labels = {
-                f"{p.get('influencer_name','')} · {_aweme_id_from_url(p['post_url'])}": p
-                for p in tiktok_posts
-            }
-            sel_label = st.selectbox("게시물 선택", list(post_labels.keys()), key="cmt_post_sel")
-            sel_post  = post_labels[sel_label]
-            aweme_id  = _aweme_id_from_url(sel_post["post_url"])
+            def _post_label(p):
+                plat = "TT" if p.get("platform") == "tiktok" else "IG"
+                name = p.get("influencer_name","")
+                if p.get("platform") == "tiktok":
+                    key = _aweme_id_from_url(p["post_url"]) or p["post_url"]
+                else:
+                    key = p["post_url"].split("?")[0].rstrip("/").split("/")[-1]
+                return f"[{plat}] {name} · {key}"
+
+            post_label_map = {_post_label(p): p for p in viewable_posts}
+            sel_label = st.selectbox("게시물 선택", list(post_label_map.keys()), key="cmt_post_sel")
+            sel_post  = post_label_map[sel_label]
+            is_tt     = sel_post.get("platform") == "tiktok"
 
             c_left, c_right = st.columns([3, 1])
             with c_left:
-                st.caption(f"awemeId: `{aweme_id}` · [게시물 열기]({sel_post.get('post_url','')})")
+                if is_tt:
+                    aweme_id = _aweme_id_from_url(sel_post["post_url"])
+                    st.caption(f"TikTok · awemeId: `{aweme_id}` · [게시물 열기]({sel_post.get('post_url','')})")
+                else:
+                    st.caption(f"Instagram · [게시물 열기]({sel_post.get('post_url','')})")
             with c_right:
                 if st.button("🔄 새로고침", key="cmt_refresh"):
-                    _load_comments.clear()
+                    _load_comments_tt.clear()
+                    _load_comments_ig.clear()
                     st.rerun()
 
-            comments = _load_comments(aweme_id)
+            if is_tt:
+                comments = _load_comments_tt(_aweme_id_from_url(sel_post["post_url"]))
+            else:
+                comments = _load_comments_ig(sel_post["post_url"])
 
             if not comments:
                 st.info("이 게시물에 가져온 댓글이 없습니다. 아래에서 스프레드시트로 댓글을 가져오세요.")
             else:
-                # 검색 필터
                 cmt_search = st.text_input(
                     "댓글 검색",
                     placeholder="🔍  내용 또는 사용자명 검색",
@@ -1303,63 +1363,27 @@ with tab5:
                         or kw in (c.get("username") or "").lower()
                         or kw in (c.get("display_name") or "").lower()
                     ]
-
                 st.caption(f"총 {len(comments)}개 · 표시 {len(filtered)}개 (좋아요 순)")
                 st.divider()
-
-                st.markdown("""
-                <style>
-                .cmt-card{padding:10px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;}
-                .cmt-av{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;
-                        justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;
-                        vertical-align:top;margin-right:9px;}
-                .cmt-body{display:inline-block;vertical-align:top;max-width:calc(100% - 48px);}
-                .cmt-user{font-size:12px;font-weight:700;color:#111;margin:0 0 1px;}
-                .cmt-meta{font-size:11px;color:#9ca3af;margin:0 0 4px;}
-                .cmt-text{font-size:13px;color:#374151;margin:0;word-break:break-word;}
-                .cmt-like{font-size:11px;color:#6b7280;margin-top:4px;}
-                </style>
-                """, unsafe_allow_html=True)
-
-                for cmt in filtered:
-                    uname    = cmt.get("username") or cmt.get("display_name") or "?"
-                    dname    = cmt.get("display_name") or uname
-                    initial  = uname[0].upper() if uname != "?" else "?"
-                    color    = _comment_avatar_color(uname)
-                    time_str = _fmt_time(cmt.get("created_at") or "")
-                    text     = (cmt.get("text") or "").replace("<","&lt;").replace(">","&gt;")
-                    likes    = cmt.get("like_count") or 0
-                    lang     = cmt.get("language") or ""
-                    region   = cmt.get("user_region") or ""
-                    meta_parts = [p for p in [time_str, lang.upper() if lang else "", region] if p]
-
-                    st.markdown(
-                        f"""<div class='cmt-card'>
-                            <span class='cmt-av' style='background:{color};'>{initial}</span>
-                            <span class='cmt-body'>
-                                <p class='cmt-user'>@{uname} <span style='font-weight:400;color:#6b7280;'>· {dname}</span></p>
-                                <p class='cmt-meta'>{" · ".join(meta_parts)}</p>
-                                <p class='cmt-text'>{text}</p>
-                                <p class='cmt-like'>❤️ {likes:,}</p>
-                            </span>
-                        </div>""",
-                        unsafe_allow_html=True,
-                    )
+                _render_comments(filtered)
 
     st.divider()
 
     # ── 댓글 Google Sheets 가져오기 ──────────────────────────────────────────
     with st.expander("📥 댓글 Google Sheets로 가져오기", expanded=False):
-        st.markdown("""
-**스프레드시트 컬럼 형식 (Apify TikTok Comment Scraper 기본 출력)**
+        cmt_plat = st.radio("플랫폼", ["TikTok", "Instagram"], horizontal=True, key="cmt_import_plat")
 
-| id | text | createdAt | likeCount | replyCount | commentLanguage | awemeId | user.id | user.username | user.displayName | user.avatarUrl | user.region |
-|----|------|-----------|-----------|------------|-----------------|---------|---------|---------------|-----------------|----------------|-------------|
+        if cmt_plat == "TikTok":
+            st.markdown("""
+**TikTok 컬럼 형식** (Apify TikTok Comment Scraper 기본 출력)
 
-- `id` : 댓글 고유 ID (필수)
-- `awemeId` : TikTok 영상 ID (필수 — 게시물과 연결됨)
-- `text` : 댓글 내용
-- `user.username` / `user.displayName` : 작성자 정보
+`id` · `text` · `createdAt` · `likeCount` · `replyCount` · `commentLanguage` · **`awemeId`** · `user.username` · `user.displayName` · `user.avatarUrl` · `user.region`
+""")
+        else:
+            st.markdown("""
+**Instagram 컬럼 형식** (Apify Instagram Comment Scraper 기본 출력)
+
+`id` · `text` · `timestamp` · **`postUrl`** · `ownerUsername` · `ownerProfilePicUrl`
 """)
 
         cmt_sheets_url = st.text_input(
@@ -1388,15 +1412,18 @@ with tab5:
                         resp2 = _http2.get(cmt_csv_url, timeout=20)
                         resp2.raise_for_status()
                         cmt_df = pd.read_csv(io.StringIO(resp2.content.decode("utf-8-sig")))
-                        st.session_state["cmt_fetched_df"]  = cmt_df.to_dict(orient="list")
-                        st.session_state["cmt_fetched_url"] = cmt_sheets_url
+                        st.session_state["cmt_fetched_df"]   = cmt_df.to_dict(orient="list")
+                        st.session_state["cmt_fetched_url"]  = cmt_sheets_url
+                        st.session_state["cmt_fetched_plat"] = cmt_plat
                         st.success(f"시트 불러오기 완료: {len(cmt_df)}행")
                     except Exception as fe:
                         st.error(f"불러오기 실패: {fe}")
 
-                if st.session_state.get("cmt_fetched_url") == cmt_sheets_url and "cmt_fetched_df" in st.session_state:
+                if (
+                    st.session_state.get("cmt_fetched_url") == cmt_sheets_url
+                    and "cmt_fetched_df" in st.session_state
+                ):
                     cmt_raw = pd.DataFrame(st.session_state["cmt_fetched_df"])
-                    # 컬럼명 정규화 (소문자, 점→밑줄)
                     cmt_raw.columns = [c.strip().lower().replace(".", "_") for c in cmt_raw.columns]
 
                     def _fc(aliases):
@@ -1405,63 +1432,109 @@ with tab5:
                                 return a
                         return None
 
-                    col_id      = _fc(["id", "comment_id"])
-                    col_aweme   = _fc(["awemeid", "aweme_id", "videoid", "video_id"])
-                    col_text    = _fc(["text", "content", "comment"])
-                    col_created = _fc(["createdat", "created_at", "date", "time"])
-                    col_likes   = _fc(["likecount", "like_count", "likes"])
-                    col_replies = _fc(["replycount", "reply_count", "replies"])
-                    col_lang    = _fc(["commentlanguage", "language", "lang"])
-                    col_authliked = _fc(["isauthorliked", "is_author_liked"])
-                    col_uid     = _fc(["user_id", "userid"])
-                    col_uname   = _fc(["user_username", "username"])
-                    col_dname   = _fc(["user_displayname", "display_name", "displayname"])
-                    col_avatar  = _fc(["user_avatarurl", "avatar_url", "avatarurl"])
-                    col_region  = _fc(["user_region", "region"])
+                    def _sv(row, col, default=None):
+                        if col and col in row.index:
+                            v = row[col]
+                            return None if str(v).strip().lower() in ("nan","none","") else v
+                        return default
 
-                    if not col_id or not col_aweme:
-                        st.error(f"필수 컬럼 누락: {'id' if not col_id else ''} {'awemeId' if not col_aweme else ''}. 헤더를 확인해주세요.")
-                    else:
-                        def _sv(row, col, default=None):
-                            if col and col in row.index:
-                                v = row[col]
-                                return None if str(v).strip().lower() in ("nan","none","") else v
-                            return default
+                    col_id = _fc(["id", "comment_id"])
 
-                        rows_cmt = []
-                        for _, r in cmt_raw.iterrows():
-                            cmt_id    = str(_sv(r, col_id) or "")
-                            aweme_val = str(_sv(r, col_aweme) or "")
-                            if not cmt_id or not aweme_val:
-                                continue
-                            rows_cmt.append({
-                                "id":              cmt_id,
-                                "aweme_id":        aweme_val,
-                                "text":            str(_sv(r, col_text) or ""),
-                                "created_at":      str(_sv(r, col_created) or "") or None,
-                                "like_count":      int(float(_sv(r, col_likes) or 0)),
-                                "reply_count":     int(float(_sv(r, col_replies) or 0)),
-                                "language":        str(_sv(r, col_lang) or "") or None,
-                                "is_author_liked": bool(_sv(r, col_authliked)) if col_authliked else False,
-                                "user_id":         str(_sv(r, col_uid) or "") or None,
-                                "username":        str(_sv(r, col_uname) or "") or None,
-                                "display_name":    str(_sv(r, col_dname) or "") or None,
-                                "avatar_url":      str(_sv(r, col_avatar) or "") or None,
-                                "user_region":     str(_sv(r, col_region) or "") or None,
-                            })
+                    if cmt_plat == "TikTok":
+                        col_aweme   = _fc(["awemeid", "aweme_id", "videoid", "video_id"])
+                        col_text    = _fc(["text", "content", "comment"])
+                        col_created = _fc(["createdat", "created_at", "date", "time", "timestamp"])
+                        col_likes   = _fc(["likecount", "like_count", "likes"])
+                        col_replies = _fc(["replycount", "reply_count", "replies"])
+                        col_lang    = _fc(["commentlanguage", "language", "lang"])
+                        col_authliked = _fc(["isauthorliked", "is_author_liked"])
+                        col_uid     = _fc(["user_id", "userid"])
+                        col_uname   = _fc(["user_username", "username"])
+                        col_dname   = _fc(["user_displayname", "display_name", "displayname"])
+                        col_avatar  = _fc(["user_avatarurl", "avatar_url", "avatarurl"])
+                        col_region  = _fc(["user_region", "region"])
 
-                        st.caption(f"유효 댓글 {len(rows_cmt)}개 · 미리보기 (상위 5행)")
-                        st.dataframe(
-                            pd.DataFrame(rows_cmt)[["aweme_id","username","text","like_count","language"]].head(5),
-                            use_container_width=True, hide_index=True,
-                        )
+                        if not col_id or not col_aweme:
+                            st.error(f"필수 컬럼 누락: {'id' if not col_id else ''} {'awemeId' if not col_aweme else ''}")
+                        else:
+                            rows_cmt = []
+                            for _, r in cmt_raw.iterrows():
+                                cmt_id    = str(_sv(r, col_id) or "")
+                                aweme_val = str(_sv(r, col_aweme) or "")
+                                if not cmt_id or not aweme_val:
+                                    continue
+                                rows_cmt.append({
+                                    "id":              cmt_id,
+                                    "aweme_id":        aweme_val,
+                                    "platform":        "tiktok",
+                                    "text":            str(_sv(r, col_text) or ""),
+                                    "created_at":      str(_sv(r, col_created) or "") or None,
+                                    "like_count":      int(float(_sv(r, col_likes) or 0)),
+                                    "reply_count":     int(float(_sv(r, col_replies) or 0)),
+                                    "language":        str(_sv(r, col_lang) or "") or None,
+                                    "is_author_liked": bool(_sv(r, col_authliked)) if col_authliked else False,
+                                    "user_id":         str(_sv(r, col_uid) or "") or None,
+                                    "username":        str(_sv(r, col_uname) or "") or None,
+                                    "display_name":    str(_sv(r, col_dname) or "") or None,
+                                    "avatar_url":      str(_sv(r, col_avatar) or "") or None,
+                                    "user_region":     str(_sv(r, col_region) or "") or None,
+                                })
 
-                        if st.button(f"✅ {len(rows_cmt)}개 댓글 가져오기", key="cmt_run"):
-                            with st.spinner("댓글 저장 중..."):
-                                cnt, errs = bulk_upsert_post_comments(rows_cmt)
-                            st.success(f"완료: {cnt}개 저장")
-                            if errs:
+                            st.caption(f"유효 댓글 {len(rows_cmt)}개 · 미리보기 (상위 5행)")
+                            st.dataframe(
+                                pd.DataFrame(rows_cmt)[["aweme_id","username","text","like_count"]].head(5),
+                                use_container_width=True, hide_index=True,
+                            )
+                            if st.button(f"✅ {len(rows_cmt)}개 TikTok 댓글 가져오기", key="cmt_run_tt"):
+                                with st.spinner("댓글 저장 중..."):
+                                    cnt, errs = bulk_upsert_post_comments(rows_cmt)
+                                st.success(f"완료: {cnt}개 저장")
                                 for e in errs:
                                     st.warning(e)
-                            _load_comments.clear()
-                            st.rerun()
+                                _load_comments_tt.clear()
+                                st.rerun()
+
+                    else:  # Instagram
+                        col_post_url = _fc(["posturl", "post_url", "url", "link"])
+                        col_text     = _fc(["text", "content", "comment"])
+                        col_created  = _fc(["timestamp", "createdat", "created_at", "date"])
+                        col_uname    = _fc(["ownerusername", "username", "owner_username"])
+                        col_avatar   = _fc(["ownerprofilepicurl", "avatar_url", "profile_pic"])
+
+                        if not col_id or not col_post_url:
+                            st.error(f"필수 컬럼 누락: {'id' if not col_id else ''} {'postUrl' if not col_post_url else ''}")
+                        else:
+                            rows_cmt = []
+                            for _, r in cmt_raw.iterrows():
+                                cmt_id   = str(_sv(r, col_id) or "")
+                                post_url_val = str(_sv(r, col_post_url) or "")
+                                if not cmt_id or not post_url_val:
+                                    continue
+                                # URL 정규화 (쿼리파라미터 제거)
+                                norm_url = post_url_val.split("?")[0].rstrip("/")
+                                rows_cmt.append({
+                                    "id":           cmt_id,
+                                    "post_url":     norm_url,
+                                    "platform":     "instagram",
+                                    "aweme_id":     "",
+                                    "text":         str(_sv(r, col_text) or ""),
+                                    "created_at":   str(_sv(r, col_created) or "") or None,
+                                    "like_count":   0,
+                                    "reply_count":  0,
+                                    "username":     str(_sv(r, col_uname) or "") or None,
+                                    "avatar_url":   str(_sv(r, col_avatar) or "") or None,
+                                })
+
+                            st.caption(f"유효 댓글 {len(rows_cmt)}개 · 미리보기 (상위 5행)")
+                            st.dataframe(
+                                pd.DataFrame(rows_cmt)[["post_url","username","text"]].head(5),
+                                use_container_width=True, hide_index=True,
+                            )
+                            if st.button(f"✅ {len(rows_cmt)}개 Instagram 댓글 가져오기", key="cmt_run_ig"):
+                                with st.spinner("댓글 저장 중..."):
+                                    cnt, errs = bulk_upsert_post_comments(rows_cmt)
+                                st.success(f"완료: {cnt}개 저장")
+                                for e in errs:
+                                    st.warning(e)
+                                _load_comments_ig.clear()
+                                st.rerun()

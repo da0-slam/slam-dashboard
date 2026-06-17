@@ -1247,19 +1247,25 @@ def migrate_google_sheet_rows(
 
 # ── post_comments ────────────────────────────────────────────────────────────
 
-def get_post_comments(aweme_id: str) -> list[dict]:
-    """aweme_id(TikTok 영상 ID)로 스크랩된 댓글 목록 조회 (좋아요 순)."""
-    resp = (
+def get_post_comments(aweme_id: str | None = None, post_url: str | None = None) -> list[dict]:
+    """TikTok aweme_id 또는 Instagram post_url로 댓글 조회 (좋아요 순)."""
+    q = (
         get_supabase()
         .table("post_comments")
-        .select("id, text, created_at, like_count, reply_count, language, "
+        .select("id, text, created_at, like_count, reply_count, language, platform, "
                 "username, display_name, avatar_url, user_region")
-        .eq("aweme_id", aweme_id)
         .order("like_count", desc=True)
         .limit(300)
-        .execute()
     )
-    return resp.data or []
+    if aweme_id:
+        q = q.eq("aweme_id", aweme_id)
+    elif post_url:
+        # 쿼리파라미터 제거 후 정규화
+        _norm = post_url.split("?")[0].rstrip("/")
+        q = q.like("post_url", f"%{_norm}%")
+    else:
+        return []
+    return q.execute().data or []
 
 
 def bulk_upsert_post_comments(rows: list[dict]) -> tuple[int, list[str]]:
