@@ -102,9 +102,124 @@ def _sanitize_storage_key(value: str) -> str:
 
 
 def _aweme_id_from_url(url: str) -> str | None:
-    """TikTok post_url 에서 영상 ID(awemeId) 추출."""
     m = re.search(r"/video/(\d+)", url or "")
     return m.group(1) if m else None
+
+def _fmt_time(ts: str) -> str:
+    if not ts:
+        return ""
+    try:
+        from datetime import datetime as _dt
+        dt = _dt.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ts[:16]
+
+def _comment_avatar_color(name: str) -> str:
+    colors = ["#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6","#ef4444","#8b5cf6","#14b8a6"]
+    return colors[sum(ord(c) for c in (name or "?")) % len(colors)]
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_comments_tt(aweme_id: str) -> list[dict]:
+    return get_post_comments(aweme_id=aweme_id)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_comments_ig(post_url: str) -> list[dict]:
+    return get_post_comments(post_url=post_url)
+
+def _render_comment_summary(comments: list[dict]) -> None:
+    from collections import Counter
+    r_cnt = Counter(c.get("user_region")   or "" for c in comments if c.get("user_region"))
+    l_cnt = Counter(c.get("user_language") or "" for c in comments if c.get("user_language"))
+    if not r_cnt and not l_cnt:
+        return
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        if r_cnt:
+            st.markdown("**🌍 댓글 작성 지역 TOP 5**")
+            total = sum(r_cnt.values())
+            tags = "".join(
+                f"<span style='background:#f3f4f6;border-radius:6px;padding:3px 10px;margin:2px;"
+                f"font-size:12px;font-weight:600;color:#374151;display:inline-block;'>"
+                f"{r} <span style='color:#6b7280;font-weight:400'>{c/total*100:.0f}%</span></span>"
+                for r, c in r_cnt.most_common(5)
+            )
+            st.markdown(f"<div style='margin-bottom:8px'>{tags}</div>", unsafe_allow_html=True)
+    with sc2:
+        if l_cnt:
+            st.markdown("**🗣 사용자 언어 TOP 5**")
+            total = sum(l_cnt.values())
+            tags = "".join(
+                f"<span style='background:#eff6ff;border-radius:6px;padding:3px 10px;margin:2px;"
+                f"font-size:12px;font-weight:600;color:#1d4ed8;display:inline-block;'>"
+                f"{l.upper()} <span style='color:#6b7280;font-weight:400'>{c/total*100:.0f}%</span></span>"
+                for l, c in l_cnt.most_common(5)
+            )
+            st.markdown(f"<div style='margin-bottom:8px'>{tags}</div>", unsafe_allow_html=True)
+    st.divider()
+
+def _render_comments(comments: list[dict]) -> None:
+    _render_comment_summary(comments)
+    st.markdown("""
+    <style>
+    .cmt-card{padding:10px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;}
+    .cmt-av{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;
+            justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;
+            vertical-align:top;margin-right:9px;}
+    .cmt-body{display:inline-block;vertical-align:top;max-width:calc(100% - 48px);}
+    .cmt-user{font-size:12px;font-weight:700;color:#111;margin:0 0 1px;}
+    .cmt-meta{font-size:11px;color:#9ca3af;margin:0 0 4px;}
+    .cmt-text{font-size:13px;color:#374151;margin:0;word-break:break-word;}
+    .cmt-like{font-size:11px;color:#6b7280;margin-top:4px;}
+    </style>
+    """, unsafe_allow_html=True)
+    for cmt in comments:
+        uname     = cmt.get("username") or cmt.get("display_name") or "?"
+        dname     = cmt.get("display_name") or uname
+        initial   = uname[0].upper() if uname != "?" else "?"
+        color     = _comment_avatar_color(uname)
+        time_str  = _fmt_time(cmt.get("created_at") or "")
+        text      = (cmt.get("text") or "").replace("<","&lt;").replace(">","&gt;")
+        likes     = cmt.get("like_count") or 0
+        region    = cmt.get("user_region") or ""
+        user_lang = (cmt.get("user_language") or "").upper()
+        badge_html = ""
+        if region:
+            badge_html += f"<span style='background:#f3f4f6;border-radius:4px;padding:1px 6px;font-size:10px;color:#374151;margin-right:3px;'>🌍 {region}</span>"
+        if user_lang:
+            badge_html += f"<span style='background:#eff6ff;border-radius:4px;padding:1px 6px;font-size:10px;color:#1d4ed8;'>🗣 {user_lang}</span>"
+        st.markdown(
+            f"""<div class='cmt-card'>
+                <span class='cmt-av' style='background:{color};'>{initial}</span>
+                <span class='cmt-body'>
+                    <p class='cmt-user'>@{uname} <span style='font-weight:400;color:#6b7280;'>· {dname}</span>{"&nbsp;&nbsp;" + badge_html if badge_html else ""}</p>
+                    <p class='cmt-meta'>{time_str}</p>
+                    <p class='cmt-text'>{text}</p>
+                    <p class='cmt-like'>❤️ {likes:,}</p>
+                </span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+@st.dialog("💬 댓글", width="large")
+def _show_comments_dialog(orig_post: dict) -> None:
+    is_tt = orig_post.get("platform") == "tiktok"
+    st.caption(f"{'TikTok' if is_tt else 'Instagram'} · {orig_post.get('influencer_name','')} · [게시물 열기]({orig_post.get('post_url','')})")
+    if is_tt:
+        aweme = _aweme_id_from_url(orig_post["post_url"])
+        cmts  = _load_comments_tt(aweme) if aweme else []
+    else:
+        cmts = _load_comments_ig(orig_post["post_url"])
+
+    if not cmts:
+        st.info("가져온 댓글이 없습니다. '💬 댓글' 탭에서 스프레드시트로 먼저 가져오세요.")
+        return
+
+    kw = st.text_input("검색", placeholder="🔍 내용 또는 사용자명", label_visibility="collapsed", key="dlg_cmt_search")
+    show = [c for c in cmts if not kw or kw.lower() in (c.get("text") or "").lower() or kw.lower() in (c.get("username") or "").lower()] if kw else cmts
+    st.caption(f"총 {len(cmts)}개 · 표시 {len(show)}개")
+    st.divider()
+    _render_comments(show)
 
 
 def _scrape_thumbnails_for_posts(posts: list[dict]) -> list[dict]:
@@ -577,61 +692,17 @@ with tab1:
   </div>
 </a>
 """, unsafe_allow_html=True)
-                        # 댓글 버튼
+                        # 댓글 버튼 → 모달 다이얼로그
                         _norm_url = url.split("?")[0].rstrip("/")
                         _orig = _url_to_post.get(_norm_url)
                         _has_comments = bool(
                             (_orig and _orig.get("platform") == "tiktok" and _aweme_id_from_url(url))
                             or (_orig and _orig.get("platform") == "instagram")
                         )
-                        if _has_comments:
-                            _sel = st.session_state.get("cp_cmt_post_url")
-                            _active = _sel == _norm_url
-                            if col.button(
-                                "💬 댓글 닫기" if _active else "💬 댓글 보기",
-                                key=card_key,
-                                use_container_width=True,
-                            ):
-                                if _active:
-                                    st.session_state.pop("cp_cmt_post_url", None)
-                                else:
-                                    st.session_state["cp_cmt_post_url"] = _norm_url
-                                st.rerun()
+                        if _has_comments and _orig:
+                            if col.button("💬 댓글 보기", key=card_key, use_container_width=True):
+                                _show_comments_dialog(_orig)
 
-                # ── 선택된 게시물 댓글 패널 ──────────────────────────────────
-                _sel_url = st.session_state.get("cp_cmt_post_url")
-                if _sel_url:
-                    _orig_post = _url_to_post.get(_sel_url)
-                    if _orig_post:
-                        _is_tt = _orig_post.get("platform") == "tiktok"
-                        with st.container(border=True):
-                            _h1, _h2 = st.columns([5, 1])
-                            _h1.markdown(f"**💬 댓글** — {_orig_post.get('influencer_name','')} · [게시물 열기]({_orig_post.get('post_url','')})")
-                            if _h2.button("✕ 닫기", key="cmt_panel_close"):
-                                st.session_state.pop("cp_cmt_post_url", None)
-                                st.rerun()
-
-                            if _is_tt:
-                                _aweme = _aweme_id_from_url(_orig_post["post_url"])
-                                _cmts  = _load_comments_tt(_aweme) if _aweme else []
-                            else:
-                                _cmts = _load_comments_ig(_orig_post["post_url"])
-
-                            if not _cmts:
-                                st.info("가져온 댓글이 없습니다. '💬 댓글' 탭에서 스프레드시트로 먼저 가져오세요.")
-                            else:
-                                _cmt_kw = st.text_input(
-                                    "검색", placeholder="🔍 내용 또는 사용자명",
-                                    label_visibility="collapsed", key="cmt_panel_search"
-                                )
-                                _show = _cmts
-                                if _cmt_kw:
-                                    kw = _cmt_kw.lower()
-                                    _show = [c for c in _cmts if
-                                             kw in (c.get("text") or "").lower()
-                                             or kw in (c.get("username") or "").lower()]
-                                st.caption(f"총 {len(_cmts)}개 · 표시 {len(_show)}개")
-                                _render_comments(_show)
             st.divider()
         else:
             st.subheader("게시물 목록")
@@ -1296,115 +1367,6 @@ with tab4:
 # ═══════════════════════════════════════════════════════════════
 # Tab 5 – 댓글
 # ═══════════════════════════════════════════════════════════════
-
-def _fmt_time(ts: str) -> str:
-    if not ts:
-        return ""
-    try:
-        from datetime import datetime as _dt, timezone as _tz
-        dt = _dt.fromisoformat(ts.replace("Z", "+00:00"))
-        return dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return ts[:16]
-
-def _comment_avatar_color(name: str) -> str:
-    colors = ["#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6","#ef4444","#8b5cf6","#14b8a6"]
-    return colors[sum(ord(c) for c in (name or "?")) % len(colors)]
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _load_comments_tt(aweme_id: str) -> list[dict]:
-    return get_post_comments(aweme_id=aweme_id)
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _load_comments_ig(post_url: str) -> list[dict]:
-    return get_post_comments(post_url=post_url)
-
-def _render_comment_summary(comments: list[dict]) -> None:
-    """댓글 작성자 지역·언어 분포 요약 (브랜드 담당자용)."""
-    from collections import Counter
-    regions  = [c.get("user_region")   or "" for c in comments]
-    langs    = [c.get("user_language") or "" for c in comments]
-    r_cnt = Counter(r for r in regions if r)
-    l_cnt = Counter(l for l in langs   if l)
-    if not r_cnt and not l_cnt:
-        return
-
-    sc1, sc2 = st.columns(2)
-    with sc1:
-        if r_cnt:
-            st.markdown("**🌍 댓글 작성 지역 TOP 5**")
-            total = sum(r_cnt.values())
-            tags_html = ""
-            for region, cnt in r_cnt.most_common(5):
-                pct = cnt / total * 100
-                tags_html += (
-                    f"<span style='display:inline-flex;align-items:center;gap:4px;"
-                    f"background:#f3f4f6;border-radius:6px;padding:3px 10px;margin:2px;"
-                    f"font-size:12px;font-weight:600;color:#374151;'>"
-                    f"{region} <span style='color:#6b7280;font-weight:400'>{pct:.0f}%</span></span>"
-                )
-            st.markdown(f"<div style='margin-bottom:8px'>{tags_html}</div>", unsafe_allow_html=True)
-    with sc2:
-        if l_cnt:
-            st.markdown("**🗣 사용자 언어 TOP 5**")
-            total = sum(l_cnt.values())
-            tags_html = ""
-            for lang, cnt in l_cnt.most_common(5):
-                pct = cnt / total * 100
-                tags_html += (
-                    f"<span style='display:inline-flex;align-items:center;gap:4px;"
-                    f"background:#eff6ff;border-radius:6px;padding:3px 10px;margin:2px;"
-                    f"font-size:12px;font-weight:600;color:#1d4ed8;'>"
-                    f"{lang.upper()} <span style='color:#6b7280;font-weight:400'>{pct:.0f}%</span></span>"
-                )
-            st.markdown(f"<div style='margin-bottom:8px'>{tags_html}</div>", unsafe_allow_html=True)
-    st.divider()
-
-
-def _render_comments(comments: list[dict]) -> None:
-    _render_comment_summary(comments)
-    st.markdown("""
-    <style>
-    .cmt-card{padding:10px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;}
-    .cmt-av{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;
-            justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;
-            vertical-align:top;margin-right:9px;}
-    .cmt-body{display:inline-block;vertical-align:top;max-width:calc(100% - 48px);}
-    .cmt-user{font-size:12px;font-weight:700;color:#111;margin:0 0 1px;}
-    .cmt-meta{font-size:11px;color:#9ca3af;margin:0 0 4px;}
-    .cmt-text{font-size:13px;color:#374151;margin:0;word-break:break-word;}
-    .cmt-like{font-size:11px;color:#6b7280;margin-top:4px;}
-    </style>
-    """, unsafe_allow_html=True)
-    for cmt in comments:
-        uname    = cmt.get("username") or cmt.get("display_name") or "?"
-        dname    = cmt.get("display_name") or uname
-        initial  = uname[0].upper() if uname != "?" else "?"
-        color    = _comment_avatar_color(uname)
-        time_str  = _fmt_time(cmt.get("created_at") or "")
-        text      = (cmt.get("text") or "").replace("<","&lt;").replace(">","&gt;")
-        likes     = cmt.get("like_count") or 0
-        region    = cmt.get("user_region") or ""
-        user_lang = (cmt.get("user_language") or "").upper()
-        badge_html = ""
-        if region:
-            badge_html += f"<span style='background:#f3f4f6;border-radius:4px;padding:1px 6px;font-size:10px;color:#374151;margin-right:3px;'>🌍 {region}</span>"
-        if user_lang:
-            badge_html += f"<span style='background:#eff6ff;border-radius:4px;padding:1px 6px;font-size:10px;color:#1d4ed8;'>🗣 {user_lang}</span>"
-        st.markdown(
-            f"""<div class='cmt-card'>
-                <span class='cmt-av' style='background:{color};'>{initial}</span>
-                <span class='cmt-body'>
-                    <p class='cmt-user'>@{uname} <span style='font-weight:400;color:#6b7280;'>· {dname}</span>{"&nbsp;&nbsp;" + badge_html if badge_html else ""}</p>
-                    <p class='cmt-meta'>{time_str}</p>
-                    <p class='cmt-text'>{text}</p>
-                    <p class='cmt-like'>❤️ {likes:,}</p>
-                </span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
 
 with tab5:
     st.subheader("💬 게시물 댓글")
