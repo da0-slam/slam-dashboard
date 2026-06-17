@@ -101,6 +101,12 @@ def _sanitize_storage_key(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", (value or "unknown")).strip("_")[:60]
 
 
+def _aweme_id_from_url(url: str) -> str | None:
+    """TikTok post_url 에서 영상 ID(awemeId) 추출."""
+    m = re.search(r"/video/(\d+)", url or "")
+    return m.group(1) if m else None
+
+
 def _scrape_thumbnails_for_posts(posts: list[dict]) -> list[dict]:
     results: list[dict] = []
     if not posts:
@@ -1290,11 +1296,6 @@ with tab4:
 # ═══════════════════════════════════════════════════════════════
 # Tab 5 – 댓글
 # ═══════════════════════════════════════════════════════════════
-
-def _aweme_id_from_url(url: str) -> str | None:
-    """TikTok post_url 에서 영상 ID(awemeId) 추출."""
-    m = re.search(r"/video/(\d+)", url or "")
-    return m.group(1) if m else None
 
 def _fmt_time(ts: str) -> str:
     if not ts:
