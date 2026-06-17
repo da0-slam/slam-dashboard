@@ -1249,7 +1249,7 @@ def get_post_comments(aweme_id: str | None = None, post_url: str | None = None) 
         get_supabase()
         .table("post_comments")
         .select("id, text, created_at, like_count, reply_count, language, platform, "
-                "username, display_name, avatar_url, user_region")
+                "username, display_name, avatar_url, user_region, user_language")
         .order("like_count", desc=True)
         .limit(300)
     )

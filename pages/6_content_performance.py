@@ -1319,7 +1319,50 @@ def _load_comments_tt(aweme_id: str) -> list[dict]:
 def _load_comments_ig(post_url: str) -> list[dict]:
     return get_post_comments(post_url=post_url)
 
+def _render_comment_summary(comments: list[dict]) -> None:
+    """댓글 작성자 지역·언어 분포 요약 (브랜드 담당자용)."""
+    from collections import Counter
+    regions  = [c.get("user_region")   or "" for c in comments]
+    langs    = [c.get("user_language") or "" for c in comments]
+    r_cnt = Counter(r for r in regions if r)
+    l_cnt = Counter(l for l in langs   if l)
+    if not r_cnt and not l_cnt:
+        return
+
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        if r_cnt:
+            st.markdown("**🌍 댓글 작성 지역 TOP 5**")
+            total = sum(r_cnt.values())
+            tags_html = ""
+            for region, cnt in r_cnt.most_common(5):
+                pct = cnt / total * 100
+                tags_html += (
+                    f"<span style='display:inline-flex;align-items:center;gap:4px;"
+                    f"background:#f3f4f6;border-radius:6px;padding:3px 10px;margin:2px;"
+                    f"font-size:12px;font-weight:600;color:#374151;'>"
+                    f"{region} <span style='color:#6b7280;font-weight:400'>{pct:.0f}%</span></span>"
+                )
+            st.markdown(f"<div style='margin-bottom:8px'>{tags_html}</div>", unsafe_allow_html=True)
+    with sc2:
+        if l_cnt:
+            st.markdown("**🗣 사용자 언어 TOP 5**")
+            total = sum(l_cnt.values())
+            tags_html = ""
+            for lang, cnt in l_cnt.most_common(5):
+                pct = cnt / total * 100
+                tags_html += (
+                    f"<span style='display:inline-flex;align-items:center;gap:4px;"
+                    f"background:#eff6ff;border-radius:6px;padding:3px 10px;margin:2px;"
+                    f"font-size:12px;font-weight:600;color:#1d4ed8;'>"
+                    f"{lang.upper()} <span style='color:#6b7280;font-weight:400'>{pct:.0f}%</span></span>"
+                )
+            st.markdown(f"<div style='margin-bottom:8px'>{tags_html}</div>", unsafe_allow_html=True)
+    st.divider()
+
+
 def _render_comments(comments: list[dict]) -> None:
+    _render_comment_summary(comments)
     st.markdown("""
     <style>
     .cmt-card{padding:10px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;}
@@ -1338,18 +1381,22 @@ def _render_comments(comments: list[dict]) -> None:
         dname    = cmt.get("display_name") or uname
         initial  = uname[0].upper() if uname != "?" else "?"
         color    = _comment_avatar_color(uname)
-        time_str = _fmt_time(cmt.get("created_at") or "")
-        text     = (cmt.get("text") or "").replace("<","&lt;").replace(">","&gt;")
-        likes    = cmt.get("like_count") or 0
-        lang     = cmt.get("language") or ""
-        region   = cmt.get("user_region") or ""
-        meta_parts = [p for p in [time_str, lang.upper() if lang else "", region] if p]
+        time_str  = _fmt_time(cmt.get("created_at") or "")
+        text      = (cmt.get("text") or "").replace("<","&lt;").replace(">","&gt;")
+        likes     = cmt.get("like_count") or 0
+        region    = cmt.get("user_region") or ""
+        user_lang = (cmt.get("user_language") or "").upper()
+        badge_html = ""
+        if region:
+            badge_html += f"<span style='background:#f3f4f6;border-radius:4px;padding:1px 6px;font-size:10px;color:#374151;margin-right:3px;'>🌍 {region}</span>"
+        if user_lang:
+            badge_html += f"<span style='background:#eff6ff;border-radius:4px;padding:1px 6px;font-size:10px;color:#1d4ed8;'>🗣 {user_lang}</span>"
         st.markdown(
             f"""<div class='cmt-card'>
                 <span class='cmt-av' style='background:{color};'>{initial}</span>
                 <span class='cmt-body'>
-                    <p class='cmt-user'>@{uname} <span style='font-weight:400;color:#6b7280;'>· {dname}</span></p>
-                    <p class='cmt-meta'>{" · ".join(meta_parts)}</p>
+                    <p class='cmt-user'>@{uname} <span style='font-weight:400;color:#6b7280;'>· {dname}</span>{"&nbsp;&nbsp;" + badge_html if badge_html else ""}</p>
+                    <p class='cmt-meta'>{time_str}</p>
                     <p class='cmt-text'>{text}</p>
                     <p class='cmt-like'>❤️ {likes:,}</p>
                 </span>
@@ -1514,7 +1561,8 @@ with tab5:
                         col_uname   = _fc(["user_username", "username"])
                         col_dname   = _fc(["user_displayname", "display_name", "displayname"])
                         col_avatar  = _fc(["user_avatarurl", "avatar_url", "avatarurl"])
-                        col_region  = _fc(["user_region", "region"])
+                        col_region    = _fc(["user_region", "region"])
+                        col_user_lang = _fc(["user_language", "user_lang"])
 
                         if not col_id or not col_aweme:
                             st.error(f"필수 컬럼 누락: {'id' if not col_id else ''} {'awemeId' if not col_aweme else ''}")
@@ -1539,7 +1587,8 @@ with tab5:
                                     "username":        str(_sv(r, col_uname) or "") or None,
                                     "display_name":    str(_sv(r, col_dname) or "") or None,
                                     "avatar_url":      str(_sv(r, col_avatar) or "") or None,
-                                    "user_region":     str(_sv(r, col_region) or "") or None,
+                                    "user_region":     str(_sv(r, col_region)    or "") or None,
+                                    "user_language":   str(_sv(r, col_user_lang) or "") or None,
                                 })
 
                             st.caption(f"유효 댓글 {len(rows_cmt)}개 · 미리보기 (상위 5행)")
