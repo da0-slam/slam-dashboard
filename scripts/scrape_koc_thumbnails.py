@@ -89,14 +89,21 @@ def main():
     parser.add_argument("--platform", choices=["tiktok", "instagram"], help="플랫폼 필터")
     parser.add_argument("--limit", type=int, default=200, help="처리 최대 수 (기본 200)")
     parser.add_argument("--all", dest="force", action="store_true", help="기존 썸네일도 재스크랩")
+    parser.add_argument("--dry-run", action="store_true", help="실제 스크랩 없이 대상 목록만 출력")
     args = parser.parse_args()
 
     rows = get_rows(args.platform, args.force, args.limit)
     total = len(rows)
-    print(f"대상: {total}개\n")
+    print(f"썸네일 없는 항목: {total}개\n")
 
     if not rows:
         print("처리할 항목 없음.")
+        return
+
+    if args.dry_run:
+        for r in rows:
+            plat = "IG" if "instagram" in r["video_url"] else "TT"
+            print(f"  [{plat}] @{r['influencer_id']}  {r['video_url']}")
         return
 
     ok = fail = skip = 0
@@ -125,20 +132,19 @@ def main():
 
         if saved:
             if update_row(vurl, saved):
-                print("✅")
+                print("OK")
                 ok += 1
             else:
-                print("⚠️  DB 업데이트 실패")
+                print("WARN DB 업데이트 실패")
                 fail += 1
         else:
-            print("❌ 썸네일 없음")
+            print("FAIL")
             fail += 1
 
-        # 인스타는 레이트리밋 방지를 위해 딜레이
         time.sleep(3 if is_ig else 0.5)
 
-    print(f"\n{'─'*40}")
-    print(f"완료: ✅ {ok}  ❌ {fail}  스킵 {skip}  / 전체 {total}")
+    print(f"\n{'-'*40}")
+    print(f"완료: OK {ok}  FAIL {fail}  스킵 {skip}  / 전체 {total}")
 
 
 if __name__ == "__main__":

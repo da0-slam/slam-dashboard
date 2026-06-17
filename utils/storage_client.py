@@ -146,57 +146,56 @@ def _extract_og_image(html: str) -> str | None:
     return None
 
 
-def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
+def _clean_tiktok_url(post_url: str) -> str:
+    """쿼리파라미터/앵커 제거 + 표준 URL 형식으로 정규화."""
+    clean = post_url.split("?")[0].split("#")[0].rstrip("/")
+    # @username/video/ID 형식으로 재구성
+    m = re.search(r'/@([^/]+)/video/(\d+)', clean)
+    if m:
+        return f"https://www.tiktok.com/@{m.group(1)}/video/{m.group(2)}"
+    return clean
+
+
+def _fetch_tiktok_embed_thumbnail(post_url: str) -> str | None:
+    """TikTok embed 페이지에서 썸네일 CDN URL 추출 (인증 불필요)."""
+    m = re.search(r"/video/(\d+)", post_url)
+    if not m:
+        return None
+    video_id = m.group(1)
     try:
         resp = requests.get(
-            "https://www.tiktok.com/oembed",
-            params={"url": post_url},
+            f"https://www.tiktok.com/embed/v2/{video_id}",
             headers=_request_headers(),
             timeout=15,
         )
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("thumbnail_url"):
-                return data["thumbnail_url"]
+        if resp.status_code != 200:
+            return None
+        html = resp.text
+        # tiktokcdn 이미지 URL (프로필 사진 크롭 제외, origin/큰 이미지만)
+        for pat in [
+            r"(https://p\d+-[^\"'\s<>]*tiktokcdn[^\"'\s<>]*tplv-tiktokx-origin\.image[^\"'\s<>]*)",
+            r"(https://p\d+-[^\"'\s<>]*tiktokcdn[^\"'\s<>]*\.(?:jpg|jpeg|png|webp)[^\"'\s<>]*)",
+        ]:
+            for raw in re.findall(pat, html):
+                url = raw.replace("&amp;", "&").replace("\\u0026", "&")
+                if "cropcenter:100:100" not in url and "cropcenter:720:720" not in url:
+                    return url
     except Exception:
         pass
+    return None
 
-    try:
-        resp = requests.post(
-            "https://tikwm.com/api/",
-            data={"url": post_url, "hd": 0},
-            headers=_request_headers(),
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("code") == 0:
-                return data.get("data", {}).get("cover")
-    except Exception:
-        pass
 
-    # 마지막 수단: yt-dlp (쿠키 없이)
-    try:
-        import yt_dlp
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
-            info = ydl.extract_info(post_url, download=False)
-            if info and info.get("thumbnail"):
-                return info["thumbnail"]
-    except Exception:
-        pass
+def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
+    from urllib.parse import quote as _quote
 
-    # yt-dlp + 브라우저 쿠키 (IP 차단 우회)
-    for browser in ("chrome", "firefox", "edge"):
-        try:
-            import yt_dlp
-            opts = {"quiet": True, "no_warnings": True, "skip_download": True,
-                    "cookiesfrombrowser": (browser,)}
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(post_url, download=False)
-                if info and info.get("thumbnail"):
-                    return info["thumbnail"]
-        except Exception:
-            continue
+    clean_url = _clean_tiktok_url(post_url)
+
+    # embed 페이지 (쿠키/인증 불필요)
+    thumb = _fetch_tiktok_embed_thumbnail(post_url)
+    if thumb:
+        print("[embed OK]", end=" ")
+        return thumb
+
     return None
 
 
