@@ -530,20 +530,27 @@ with tab1:
                     except Exception:
                         return "-"
 
-                for chunk in [rows[i:i + 4] for i in range(0, len(rows), 4)]:
+                # 게시물 → post 원본 데이터 매핑 (URL 기준)
+                _url_to_post = {
+                    (p.get("post_url") or "").split("?")[0].rstrip("/"): p
+                    for p in posts
+                }
+
+                for idx, chunk in enumerate([rows[i:i + 4] for i in range(0, len(rows), 4)]):
                     cols = st.columns(4)
-                    for col, row in zip(cols, chunk):
-                        thumb = row.get("_img") or row.get("썸네일", "")
-                        url   = row.get("게시물 URL", "") or "#"
-                        name  = row.get("인플루언서", "")
-                        plat  = row.get("플랫폼", "")
-                        views = _fmt(row.get("조회수", 0))
-                        likes = _fmt(row.get("좋아요", 0))
-                        cmts  = _fmt(row.get("댓글", 0))
-                        er    = row.get("참여율(%)", 0)
+                    for cidx, (col, row) in enumerate(zip(cols, chunk)):
+                        thumb  = row.get("_img") or row.get("썸네일", "")
+                        url    = row.get("게시물 URL", "") or "#"
+                        name   = row.get("인플루언서", "")
+                        plat   = row.get("플랫폼", "")
+                        views  = _fmt(row.get("조회수", 0))
+                        likes  = _fmt(row.get("좋아요", 0))
+                        cmts   = _fmt(row.get("댓글", 0))
+                        er     = row.get("참여율(%)", 0)
                         er_str = f"{float(er):.1f}%" if er else "-"
                         _plat_colors = {"TikTok": "#010101", "Instagram": "#c13584", "X": "#1a8cd8", "기타": "#888888"}
                         plat_bg = _plat_colors.get(plat, "#555555")
+                        card_key = f"cmt_card_{idx}_{cidx}"
 
                         col.markdown(f"""
 <a href="{url}" target="_blank" style="text-decoration:none;display:block;margin-bottom:4px;">
@@ -564,6 +571,61 @@ with tab1:
   </div>
 </a>
 """, unsafe_allow_html=True)
+                        # 댓글 버튼
+                        _norm_url = url.split("?")[0].rstrip("/")
+                        _orig = _url_to_post.get(_norm_url)
+                        _has_comments = bool(
+                            (_orig and _orig.get("platform") == "tiktok" and _aweme_id_from_url(url))
+                            or (_orig and _orig.get("platform") == "instagram")
+                        )
+                        if _has_comments:
+                            _sel = st.session_state.get("cp_cmt_post_url")
+                            _active = _sel == _norm_url
+                            if col.button(
+                                "💬 댓글 닫기" if _active else "💬 댓글 보기",
+                                key=card_key,
+                                use_container_width=True,
+                            ):
+                                if _active:
+                                    st.session_state.pop("cp_cmt_post_url", None)
+                                else:
+                                    st.session_state["cp_cmt_post_url"] = _norm_url
+                                st.rerun()
+
+                # ── 선택된 게시물 댓글 패널 ──────────────────────────────────
+                _sel_url = st.session_state.get("cp_cmt_post_url")
+                if _sel_url:
+                    _orig_post = _url_to_post.get(_sel_url)
+                    if _orig_post:
+                        _is_tt = _orig_post.get("platform") == "tiktok"
+                        with st.container(border=True):
+                            _h1, _h2 = st.columns([5, 1])
+                            _h1.markdown(f"**💬 댓글** — {_orig_post.get('influencer_name','')} · [게시물 열기]({_orig_post.get('post_url','')})")
+                            if _h2.button("✕ 닫기", key="cmt_panel_close"):
+                                st.session_state.pop("cp_cmt_post_url", None)
+                                st.rerun()
+
+                            if _is_tt:
+                                _aweme = _aweme_id_from_url(_orig_post["post_url"])
+                                _cmts  = _load_comments_tt(_aweme) if _aweme else []
+                            else:
+                                _cmts = _load_comments_ig(_orig_post["post_url"])
+
+                            if not _cmts:
+                                st.info("가져온 댓글이 없습니다. '💬 댓글' 탭에서 스프레드시트로 먼저 가져오세요.")
+                            else:
+                                _cmt_kw = st.text_input(
+                                    "검색", placeholder="🔍 내용 또는 사용자명",
+                                    label_visibility="collapsed", key="cmt_panel_search"
+                                )
+                                _show = _cmts
+                                if _cmt_kw:
+                                    kw = _cmt_kw.lower()
+                                    _show = [c for c in _cmts if
+                                             kw in (c.get("text") or "").lower()
+                                             or kw in (c.get("username") or "").lower()]
+                                st.caption(f"총 {len(_cmts)}개 · 표시 {len(_show)}개")
+                                _render_comments(_show)
             st.divider()
         else:
             st.subheader("게시물 목록")
