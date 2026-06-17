@@ -253,12 +253,8 @@ def create_brand(data: dict) -> None:
 
 
 def update_brand(brand_id: str, data: dict) -> None:
-    payload = {**data, "updated_at": _now()}
-    try:
-        get_supabase().table("brands").update(payload).eq("id", brand_id).execute()
-    except Exception:
-        # 스키마에 없는 컬럼 제외하고 name만 저장
-        get_supabase().table("brands").update({"name": data["name"], "updated_at": _now()}).eq("id", brand_id).execute()
+    payload = {k: v for k, v in data.items() if k != "updated_at"}
+    get_supabase().table("brands").update(payload).eq("id", brand_id).execute()
 
 
 def delete_brand(brand_id: str) -> None:
