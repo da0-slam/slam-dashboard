@@ -1243,3 +1243,37 @@ def migrate_google_sheet_rows(
             }).eq("id", campaign_id).execute()
 
     return created, errors
+
+
+# ── post_comments ────────────────────────────────────────────────────────────
+
+def get_post_comments(aweme_id: str) -> list[dict]:
+    """aweme_id(TikTok 영상 ID)로 스크랩된 댓글 목록 조회 (좋아요 순)."""
+    resp = (
+        get_supabase()
+        .table("post_comments")
+        .select("id, text, created_at, like_count, reply_count, language, "
+                "username, display_name, avatar_url, user_region")
+        .eq("aweme_id", aweme_id)
+        .order("like_count", desc=True)
+        .limit(300)
+        .execute()
+    )
+    return resp.data or []
+
+
+def bulk_upsert_post_comments(rows: list[dict]) -> tuple[int, list[str]]:
+    """post_comments 일괄 upsert (id 충돌 시 업데이트)."""
+    if not rows:
+        return 0, []
+    errors: list[str] = []
+    created = 0
+    CHUNK = 200
+    for i in range(0, len(rows), CHUNK):
+        chunk = rows[i : i + CHUNK]
+        try:
+            get_supabase().table("post_comments").upsert(chunk, on_conflict="id").execute()
+            created += len(chunk)
+        except Exception as e:
+            errors.append(str(e))
+    return created, errors
