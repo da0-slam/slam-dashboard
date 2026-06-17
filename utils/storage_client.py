@@ -272,6 +272,29 @@ def _decode_html_entities(s: str) -> str:
     return s.replace('&#38;', '&').replace('&amp;', '&').replace('&#39;', "'").replace('&quot;', '"')
 
 
+def _fetch_instagram_oembed_thumbnail(post_url: str) -> str | None:
+    """Facebook Graph API Instagram oEmbed — INSTAGRAM_OEMBED_TOKEN 환경변수 필요."""
+    token = os.environ.get("INSTAGRAM_OEMBED_TOKEN", "").strip()
+    if not token:
+        return None
+    try:
+        resp = requests.get(
+            "https://graph.facebook.com/v22.0/instagram_oembed",
+            params={"url": post_url, "fields": "thumbnail_url", "access_token": token},
+            headers=_request_headers(),
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        thumb = data.get("thumbnail_url")
+        if thumb and _is_image_url(thumb):
+            return thumb
+    except Exception:
+        pass
+    return None
+
+
 def _fetch_instagram_thumbnail_imginn(post_url: str) -> str | None:
     """imginn.com 프록시를 통해 Instagram 썸네일 가져오기 (공개 이미지 URL 반환)."""
     try:
@@ -372,6 +395,10 @@ def _fetch_instagram_thumbnail_ytdlp(post_url: str) -> str | None:
 
 
 def _fetch_instagram_thumbnail(post_url: str) -> str | None:
+    # 0순위: Facebook Graph API oEmbed (INSTAGRAM_OEMBED_TOKEN 있을 때만)
+    thumb = _fetch_instagram_oembed_thumbnail(post_url)
+    if thumb:
+        return thumb
     # 1순위: imginn.com 프록시
     thumb = _fetch_instagram_thumbnail_imginn(post_url)
     if thumb:
