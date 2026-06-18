@@ -156,8 +156,30 @@ def _clean_tiktok_url(post_url: str) -> str:
     return clean
 
 
+def _fetch_tiktok_oembed_thumbnail(post_url: str) -> str | None:
+    """TikTok oEmbed API — IP 차단 없이 안전하게 썸네일 추출."""
+    try:
+        from urllib.parse import quote as _quote
+        clean_url = _clean_tiktok_url(post_url)
+        resp = requests.get(
+            "https://www.tiktok.com/oembed",
+            params={"url": clean_url},
+            headers=_request_headers(),
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        thumb = data.get("thumbnail_url")
+        if thumb and _is_image_url(thumb):
+            return thumb
+    except Exception:
+        pass
+    return None
+
+
 def _fetch_tiktok_embed_thumbnail(post_url: str) -> str | None:
-    """TikTok embed 페이지에서 썸네일 CDN URL 추출 (인증 불필요)."""
+    """TikTok embed 페이지 직접 스크래핑 (fallback — IP 차단 위험 있음)."""
     m = re.search(r"/video/(\d+)", post_url)
     if not m:
         return None
@@ -171,7 +193,6 @@ def _fetch_tiktok_embed_thumbnail(post_url: str) -> str | None:
         if resp.status_code != 200:
             return None
         html = resp.text
-        # tiktokcdn 이미지 URL (프로필 사진 크롭 제외, origin/큰 이미지만)
         for pat in [
             r"(https://p\d+-[^\"'\s<>]*tiktokcdn[^\"'\s<>]*tplv-tiktokx-origin\.image[^\"'\s<>]*)",
             r"(https://p\d+-[^\"'\s<>]*tiktokcdn[^\"'\s<>]*\.(?:jpg|jpeg|png|webp)[^\"'\s<>]*)",
@@ -186,11 +207,13 @@ def _fetch_tiktok_embed_thumbnail(post_url: str) -> str | None:
 
 
 def _fetch_tiktok_thumbnail(post_url: str) -> str | None:
-    from urllib.parse import quote as _quote
+    # 1순위: oEmbed API (안전, IP 차단 없음)
+    thumb = _fetch_tiktok_oembed_thumbnail(post_url)
+    if thumb:
+        print("[oembed OK]", end=" ")
+        return thumb
 
-    clean_url = _clean_tiktok_url(post_url)
-
-    # embed 페이지 (쿠키/인증 불필요)
+    # 2순위: embed 페이지 fallback
     thumb = _fetch_tiktok_embed_thumbnail(post_url)
     if thumb:
         print("[embed OK]", end=" ")

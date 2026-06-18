@@ -27,6 +27,9 @@ import re
 import sys
 import time
 
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 import requests
 
 # ─── 환경 변수 ────────────────────────────────────────────────────────────────

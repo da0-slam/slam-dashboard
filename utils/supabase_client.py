@@ -949,9 +949,15 @@ def bulk_upsert_koc_contents(rows: list[dict]) -> tuple[int, list[str]]:
             except Exception as e:
                 errors.append(f"influencer_master 등록 오류: {e}")
 
+    # 같은 배치 안에서 video_url 중복 제거 (마지막 행 우선)
+    deduped_map: dict[str, dict] = {}
+    for r in valid:
+        deduped_map[r["video_url"]] = r
+    deduped = list(deduped_map.values())
+
     upserted = 0
-    for i in range(0, len(valid), CHUNK):
-        chunk = valid[i:i + CHUNK]
+    for i in range(0, len(deduped), CHUNK):
+        chunk = deduped[i:i + CHUNK]
         try:
             sb.table("koc_contents").upsert(chunk, on_conflict="video_url").execute()
             upserted += len(chunk)
