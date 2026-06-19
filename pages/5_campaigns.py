@@ -112,34 +112,6 @@ def _fmt(n):
     return str(n)
 
 
-def _parse_price(text: str) -> float | None:
-    """텍스트에서 가격 추출.
-    지원 형식: $1,100 / $3K / 3k / 3.5K / 5.500,- USD (유럽식) / 5500 USD
-    """
-    if not text:
-        return None
-    s = str(text)
-    # $숫자K: "$3K", "$4.5K"
-    m = re.search(r'\$\s*([\d,]+(?:\.\d+)?)\s*[kK]\b', s)
-    if m:
-        return float(m.group(1).replace(",", "")) * 1000
-    # $숫자: "$3,000", "$900"
-    m = re.search(r'\$([\d,]+(?:\.\d+)?)', s)
-    if m:
-        return float(m.group(1).replace(",", ""))
-    # 숫자K ($ 없이): "3k", "7K", "3.5K"
-    m = re.search(r'\b([\d,]+(?:\.\d+)?)\s*[kK]\b', s)
-    if m:
-        return float(m.group(1).replace(",", "")) * 1000
-    # 유럽식: "5.500,-" / "5.500,- USD" (점=천단위 구분자, 3자리마다)
-    m = re.search(r'\b(\d{1,3}(?:\.\d{3})+)(?:,-)?', s)
-    if m:
-        return float(m.group(1).replace(".", ""))
-    # 숫자 + USD/EUR: "5500 USD", "4500 EUR"
-    m = re.search(r'\b(\d[\d,]*)\s*(?:USD|EUR)\b', s, re.IGNORECASE)
-    if m:
-        return float(m.group(1).replace(",", ""))
-    return None
 
 
 _PLAT_LABEL = {"tiktok": "🎵 TikTok", "instagram": "📸 Instagram", "youtube": "▶ YouTube", "other": "기타"}
@@ -394,10 +366,6 @@ if st.session_state.get("selected_campaign"):
     inf_map       = {r["influencer_id"]: r for r in get_influencers()}
     note_cnt_map  = get_note_counts(inf_ids, selected_brand_id)
 
-    # 가격 파싱 (after_nego 우선, 없으면 ratecard)
-    for s in selections:
-        s["_price"] = _parse_price(s.get("after_nego")) or _parse_price(s.get("ratecard"))
-
     # ── 검색 + 플랫폼 필터 ─────────────────────────────────────────────────────
     sf1, sf2 = st.columns([3, 2])
     with sf1:
@@ -421,47 +389,6 @@ if st.session_state.get("selected_campaign"):
             if _plat_kw in (thumb_map.get(s["influencer_id"], {}).get("platforms") or [])
             or _plat_kw in (inf_map.get(s["influencer_id"], {}).get("platform") or "").lower()
         ]
-
-    # ── 어드민 전용: 가격 정렬/필터 ────────────────────────────────────────────
-    sort_price  = "등록순"
-    price_range = None
-    if is_admin:
-        priced_vals = [s["_price"] for s in selections if s["_price"] is not None]
-        if priced_vals:
-            p_min, p_max = int(min(priced_vals)), int(max(priced_vals))
-            with st.container(border=True):
-                fc1, fc2, fc3 = st.columns([2, 3, 2])
-                with fc1:
-                    sort_price = st.selectbox(
-                        "💰 가격 정렬",
-                        ["등록순", "낮은 가격순 ↑", "높은 가격순 ↓"],
-                        key=f"sort_price_{camp_id}",
-                        label_visibility="collapsed",
-                    )
-                with fc2:
-                    price_range = st.slider(
-                        "가격 범위",
-                        min_value=0, max_value=p_max,
-                        value=(0, p_max), step=50,
-                        format="$%d",
-                        key=f"price_range_{camp_id}",
-                    )
-                with fc3:
-                    hide_unpriced = st.checkbox("가격 없는 항목 숨기기", key=f"hide_unpriced_{camp_id}")
-
-            # 필터 적용
-            def _price_filter(s):
-                p = s["_price"]
-                if p is None:
-                    return not hide_unpriced
-                return price_range[0] <= p <= price_range[1]
-            selections = [s for s in selections if _price_filter(s)]
-
-            # 정렬 적용
-            if "낮은" in sort_price:
-                selections = sorted(selections, key=lambda s: (s["_price"] is None, s["_price"] or 0))
-            elif "높은" in sort_price:
-                selections = sorted(selections, key=lambda s: (s["_price"] is None, -(s["_price"] or 0)))
 
     view_col, _ = st.columns([2, 6])
     with view_col:

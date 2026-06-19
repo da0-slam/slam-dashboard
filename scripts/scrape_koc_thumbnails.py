@@ -47,8 +47,8 @@ REST = f"{SUPABASE_URL}/rest/v1"
 
 def _fetch_rows(extra_params: dict, limit: int, platform: str | None) -> list[dict]:
     params = {
-        "select": "influencer_id,video_url,thumbnail_url",
-        "order":  "influencer_id.asc",
+        "select": "influencer_id,video_url,thumbnail_url,posted_at",
+        "order":  "posted_at.desc.nullslast",
         "limit":  limit,
         **extra_params,
     }
