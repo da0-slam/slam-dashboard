@@ -390,6 +390,12 @@ if st.session_state.get("selected_campaign"):
             or _plat_kw in (inf_map.get(s["influencer_id"], {}).get("platform") or "").lower()
         ]
 
+    # 뷰티 키워드 우선 → ER 높은 순
+    selections.sort(key=lambda s: (
+        0 if thumb_map.get(s["influencer_id"], {}).get("has_beauty") else 1,
+        -(thumb_map.get(s["influencer_id"], {}).get("er") or 0),
+    ))
+
     view_col, _ = st.columns([2, 6])
     with view_col:
         view_mode = st.radio("보기", ["🔲 그리드", "📋 목록"], horizontal=True, label_visibility="collapsed")

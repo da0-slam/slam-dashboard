@@ -741,14 +741,31 @@ def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
         plat = _detect_platform(r.get("video_url") or "")
         platforms_map.setdefault(iid, set()).add(plat)
 
+    # 인플루언서별 집계: 최고 ER, 뷰티 키워드 여부
+    agg: dict[str, dict] = {}
+    for r in rows:
+        iid  = r["influencer_id"]
+        play = r.get("play_count") or 0
+        eng  = sum(r.get(k) or 0 for k in ("like_count", "comment_count", "share_count", "save_count"))
+        er   = eng / play if play > 0 else 0
+        beauty = bool(_re.search(_BEAUTY, (r.get("caption") or "").lower()))
+        if iid not in agg:
+            agg[iid] = {"max_er": 0.0, "has_beauty": False}
+        if er > agg[iid]["max_er"]:
+            agg[iid]["max_er"] = er
+        if beauty:
+            agg[iid]["has_beauty"] = True
+
     result: dict[str, dict] = {}
     for r in sorted(rows, key=_sort_key):
         iid = r["influencer_id"]
         if iid not in result:
             result[iid] = {
-                "thumbnail": r.get("thumbnail_url") or "",
-                "video_url": r.get("video_url") or "",
-                "platforms": sorted(platforms_map.get(iid, set())),
+                "thumbnail":   r.get("thumbnail_url") or "",
+                "video_url":   r.get("video_url") or "",
+                "platforms":   sorted(platforms_map.get(iid, set())),
+                "er":          agg.get(iid, {}).get("max_er", 0.0),
+                "has_beauty":  agg.get(iid, {}).get("has_beauty", False),
             }
     return result
 
