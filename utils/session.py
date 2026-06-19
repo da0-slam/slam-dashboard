@@ -106,28 +106,34 @@ def _cookie_read(key: str):
     except AttributeError:
         return None
 
-def _cookie_write(key: str, value: str) -> None:
-    """쿠키 쓰기 — 즉시 실행되는 JS 방식 (CookieController 타이밍 이슈 우회)."""
+def init_cookie_controller() -> None:
+    """app.py 최상단에서 매 렌더마다 호출.
+    CookieController()를 렌더 사이클에 포함시켜 pending set/delete가 실행되도록 함."""
     try:
-        import streamlit.components.v1 as _c
-        escaped = value.replace('"', '\\"')
-        _c.html(
-            f'<script>document.cookie="{key}={escaped};max-age={_COOKIE_MAX_AGE};path=/;SameSite=Lax";</script>',
-            height=0,
-        )
+        from streamlit_cookies_controller import CookieController
+        ctrl = CookieController()
+        st.session_state["_cc"] = ctrl
     except Exception:
         pass
 
+def _get_ctrl():
+    return st.session_state.get("_cc")
+
+def _cookie_write(key: str, value: str) -> None:
+    ctrl = _get_ctrl()
+    if ctrl:
+        try:
+            ctrl.set(key, value, max_age=_COOKIE_MAX_AGE)
+        except Exception:
+            pass
+
 def _cookie_delete(key: str) -> None:
-    """브라우저 쿠키 삭제."""
-    try:
-        import streamlit.components.v1 as _c
-        _c.html(
-            f'<script>document.cookie="{key}=;max-age=0;path=/;SameSite=Lax";</script>',
-            height=0,
-        )
-    except Exception:
-        pass
+    ctrl = _get_ctrl()
+    if ctrl:
+        try:
+            ctrl.remove(key)
+        except Exception:
+            pass
 
 
 # ─── 공개 API ─────────────────────────────────────────────────────────────────

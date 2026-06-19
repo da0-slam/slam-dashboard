@@ -8,6 +8,7 @@ from utils.supabase_client import (
 from utils.session import (
     restore_session, save_session,
     save_pkce_verifier, pop_pkce_verifier,
+    init_cookie_controller,
 )
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8501").rstrip("/")
@@ -18,6 +19,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# CookieController를 매 렌더마다 실행 — pending set/delete 처리를 위해 최상단에서 호출
+init_cookie_controller()
 
 if "user" not in st.session_state:
     st.session_state.user = None
