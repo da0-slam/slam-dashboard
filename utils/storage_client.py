@@ -238,6 +238,40 @@ def _is_image_url(url: str) -> bool:
     return any(path.endswith(ext) for ext in _IMAGE_EXTS)
 
 
+_IG_PROFILE_CDN = ("t51.2885-19", "/profile_pic", "s150x150", "s320x320")
+
+
+def _is_ig_profile_pic(url: str) -> bool:
+    return any(marker in url for marker in _IG_PROFILE_CDN)
+
+
+def _fetch_instagram_oembed_public(post_url: str) -> str | None:
+    """Instagram 공개 oEmbed 엔드포인트 — 토큰 불필요, 포스트 썸네일만 반환."""
+    try:
+        m = re.search(r'/(?:reels?|p|tv)/([^/?#]+)', post_url)
+        if not m:
+            return None
+        shortcode = m.group(1)
+        # 공개 oembed API
+        for oembed_url in [
+            f"https://www.instagram.com/api/v1/oembed/?url=https://www.instagram.com/p/{shortcode}/&format=json",
+            f"https://www.instagram.com/api/v1/oembed/?url=https://www.instagram.com/reel/{shortcode}/&format=json",
+        ]:
+            try:
+                resp = requests.get(oembed_url, headers=_request_headers(), timeout=10)
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                thumb = data.get("thumbnail_url")
+                if thumb and _is_image_url(thumb) and not _is_ig_profile_pic(thumb):
+                    return thumb
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
     """Instagram embed 페이지에서 썸네일 추출 (인증 불필요)."""
     try:
@@ -269,7 +303,6 @@ def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
                     r'"display_url"\s*:\s*"([^"]+)"',
                     r'"thumbnail_src"\s*:\s*"([^"]+)"',
                     r'"poster"\s*:\s*"([^"]+)"',
-                    # img 태그의 src만 (script src 제외)
                     r'<img[^>]+src="(https://[^"]*(?:cdninstagram\.com|fbcdn\.net)[^"]{20,})"',
                 ]:
                     mm = re.search(pat, html)
@@ -279,10 +312,10 @@ def _fetch_instagram_thumbnail_embed(post_url: str) -> str | None:
                                   .replace('\\/', '/')
                                   .replace('\\n', '')
                                   .strip())
-                        if url.startswith('http') and _is_image_url(url):
+                        if url.startswith('http') and _is_image_url(url) and not _is_ig_profile_pic(url):
                             return url
                 og = _extract_og_image(html)
-                if og and _is_image_url(og):
+                if og and _is_image_url(og) and not _is_ig_profile_pic(og):
                     return og
             except Exception:
                 continue
@@ -418,36 +451,35 @@ def _fetch_instagram_thumbnail_ytdlp(post_url: str) -> str | None:
 
 
 def _fetch_instagram_thumbnail(post_url: str) -> str | None:
-    # 0순위: Facebook Graph API oEmbed (INSTAGRAM_OEMBED_TOKEN 있을 때만)
+    # 0순위: 공개 Instagram oEmbed (프사 없음, 토큰 불필요)
+    thumb = _fetch_instagram_oembed_public(post_url)
+    if thumb:
+        print("[ig-oembed OK]", end=" ")
+        return thumb
+    # 1순위: Facebook Graph API oEmbed (INSTAGRAM_OEMBED_TOKEN 있을 때만)
     thumb = _fetch_instagram_oembed_thumbnail(post_url)
     if thumb:
         return thumb
-    # 1순위: imginn.com 프록시
+    # 2순위: imginn.com 프록시
     thumb = _fetch_instagram_thumbnail_imginn(post_url)
     if thumb:
         return thumb
-    # 2순위: picuki.com 프록시 (imginn 차단 시 대체)
+    # 3순위: picuki.com 프록시
     thumb = _fetch_instagram_thumbnail_picuki(post_url)
     if thumb:
         return thumb
-    # 3순위: embed 페이지
+    # 4순위: embed 페이지 (프사 필터 적용)
     thumb = _fetch_instagram_thumbnail_embed(post_url)
     if thumb:
         return thumb
-    # 4순위: yt-dlp
+    # 5순위: yt-dlp
     thumb = _fetch_instagram_thumbnail_ytdlp(post_url)
     if thumb:
         return thumb
-    # 5순위: instaloader
+    # 6순위: instaloader
     thumb = _fetch_instagram_thumbnail_instaloader(post_url)
     if thumb:
         return thumb
-    # 6순위: OG 태그 직접 파싱
-    html = _fetch_html(post_url)
-    if html:
-        og = _extract_og_image(html)
-        if og and _is_image_url(og):
-            return og
     return None
 
 

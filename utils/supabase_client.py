@@ -722,17 +722,13 @@ def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
         .execute()
     ).data or []
 
-    # browse 뷰와 동일한 우선순위: supabase 썸네일 → 뷰티 키워드 → ER → 조회수
-    _BEAUTY = r"(skincare|skin care|makeup|make up|grwm|beauty|foundation|serum|routine|화장|스킨케어|메이크업|뷰티|루틴)"
-    import re as _re
-
+    # 캠페인 썸네일 우선순위: supabase 저장 썸네일 → ER 높은 순 → 조회수 높은 순
     def _sort_key(r):
         has_supabase = 0 if "supabase" in (r.get("thumbnail_url") or "") else 1
         play = r.get("play_count") or 0
         eng  = sum(r.get(k) or 0 for k in ("like_count", "comment_count", "share_count", "save_count"))
         er   = eng / play if play > 0 else 0
-        is_beauty = 0 if _re.search(_BEAUTY, (r.get("caption") or "").lower()) else 1
-        return (has_supabase, is_beauty, -er, -play)
+        return (has_supabase, -er, -play)
 
     # 인플루언서별 플랫폼 목록 수집 (video_url 기반 감지)
     platforms_map: dict[str, set] = {}
