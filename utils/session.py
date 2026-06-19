@@ -107,28 +107,27 @@ def _cookie_read(key: str):
         return None
 
 def _cookie_write(key: str, value: str) -> None:
-    """CookieController 컴포넌트로 브라우저에 쿠키 저장."""
+    """쿠키 쓰기 — 즉시 실행되는 JS 방식 (CookieController 타이밍 이슈 우회)."""
     try:
-        from streamlit_cookies_controller import CookieController
-        ctrl = _get_ctrl()
-        ctrl.set(key, value, max_age=_COOKIE_MAX_AGE)
+        import streamlit.components.v1 as _c
+        escaped = value.replace('"', '\\"')
+        _c.html(
+            f'<script>document.cookie="{key}={escaped};max-age={_COOKIE_MAX_AGE};path=/;SameSite=Lax";</script>',
+            height=0,
+        )
     except Exception:
         pass
 
 def _cookie_delete(key: str) -> None:
     """브라우저 쿠키 삭제."""
     try:
-        ctrl = _get_ctrl()
-        ctrl.remove(key)
+        import streamlit.components.v1 as _c
+        _c.html(
+            f'<script>document.cookie="{key}=;max-age=0;path=/;SameSite=Lax";</script>',
+            height=0,
+        )
     except Exception:
         pass
-
-def _get_ctrl():
-    """CookieController를 session_state에 캐시 (페이지당 1회 렌더링)."""
-    if "_cookie_ctrl" not in st.session_state:
-        from streamlit_cookies_controller import CookieController
-        st.session_state["_cookie_ctrl"] = CookieController()
-    return st.session_state["_cookie_ctrl"]
 
 
 # ─── 공개 API ─────────────────────────────────────────────────────────────────
