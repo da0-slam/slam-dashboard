@@ -398,7 +398,11 @@ with tab1:
             df["influencer_name"].str.strip().str.lower()
             .apply(lambda x: x not in _HDR and x != "")
         ]
-        total_influencers = _df_valid["influencer_name"].nunique()
+        # upload_date 있는 사람만 업로드 인원으로 집계
+        _df_uploaded = _df_valid[
+            _df_valid["upload_date"].fillna("").astype(str).str.strip() != ""
+        ]
+        total_influencers = _df_uploaded["influencer_name"].nunique()
         total_posts       = len(df)
         ig_posts          = int((df["platform"] == "instagram").sum())
         tt_posts          = int((df["platform"] == "tiktok").sum())
@@ -421,8 +425,9 @@ with tab1:
                     "influencer_name", "이름", "계정", "아이디", "id",
                 }
                 u_count = df[
-                    df["influencer_name"].str.strip().str.lower()
-                    .apply(lambda x: x not in _HEADER_NAMES and x != "")
+                    (df["influencer_name"].str.strip().str.lower()
+                     .apply(lambda x: x not in _HEADER_NAMES and x != ""))
+                    & (df["upload_date"].fillna("").astype(str).str.strip() != "")
                 ]["influencer_name"].nunique()
                 if p_count < u_count:
                     st.warning(
@@ -1223,7 +1228,7 @@ with tab4:
                     "tt_url":        ["tt_url", "posting url (tt)", "tt url", "tiktok_url", "tiktok url"],
                     "x_url":         ["x_url", "posting url (x)", "x url", "twitter_url", "x/twitter url"],
                     "lips_url":      ["lips_url", "others(lips)", "others(lip)", "lips url", "lips posting url", "other url"],
-                    "upload_day":    ["upload_day", "upload day", "uploadday", "날짜", "date", "visit date"],
+                    "upload_day":    ["upload_day", "upload day", "upload day(within the last month)", "uploadday", "날짜", "date", "visit date"],
                     "tt_views":      ["tt_views", "views", "view", "조회수", "재생수"],
                     "tt_likes":      ["tt_likes", "likes", "likes▼", "likes♥", "like", "좋아요"],
                     "tt_comments":   ["tt_comments", "comments", "comment", "댓글"],
@@ -1294,11 +1299,10 @@ with tab4:
                             "other_shares":   _val(r, "other_shares"),
                         })
 
-                    # ── 업로드율 미리보기 ──────────────────────────────────
-                    _url_keys = ("tt_url", "ig_url", "x_url", "lips_url")
+                    # ── 업로드율 미리보기 (upload_day 기준) ───────────────
                     uploaded_cnt = sum(
                         1 for r in rows_to_migrate
-                        if any(_clean(r.get(k, "")) for k in _url_keys)
+                        if _clean(r.get("upload_day", ""))
                     )
                     no_url_cnt   = len(rows_to_migrate) - uploaded_cnt
                     u_rate       = round(uploaded_cnt / len(rows_to_migrate) * 100, 1) if rows_to_migrate else 0
