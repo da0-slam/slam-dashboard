@@ -1,8 +1,6 @@
 """공개 전략 문서 뷰어 — 토큰 링크로 로그인 없이 접근 가능."""
 import streamlit as st
 import re
-import streamlit.components.v1 as _components
-
 st.set_page_config(page_title="전략 문서", page_icon="📋", layout="wide")
 
 from utils.storage_client import resolve_strategy_token   # noqa: E402
@@ -41,6 +39,18 @@ _TT_RE = re.compile(r'https?://(?:www\.)?tiktok\.com/@[\w.]+/video/(\d+)')
 _IG_RE = re.compile(r'https?://(?:www\.)?instagram\.com/(?:reel|p|tv)/([\w-]+)/?')
 
 
+def _embed_html(platform: str, vid_id: str) -> str:
+    if platform == "tiktok":
+        return (
+            f'<iframe src="https://www.tiktok.com/embed/v2/{vid_id}" '
+            f'style="width:100%;height:700px;border:none;" allowfullscreen></iframe>'
+        )
+    return (
+        f'<iframe src="https://www.instagram.com/p/{vid_id}/embed/" '
+        f'style="width:100%;height:560px;border:none;" scrolling="no" allowtransparency="true"></iframe>'
+    )
+
+
 def _render(content: str):
     """마크다운 렌더링 — TikTok/Instagram URL은 2열 그리드로 임베드."""
     segments: list[tuple] = []
@@ -52,9 +62,7 @@ def _render(content: str):
             if buf:
                 segments.append(("text", "\n".join(buf)))
                 buf = []
-            platform = "tiktok" if tt else "instagram"
-            vid_id   = tt.group(1) if tt else ig.group(1)
-            segments.append(("video", platform, vid_id))
+            segments.append(("video", "tiktok" if tt else "instagram", tt.group(1) if tt else ig.group(1)))
         else:
             buf.append(line)
     if buf:
@@ -68,27 +76,20 @@ def _render(content: str):
             i += 1
         else:
             videos = []
-            while i < len(segments) and segments[i][0] == "video":
-                videos.append(segments[i])
-                i += 1
+            while i < len(segments):
+                if segments[i][0] == "video":
+                    videos.append(segments[i])
+                    i += 1
+                elif segments[i][0] == "text" and segments[i][1].strip() == "":
+                    i += 1
+                else:
+                    break
             for j in range(0, len(videos), 2):
                 pair = videos[j : j + 2]
                 cols = st.columns(len(pair))
-                for col, (_, platform, vid_id) in zip(cols, pair):
-                    with col:
-                        if platform == "tiktok":
-                            _components.html(
-                                f'<iframe src="https://www.tiktok.com/embed/v2/{vid_id}" '
-                                f'width="100%" height="700" frameborder="0" allowfullscreen></iframe>',
-                                height=720,
-                            )
-                        else:
-                            _components.html(
-                                f'<iframe src="https://www.instagram.com/p/{vid_id}/embed/" '
-                                f'width="100%" height="560" frameborder="0" scrolling="no" '
-                                f'allowtransparency="true"></iframe>',
-                                height=580,
-                            )
+                for k, (_, platform, vid_id) in enumerate(pair):
+                    with cols[k]:
+                        st.markdown(_embed_html(platform, vid_id), unsafe_allow_html=True)
 
 
 # ── 렌더링 ────────────────────────────────────────────────────────────────────
