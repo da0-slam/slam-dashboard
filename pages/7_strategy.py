@@ -378,7 +378,7 @@ with tab_export:
 
     _cur_token = st.session_state.get(_token_key)
     if _cur_token:
-        if _col_del.button("🗑️ 무효화", key="share_del", use_container_width=True):
+        if _col_del.button("🔌 링크 연결 끊기", key="share_del", use_container_width=True):
             revoke_strategy_token(_cur_token)
             del st.session_state[_token_key]
             st.rerun()
@@ -387,4 +387,4 @@ with tab_export:
         else:
             _share_url = f"/strategy_view?token={_cur_token}"
         st.code(_share_url, language=None)
-        st.caption("⚠️ 이 링크를 가진 누구나 로그인 없이 열람 가능합니다. 무효화 버튼으로 즉시 차단할 수 있습니다.")
+        st.caption("⚠️ 이 링크를 가진 누구나 로그인 없이 열람 가능합니다. '링크 연결 끊기' 버튼으로 즉시 차단할 수 있습니다.")
