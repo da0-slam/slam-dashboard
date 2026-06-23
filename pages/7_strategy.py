@@ -1,6 +1,7 @@
 """전략 페이지 — 브랜드 전용 전략 문서 (브랜드 가이드 / 캠페인 목표 / 경쟁사 레퍼런스)."""
 import streamlit as st
 import re
+import os as _os
 import streamlit.components.v1 as _components
 from collections import Counter
 
@@ -16,10 +17,8 @@ from utils.supabase_client import (
 )
 from utils.storage_client import (
     upload_strategy_file,
-    upload_strategy_share,
-    delete_strategy_share,
-    get_strategy_share_url,
-    check_strategy_share_exists,
+    create_strategy_token,
+    revoke_strategy_token,
 )
 
 st.set_page_config(page_title="전략", page_icon="🎯", layout="wide")
@@ -363,31 +362,29 @@ with tab_export:
 
     st.divider()
     st.markdown("**🔗 웹 공유 링크**")
-    st.caption("로그인 없이 열람 가능한 링크입니다. 콘텐츠 수정 후 업데이트하면 **같은 URL**에 반영됩니다.")
+    st.caption("로그인 없이 열람 가능합니다. 링크 생성 후 콘텐츠를 수정해도 같은 링크에서 항상 최신 내용을 볼 수 있습니다.")
 
-    @st.cache_data(ttl=5, show_spinner=False)
-    def _share_exists(bid: str) -> bool:
-        return check_strategy_share_exists(bid)
-
-    _exists = _share_exists(brand_id)
-    _share_url = get_strategy_share_url(brand_id)
+    _site = (_os.environ.get("SITE_URL") or "").rstrip("/")
+    _token_key = f"share_token_{brand_id}"
 
     _col_btn, _col_del = st.columns([3, 1])
-    if _col_btn.button(
-        "🔄 콘텐츠 업데이트" if _exists else "🔗 공유 링크 생성",
-        key="share_gen", type="primary", use_container_width=True,
-    ):
-        with st.spinner("업로드 중..."):
-            _url = upload_strategy_share(brand_id, html_full.encode("utf-8"))
-        if _url:
-            _share_exists.clear()
-            st.rerun()
+    if _col_btn.button("🔗 공유 링크 생성 (새 링크)", key="share_gen", type="primary", use_container_width=True):
+        with st.spinner("링크 생성 중..."):
+            _tok = create_strategy_token(brand_id)
+        if _tok:
+            st.session_state[_token_key] = _tok
         else:
-            st.error("업로드 실패. Supabase Storage `strategy-files` 버킷 설정을 확인하세요.")
+            st.error("링크 생성 실패. Supabase Storage `strategy-files` 버킷을 확인하세요.")
 
-    if _exists:
-        if _col_del.button("🗑️ 삭제", key="share_del", use_container_width=True):
-            if delete_strategy_share(brand_id):
-                _share_exists.clear()
-                st.rerun()
+    _cur_token = st.session_state.get(_token_key)
+    if _cur_token:
+        if _col_del.button("🗑️ 무효화", key="share_del", use_container_width=True):
+            revoke_strategy_token(_cur_token)
+            del st.session_state[_token_key]
+            st.rerun()
+        if _site:
+            _share_url = f"{_site}/strategy_view?token={_cur_token}"
+        else:
+            _share_url = f"/strategy_view?token={_cur_token}"
         st.code(_share_url, language=None)
+        st.caption("⚠️ 이 링크를 가진 누구나 로그인 없이 열람 가능합니다. 무효화 버튼으로 즉시 차단할 수 있습니다.")

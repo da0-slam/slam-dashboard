@@ -646,51 +646,54 @@ def ensure_strategy_bucket() -> None:
         pass
 
 
-def upload_strategy_share(brand_id: str, html_bytes: bytes) -> str | None:
-    """전략 문서를 공개 공유용 HTML로 업로드 (덮어쓰기 가능, 경로 고정)."""
-    path = f"public-shares/{brand_id}.html"
+def create_strategy_token(brand_id: str) -> str | None:
+    """랜덤 UUID 토큰을 JSON 파일로 Storage에 저장하고 토큰 문자열을 반환.
+    tokens/{token}.json → {"brand_id": "..."}
+    같은 brand_id라도 호출할 때마다 새 토큰 생성 (이전 토큰은 유지).
+    """
+    import uuid as _uuid, json as _json
+    token = str(_uuid.uuid4())
+    path = f"tokens/{token}.json"
     ensure_strategy_bucket()
     try:
         resp = requests.post(
             f"{_sb_storage_url()}/object/{_STRATEGY_BUCKET}/{path}",
-            headers={**_headers(), "Content-Type": "text/html; charset=utf-8", "x-upsert": "true"},
-            data=html_bytes,
-            timeout=30,
+            headers={**_headers(), "Content-Type": "application/json", "x-upsert": "true"},
+            data=_json.dumps({"brand_id": brand_id}).encode("utf-8"),
+            timeout=15,
         )
         if resp.status_code in (200, 201):
-            return get_public_url(_STRATEGY_BUCKET, path)
+            return token
         return None
     except Exception as e:
-        print(f"[storage] strategy share upload failed: {e}")
+        print(f"[storage] strategy token create failed: {e}")
         return None
 
 
-def delete_strategy_share(brand_id: str) -> bool:
-    """공유된 전략 문서 HTML 파일 삭제 (링크 무효화)."""
-    path = f"public-shares/{brand_id}.html"
+def revoke_strategy_token(token: str) -> bool:
+    """토큰 JSON 파일 삭제 → 링크 즉시 무효화."""
     try:
         resp = requests.delete(
-            f"{_sb_storage_url()}/object/{_STRATEGY_BUCKET}/{path}",
+            f"{_sb_storage_url()}/object/{_STRATEGY_BUCKET}/tokens/{token}.json",
             headers=_headers(),
-            timeout=15,
+            timeout=10,
         )
         return resp.status_code in (200, 204)
     except Exception:
         return False
 
 
-def get_strategy_share_url(brand_id: str) -> str:
-    """브랜드 전략 공유 링크 (파일 존재 여부 무관하게 항상 같은 URL)."""
-    return get_public_url(_STRATEGY_BUCKET, f"public-shares/{brand_id}.html")
-
-
-def check_strategy_share_exists(brand_id: str) -> bool:
-    """공유 파일이 Storage에 이미 존재하는지 확인."""
+def resolve_strategy_token(token: str) -> str | None:
+    """토큰으로 brand_id 조회. 유효하지 않으면 None 반환."""
+    import json as _json
+    url = get_public_url(_STRATEGY_BUCKET, f"tokens/{token}.json")
     try:
-        resp = requests.head(get_strategy_share_url(brand_id), timeout=8)
-        return resp.status_code == 200
+        resp = requests.get(url, timeout=8)
+        if resp.status_code == 200:
+            return resp.json().get("brand_id")
     except Exception:
-        return False
+        pass
+    return None
 
 
 def upload_strategy_file(
