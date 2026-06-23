@@ -1,9 +1,7 @@
 """전략 페이지 — 브랜드 전용 전략 문서 (브랜드 가이드 / 캠페인 목표 / 경쟁사 레퍼런스)."""
 import streamlit as st
 import re
-import hmac as _hmac
-import hashlib as _hashlib
-import os as _os
+import streamlit.components.v1 as _components
 from collections import Counter
 
 from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
@@ -178,29 +176,34 @@ SECTION_META = {
 }
 
 
-_YT_RE = re.compile(
-    r'https?://(?:www\.)?(?:youtube\.com/watch\?[^\s)]*v=|youtu\.be/)([\w-]+)(?:[^\s)]*)?'
-)
+_TT_RE = re.compile(r'https?://(?:www\.)?tiktok\.com/@[\w.]+/video/(\d+)')
+_IG_RE = re.compile(r'https?://(?:www\.)?instagram\.com/(?:reel|p|tv)/([\w-]+)/?')
 
 
 def _render_with_videos(content: str):
-    """마크다운 렌더링 — YouTube URL이 있으면 인라인 임베드로 처리."""
+    """마크다운 렌더링 — TikTok/Instagram URL이 있으면 인라인 임베드로 처리."""
     lines = content.split("\n")
     buf: list[str] = []
     for line in lines:
-        m = _YT_RE.search(line)
-        if m:
+        tt = _TT_RE.search(line)
+        ig = _IG_RE.search(line)
+        if tt or ig:
             if buf:
                 st.markdown("\n".join(buf), unsafe_allow_html=True)
                 buf = []
-            video_id = m.group(1)
-            st.markdown(
-                f'<iframe width="100%" height="380" '
-                f'src="https://www.youtube.com/embed/{video_id}" '
-                f'frameborder="0" allowfullscreen '
-                f'style="border-radius:8px;margin:8px 0;display:block;"></iframe>',
-                unsafe_allow_html=True,
-            )
+            if tt:
+                _components.html(
+                    f'<iframe src="https://www.tiktok.com/embed/v2/{tt.group(1)}" '
+                    f'width="325" height="700" frameborder="0" allowfullscreen></iframe>',
+                    height=720,
+                )
+            else:
+                _components.html(
+                    f'<iframe src="https://www.instagram.com/p/{ig.group(1)}/embed/" '
+                    f'width="400" height="480" frameborder="0" scrolling="no" '
+                    f'allowtransparency="true"></iframe>',
+                    height=500,
+                )
         else:
             buf.append(line)
     if buf:
@@ -221,7 +224,7 @@ def _render_section(field: str):
             key=f"strat_input_{field}_{brand_id}",
             label_visibility="collapsed",
         )
-        st.caption("💡 YouTube 링크를 붙여넣으면 저장 후 영상이 자동으로 임베드됩니다.")
+        st.caption("💡 TikTok 또는 Instagram 링크를 붙여넣으면 저장 후 영상이 자동으로 임베드됩니다.")
         col_s, col_c, _ = st.columns([1, 1, 6])
         if col_s.button("💾 저장", key=f"save_{field}_{brand_id}", type="primary", use_container_width=True):
             upsert_brand_strategy(brand_id, {field: new_val})
@@ -351,21 +354,3 @@ with tab_export:
     )
 
     st.caption("HTML 파일을 브라우저로 열고 **Ctrl+P → PDF로 저장**하면 한국어가 깨지지 않는 PDF를 만들 수 있습니다.")
-
-    st.divider()
-    st.markdown("**🔗 웹 공유 링크 (로그인 없이 열람)**")
-
-    _secret = (_os.environ.get("SUPABASE_KEY") or "slam-strategy-fallback").encode()
-    _share_token = _hmac.new(_secret, brand_id.encode(), _hashlib.sha256).hexdigest()[:24]
-    _site = (_os.environ.get("SITE_URL") or "").rstrip("/")
-
-    if _site:
-        _share_url = f"{_site}/strategy_view?brand={brand_id}&token={_share_token}"
-        st.code(_share_url, language=None)
-        st.caption("이 링크를 가진 사람은 로그인 없이 브랜드 전략 문서를 읽을 수 있습니다.")
-    else:
-        st.warning(
-            "`SITE_URL` 환경변수가 설정되지 않아 전체 URL을 생성할 수 없습니다. "
-            "Railway → Variables → `SITE_URL=https://your-app.up.railway.app` 으로 추가하세요."
-        )
-        st.code(f"/strategy_view?brand={brand_id}&token={_share_token}", language=None)
