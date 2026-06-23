@@ -7,6 +7,7 @@ def require_auth():
         restore_session()
     if not st.session_state.get("user"):
         st.warning("로그인이 필요합니다.")
+        st.page_link("app.py", label="🔐 로그인 페이지로 이동", use_container_width=True)
         st.stop()
     # 페이지 이동으로 URL에서 _s가 사라진 경우 재주입 → 새로고침 후 복원 가능
     from utils.session import ensure_session_in_url
