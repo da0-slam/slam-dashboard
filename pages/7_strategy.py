@@ -14,7 +14,13 @@ from utils.supabase_client import (
     add_strategy_file,
     delete_strategy_file,
 )
-from utils.storage_client import upload_strategy_file
+from utils.storage_client import (
+    upload_strategy_file,
+    upload_strategy_share,
+    delete_strategy_share,
+    get_strategy_share_url,
+    check_strategy_share_exists,
+)
 
 st.set_page_config(page_title="전략", page_icon="🎯", layout="wide")
 
@@ -354,3 +360,34 @@ with tab_export:
     )
 
     st.caption("HTML 파일을 브라우저로 열고 **Ctrl+P → PDF로 저장**하면 한국어가 깨지지 않는 PDF를 만들 수 있습니다.")
+
+    st.divider()
+    st.markdown("**🔗 웹 공유 링크**")
+    st.caption("로그인 없이 열람 가능한 링크입니다. 콘텐츠 수정 후 업데이트하면 **같은 URL**에 반영됩니다.")
+
+    @st.cache_data(ttl=5, show_spinner=False)
+    def _share_exists(bid: str) -> bool:
+        return check_strategy_share_exists(bid)
+
+    _exists = _share_exists(brand_id)
+    _share_url = get_strategy_share_url(brand_id)
+
+    _col_btn, _col_del = st.columns([3, 1])
+    if _col_btn.button(
+        "🔄 콘텐츠 업데이트" if _exists else "🔗 공유 링크 생성",
+        key="share_gen", type="primary", use_container_width=True,
+    ):
+        with st.spinner("업로드 중..."):
+            _url = upload_strategy_share(brand_id, html_full.encode("utf-8"))
+        if _url:
+            _share_exists.clear()
+            st.rerun()
+        else:
+            st.error("업로드 실패. Supabase Storage `strategy-files` 버킷 설정을 확인하세요.")
+
+    if _exists:
+        if _col_del.button("🗑️ 삭제", key="share_del", use_container_width=True):
+            if delete_strategy_share(brand_id):
+                _share_exists.clear()
+                st.rerun()
+        st.code(_share_url, language=None)
