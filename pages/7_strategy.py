@@ -186,33 +186,55 @@ _IG_RE = re.compile(r'https?://(?:www\.)?instagram\.com/(?:reel|p|tv)/([\w-]+)/?
 
 
 def _render_with_videos(content: str):
-    """마크다운 렌더링 — TikTok/Instagram URL이 있으면 인라인 임베드로 처리."""
-    lines = content.split("\n")
+    """마크다운 렌더링 — TikTok/Instagram URL은 2열 그리드로 임베드."""
+    # 콘텐츠를 텍스트 블록 / 영상 URL 목록으로 파싱
+    segments: list[tuple] = []
     buf: list[str] = []
-    for line in lines:
+    for line in content.split("\n"):
         tt = _TT_RE.search(line)
         ig = _IG_RE.search(line)
         if tt or ig:
             if buf:
-                st.markdown("\n".join(buf), unsafe_allow_html=True)
+                segments.append(("text", "\n".join(buf)))
                 buf = []
-            if tt:
-                _components.html(
-                    f'<iframe src="https://www.tiktok.com/embed/v2/{tt.group(1)}" '
-                    f'width="325" height="700" frameborder="0" allowfullscreen></iframe>',
-                    height=720,
-                )
-            else:
-                _components.html(
-                    f'<iframe src="https://www.instagram.com/p/{ig.group(1)}/embed/" '
-                    f'width="400" height="480" frameborder="0" scrolling="no" '
-                    f'allowtransparency="true"></iframe>',
-                    height=500,
-                )
+            platform = "tiktok" if tt else "instagram"
+            vid_id   = tt.group(1) if tt else ig.group(1)
+            segments.append(("video", platform, vid_id))
         else:
             buf.append(line)
     if buf:
-        st.markdown("\n".join(buf), unsafe_allow_html=True)
+        segments.append(("text", "\n".join(buf)))
+
+    i = 0
+    while i < len(segments):
+        seg = segments[i]
+        if seg[0] == "text":
+            st.markdown(seg[1], unsafe_allow_html=True)
+            i += 1
+        else:
+            # 연속 영상을 모아서 2열씩 렌더링
+            videos = []
+            while i < len(segments) and segments[i][0] == "video":
+                videos.append(segments[i])
+                i += 1
+            for j in range(0, len(videos), 2):
+                pair = videos[j : j + 2]
+                cols = st.columns(len(pair))
+                for col, (_, platform, vid_id) in zip(cols, pair):
+                    with col:
+                        if platform == "tiktok":
+                            _components.html(
+                                f'<iframe src="https://www.tiktok.com/embed/v2/{vid_id}" '
+                                f'width="100%" height="700" frameborder="0" allowfullscreen></iframe>',
+                                height=720,
+                            )
+                        else:
+                            _components.html(
+                                f'<iframe src="https://www.instagram.com/p/{vid_id}/embed/" '
+                                f'width="100%" height="560" frameborder="0" scrolling="no" '
+                                f'allowtransparency="true"></iframe>',
+                                height=580,
+                            )
 
 
 def _render_section(field: str):
