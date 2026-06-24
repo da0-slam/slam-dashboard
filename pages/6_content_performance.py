@@ -333,6 +333,23 @@ if filter_url:
     ul = filter_url.lower()
     raw = [p for p in raw if ul in (p.get("post_url") or "").lower()]
 
+# 캠페인별 상단 고정 인플루언서 (이름 포함 매칭)
+_PRIORITY_NAMES: dict[str, list[str]] = {
+    "36ff7778-7955-4714-b41c-2e5dd1d7b1d1": [  # [JP] 23yearsold 5월 나노/마이크로
+        "中さゆり", "尾崎", "上田博美", "泉麻依子", "佐藤愛",
+        "手取瑞恵", "山崎明音", "薦田みどり", "西飯真子",
+    ],
+}
+
+def _priority_rank(p: dict) -> int:
+    """고정 인플루언서면 순서 인덱스(0~), 아니면 큰 수 반환"""
+    names = _PRIORITY_NAMES.get(p.get("campaign_id", ""), [])
+    iname = p.get("influencer_name") or ""
+    for i, n in enumerate(names):
+        if n in iname:
+            return i
+    return 10000
+
 _SORT_KEY: dict = {
     "upload_date":    lambda p: p.get("upload_date") or "",
     "views":          lambda p: p.get("views") or 0,
@@ -340,10 +357,18 @@ _SORT_KEY: dict = {
     "saves":          lambda p: p.get("saves") or 0,
     "comments":       lambda p: p.get("comments") or 0,
     "shares":         lambda p: p.get("shares") or 0,
-    "engagement_rate": lambda _: 0,  # engagement_rate는 아래서 재정렬
+    "engagement_rate": lambda _: 0,
 }
 if sort_by != "engagement_rate" and sort_by in _SORT_KEY:
-    raw = sorted(raw, key=_SORT_KEY[sort_by], reverse=True)
+    _prio = sorted(
+        [p for p in raw if _priority_rank(p) < 10000],
+        key=_priority_rank,
+    )
+    _rest = sorted(
+        [p for p in raw if _priority_rank(p) == 10000],
+        key=_SORT_KEY[sort_by], reverse=True,
+    )
+    raw = _prio + _rest
 
 
 def _er(p: dict) -> float:
