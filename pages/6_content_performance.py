@@ -296,8 +296,8 @@ filter_name = st.sidebar.text_input("인플루언서명 검색", key="cp_name")
 filter_url  = st.sidebar.text_input("URL 검색",         key="cp_url")
 
 sort_options = {
-    "업로드일":  "upload_date",
     "조회수":    "views",
+    "업로드일":  "upload_date",
     "참여율":    "engagement_rate",
     "저장 수":   "saves",
     "댓글 수":   "comments",
