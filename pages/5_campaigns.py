@@ -360,6 +360,33 @@ if st.session_state.get("selected_campaign"):
 
     st.divider()
 
+    # ── Undo 배너 ─────────────────────────────────────────────────────────────
+    _undo_key = f"_undo_{camp_id}"
+    if st.session_state.get(_undo_key):
+        _ud = st.session_state[_undo_key]
+        _ua, _ub, _uc = st.columns([5, 1, 1])
+        with _ua:
+            st.warning(f"🗑️ **@{_ud['influencer_id']}** 삭제됨")
+        with _ub:
+            if st.button("실행 취소", key=f"undo_btn_{camp_id}", use_container_width=True, type="primary"):
+                bulk_add_to_campaign(camp_id, [{
+                    "influencer_id": _ud["influencer_id"],
+                    "status":        _ud["status"],
+                    "followers":     _ud.get("followers"),
+                    "contact_email": _ud.get("contact_email", ""),
+                    "ratecard":      _ud.get("ratecard", ""),
+                    "after_nego":    _ud.get("after_nego", ""),
+                    "usage_rights":  _ud.get("usage_rights", ""),
+                    "platform_url":  _ud.get("platform_url", ""),
+                    "note":          _ud.get("note", ""),
+                }])
+                del st.session_state[_undo_key]
+                st.rerun()
+        with _uc:
+            if st.button("닫기", key=f"undo_close_{camp_id}", use_container_width=True):
+                del st.session_state[_undo_key]
+                st.rerun()
+
     selections    = get_campaign_selections(camp["id"])
     inf_ids       = [s["influencer_id"] for s in selections]
     thumb_map     = get_influencer_thumbnails(inf_ids)
@@ -440,27 +467,29 @@ if st.session_state.get("selected_campaign"):
                         if status == "confirmed":
                             b1, b2, b3 = st.columns(3)
                             with b1:
-                                if st.button("🟡후보", key=f"{prefix}_g_cand_{item['id']}", use_container_width=True):
+                                if st.button("후보", key=f"{prefix}_g_cand_{item['id']}", use_container_width=True):
                                     update_campaign_selection(item["id"], "candidate")
                                     st.rerun()
                             with b2:
-                                if st.button("🔴제외", key=f"{prefix}_g_rej_{item['id']}", use_container_width=True):
+                                if st.button("제외", key=f"{prefix}_g_rej_{item['id']}", use_container_width=True):
                                     update_campaign_selection(item["id"], "rejected")
                                     st.rerun()
                             with b3:
                                 if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
+                                    st.session_state[f"_undo_{camp_id}"] = dict(item)
                                     remove_campaign_selection(item["id"])
                                     st.rerun()
                         else:
                             b1, b2 = st.columns(2)
                             next_s = {"candidate": "confirmed", "rejected": "candidate"}[status]
-                            next_l = {"candidate": "✅확정", "rejected": "🟡후보"}[status]
+                            next_l = {"candidate": "확정", "rejected": "후보"}[status]
                             with b1:
                                 if st.button(next_l, key=f"{prefix}_g_ns_{item['id']}", use_container_width=True):
                                     update_campaign_selection(item["id"], next_s)
                                     st.rerun()
                             with b2:
                                 if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
+                                    st.session_state[f"_undo_{camp_id}"] = dict(item)
                                     remove_campaign_selection(item["id"])
                                     st.rerun()
                         b3, b4 = st.columns(2)
@@ -515,16 +544,16 @@ if st.session_state.get("selected_campaign"):
                         if status == "confirmed":
                             la, lb = st.columns(2)
                             with la:
-                                if st.button("🟡후보", key=f"{prefix}_l_cand_{item['id']}", use_container_width=True):
+                                if st.button("후보", key=f"{prefix}_l_cand_{item['id']}", use_container_width=True):
                                     update_campaign_selection(item["id"], "candidate")
                                     st.rerun()
                             with lb:
-                                if st.button("🔴제외", key=f"{prefix}_l_rej_{item['id']}", use_container_width=True):
+                                if st.button("제외", key=f"{prefix}_l_rej_{item['id']}", use_container_width=True):
                                     update_campaign_selection(item["id"], "rejected")
                                     st.rerun()
                         else:
                             next_s = {"candidate": "confirmed", "rejected": "candidate"}[status]
-                            next_l = {"candidate": "✅ 확정", "rejected": "🟡 후보로"}[status]
+                            next_l = {"candidate": "확정", "rejected": "후보로"}[status]
                             if st.button(next_l, key=f"{prefix}_l_ns_{item['id']}", use_container_width=True):
                                 update_campaign_selection(item["id"], next_s)
                                 st.rerun()
@@ -534,6 +563,7 @@ if st.session_state.get("selected_campaign"):
                             show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
                     with c5:
                         if st.button("삭제", key=f"{prefix}_l_rm_{item['id']}", use_container_width=True):
+                            st.session_state[f"_undo_{camp_id}"] = dict(item)
                             remove_campaign_selection(item["id"])
                             st.rerun()
                     with c6:

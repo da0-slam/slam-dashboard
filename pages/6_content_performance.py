@@ -1451,13 +1451,13 @@ with tab5:
 
         if cmt_plat == "TikTok":
             st.markdown("""
-**TikTok 컬럼 형식** (Apify TikTok Comment Scraper 기본 출력)
+**TikTok 컬럼 형식**
 
 `id` · `text` · `createdAt` · `likeCount` · `replyCount` · `commentLanguage` · **`awemeId`** · `user.username` · `user.displayName` · `user.avatarUrl` · `user.region`
 """)
         else:
             st.markdown("""
-**Instagram 컬럼 형식** (Apify Instagram Comment Scraper 기본 출력)
+**Instagram 컬럼 형식**
 
 `id` · `text` · `timestamp` · **`postUrl`** · `ownerUsername` · `ownerProfilePicUrl`
 """)
