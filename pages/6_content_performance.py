@@ -212,7 +212,7 @@ def _show_comments_dialog(orig_post: dict) -> None:
         cmts = _load_comments_ig(orig_post["post_url"])
 
     if not cmts:
-        st.info("가져온 댓글이 없습니다. '💬 댓글' 탭에서 스프레드시트로 먼저 가져오세요.")
+        st.info("이 게시물에 수집된 댓글이 없습니다.")
         return
 
     kw = st.text_input("검색", placeholder="🔍 내용 또는 사용자명", label_visibility="collapsed", key="dlg_cmt_search")
