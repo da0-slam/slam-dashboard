@@ -454,7 +454,7 @@ if st.session_state.get("selected_campaign"):
                         or iid.startswith("http") or " " in iid
                     ):
                         tt_val = _clean(row.get(tt_url_col, ""))
-                        m = re.search(r'tiktok\.com/@?([\w.]+)', tt_val)
+                        m = re.search(r'tiktok\.com/@([\w.]+)', tt_val)  # @ 필수 — 단축URL(/t/xxx) 오추출 방지
                         if m:
                             iid = m.group(1)
                     if not iid or iid.lower() in ("nan", "none", ""):
