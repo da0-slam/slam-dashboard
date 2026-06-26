@@ -240,33 +240,27 @@ def pick_thumbnail_dialog(influencer_id: str):
         return
 
     COLS = 4
-    for chunk_start in range(0, len(contents), COLS):
-        row_items = contents[chunk_start:chunk_start + COLS]
-        cols = st.columns(COLS)
-        for col, c in zip(cols, row_items):
-            thumb     = c.get("thumbnail_url") or ""
-            video_url = c.get("video_url") or ""
-            play      = c.get("play_count") or 0
-            with col:
-                if thumb:
-                    st.markdown(
-                        f'<a href="{video_url}" target="_blank">'
-                        f'<img src="{thumb}" style="width:100%;border-radius:8px;aspect-ratio:9/16;object-fit:cover;display:block;"></a>'
-                        if video_url else
-                        f'<img src="{thumb}" style="width:100%;border-radius:8px;aspect-ratio:9/16;object-fit:cover;display:block;">',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        '<div style="aspect-ratio:9/16;background:#1a1a2e;border-radius:8px;'
-                        'display:flex;align-items:center;justify-content:center;font-size:2rem;">🎬</div>',
-                        unsafe_allow_html=True,
-                    )
-                st.caption(f"▶ {_fmt(play)}")
-                if thumb and st.button("✅ 대표로 설정", key=f"pick_{influencer_id}_{chunk_start}_{contents.index(c)}", use_container_width=True):
-                    update_influencer_cover(influencer_id, thumb)
-                    st.success("대표 썸네일이 변경됐습니다.")
-                    st.rerun()
+    for idx, c in enumerate(contents):
+        col_idx = idx % COLS
+        if col_idx == 0:
+            cols = st.columns(COLS)
+        thumb = c.get("thumbnail_url") or ""
+        play  = c.get("play_count") or 0
+        with cols[col_idx]:
+            if thumb:
+                st.image(thumb, use_container_width=True)
+            else:
+                st.markdown(
+                    '<div style="aspect-ratio:9/16;background:#1a1a2e;border-radius:8px;'
+                    'display:flex;align-items:center;justify-content:center;font-size:2rem;">🎬</div>',
+                    unsafe_allow_html=True,
+                )
+            st.caption(f"▶ {_fmt(play)}")
+            if thumb and st.button("✅ 대표로 설정", key=f"pick_{influencer_id}_{idx}", use_container_width=True):
+                update_influencer_cover(influencer_id, thumb)
+                # session_state에 즉시 저장 → DB 조회 지연과 무관하게 반영
+                st.session_state[f"_cover_{influencer_id}"] = thumb
+                st.rerun()
 
 
 @st.dialog("콘텐츠 전체보기", width="large")
@@ -559,6 +553,10 @@ if st.session_state.get("selected_campaign"):
     inf_ids       = [s["influencer_id"] for s in selections]
     thumb_map     = get_influencer_thumbnails(inf_ids)
     inf_map       = {r["influencer_id"]: r for r in get_influencers(ids=inf_ids)}
+    # pick_thumbnail_dialog에서 저장한 cover_url 즉시 반영 (DB 재조회 지연 우회)
+    for _k in [k for k in st.session_state if k.startswith("_cover_")]:
+        _iid = _k[len("_cover_"):]
+        inf_map.setdefault(_iid, {})["cover_url"] = st.session_state.pop(_k)
     note_cnt_map  = get_note_counts(inf_ids, selected_brand_id)
 
     # ── 검색 + 플랫폼 필터 ─────────────────────────────────────────────────────
