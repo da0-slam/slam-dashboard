@@ -934,8 +934,13 @@ def bulk_upsert_koc_contents(rows: list[dict]) -> tuple[int, list[str]]:
     errors: list[str] = []
     valid = []
     for r in rows:
-        if not r.get("influencer_id") or not r.get("video_url"):
+        iid  = r.get("influencer_id") or ""
+        vurl = r.get("video_url") or ""
+        if not iid or not vurl or not vurl.startswith("http"):
             continue
+        # posted_at이 날짜 형식이 아니면 None으로 (반복 헤더행 방어)
+        if r.get("posted_at") and not str(r["posted_at"])[:1].isdigit():
+            r = {**r, "posted_at": None}
         valid.append(r)
 
     if not valid:
