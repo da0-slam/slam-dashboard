@@ -145,6 +145,44 @@ def _render_content_grid(items: list[dict]):
                 st.caption(f"▶ {_fmt(play)}")
 
 
+def _fetch_missing_koc_thumbnails(camp_id: str) -> tuple[int, int]:
+    """캠페인 인플루언서의 koc_contents 중 Supabase 썸네일 없는 항목 수집. (ok, fail) 반환."""
+    import time
+    from utils.storage_client import fetch_and_upload_thumbnail, extract_post_id
+    sb = __import__("utils.supabase_client", fromlist=["get_supabase"]).get_supabase()
+
+    sels = sb.table("campaign_selections").select("influencer_id").eq("campaign_id", camp_id).execute().data or []
+    inf_ids = [s["influencer_id"] for s in sels]
+    if not inf_ids:
+        return 0, 0
+
+    # Supabase 썸네일 없는 koc_contents 항목 수집
+    rows = sb.table("koc_contents").select("influencer_id,video_url,thumbnail_url").in_("influencer_id", inf_ids).execute().data or []
+    targets = [r for r in rows if "supabase" not in (r.get("thumbnail_url") or "")]
+    if not targets:
+        return 0, 0
+
+    ok = fail = 0
+    for r in targets:
+        vurl = r.get("video_url") or ""
+        iid  = r["influencer_id"]
+        post_id = extract_post_id(vurl)
+        if not post_id:
+            fail += 1
+            continue
+        try:
+            saved = fetch_and_upload_thumbnail(vurl, iid, post_id)
+            if saved:
+                sb.table("koc_contents").update({"thumbnail_url": saved}).eq("influencer_id", iid).eq("video_url", vurl).execute()
+                ok += 1
+            else:
+                fail += 1
+        except Exception:
+            fail += 1
+        time.sleep(3 if "instagram.com" in vurl else 0.5)
+    return ok, fail
+
+
 def _fetch_missing_covers(camp_id: str) -> tuple[int, int]:
     """캠페인 내 cover_url 없는 인플루언서 썸네일 수집. (ok, fail) 반환."""
     from utils.storage_client import fetch_and_upload_thumbnail, extract_post_id
@@ -468,14 +506,25 @@ if st.session_state.get("selected_campaign"):
 
     # ── 어드민: 썸네일 없는 인플루언서 일괄 수집 ─────────────────────────────────
     if is_admin:
-        if st.button("🖼️ 썸네일 없는 인플루언서 수집 (어드민)", key=f"fetch_covers_{camp_id}"):
-            with st.spinner("썸네일 수집 중... (인플루언서 수에 따라 시간이 걸릴 수 있습니다)"):
-                _ok, _fail = _fetch_missing_covers(camp_id)
-            if _ok + _fail == 0:
-                st.info("썸네일이 없는 인플루언서가 없습니다.")
-            else:
-                st.success(f"완료: 성공 **{_ok}명** / 실패 {_fail}명")
-            st.rerun()
+        _ac1, _ac2 = st.columns(2)
+        with _ac1:
+            if st.button("🖼️ 프로필 썸네일 수집 (어드민)", key=f"fetch_covers_{camp_id}", use_container_width=True):
+                with st.spinner("프로필 썸네일 수집 중..."):
+                    _ok, _fail = _fetch_missing_covers(camp_id)
+                if _ok + _fail == 0:
+                    st.info("수집할 항목이 없습니다.")
+                else:
+                    st.success(f"완료: 성공 **{_ok}명** / 실패 {_fail}명")
+                st.rerun()
+        with _ac2:
+            if st.button("🎬 콘텐츠 썸네일 수집 (어드민)", key=f"fetch_koc_thumb_{camp_id}", use_container_width=True):
+                with st.spinner("콘텐츠 썸네일 수집 중... (영상 수에 따라 시간이 걸릴 수 있습니다)"):
+                    _ok, _fail = _fetch_missing_koc_thumbnails(camp_id)
+                if _ok + _fail == 0:
+                    st.info("수집할 항목이 없습니다.")
+                else:
+                    st.success(f"완료: 성공 **{_ok}건** / 실패 {_fail}건")
+                st.rerun()
 
     st.divider()
 
