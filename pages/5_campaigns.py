@@ -321,8 +321,8 @@ if st.session_state.get("selected_campaign"):
                 entries = []
                 for _, row in df_csv.iterrows():
                     iid = str(row.get(id_col) or "").strip().lstrip("@")
-                    # id 컬럼 값이 URL이거나 비어있으면 TikTok URL에서 username 추출
-                    if not iid or iid.lower() in ("nan", "none", "") or iid.startswith("http"):
+                    # id 컬럼 값이 URL이거나 비어있거나 공백 포함(본명)이면 TikTok URL에서 username 추출
+                    if not iid or iid.lower() in ("nan", "none", "") or iid.startswith("http") or " " in iid:
                         if tt_url_col:
                             tt_val = _clean(row.get(tt_url_col, ""))
                             m = re.search(r'tiktok\.com/@?([\w.]+)', tt_val)
