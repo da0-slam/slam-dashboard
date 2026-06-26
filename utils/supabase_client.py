@@ -729,13 +729,14 @@ def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
         .execute()
     ).data or []
 
-    # 캠페인 썸네일 우선순위: supabase 저장 썸네일 → ER 높은 순 → 조회수 높은 순
+    # 캠페인 썸네일 우선순위: TikTok 우선 → supabase 저장 썸네일 → ER 높은 순 → 조회수 높은 순
     def _sort_key(r):
+        is_tiktok    = 0 if "tiktok" in (r.get("video_url") or "").lower() else 1
         has_supabase = 0 if "supabase" in (r.get("thumbnail_url") or "") else 1
         play = r.get("play_count") or 0
         eng  = sum(r.get(k) or 0 for k in ("like_count", "comment_count", "share_count", "save_count"))
         er   = eng / play if play > 0 else 0
-        return (has_supabase, -er, -play)
+        return (is_tiktok, has_supabase, -er, -play)
 
     # 인플루언서별 플랫폼 목록 수집 (video_url 기반 감지)
     platforms_map: dict[str, set] = {}

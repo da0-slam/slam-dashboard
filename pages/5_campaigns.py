@@ -285,7 +285,8 @@ if st.session_state.get("selected_campaign"):
 
                 # 컬럼명 유연하게 인식 (Google Sheet 원본명 포함)
                 # "tiktok" 단독은 tiktok_url 컬럼도 매칭하므로 제외, tiktok_id만 허용
-                id_col      = _find_col(["influencer_id", "influencer id", "username", "tiktok_id", "유저명", "아이디"]) or df_csv.columns[0]
+                _explicit_id_col = _find_col(["influencer_id", "influencer id", "username", "tiktok_id", "유저명", "아이디"])
+                id_col           = _explicit_id_col or df_csv.columns[0]
                 status_col  = _find_col(["status"])
                 note_col    = _find_col(["note", "memo", "메모"])
                 follow_col  = _find_col(["follower"])
@@ -321,13 +322,17 @@ if st.session_state.get("selected_campaign"):
                 entries = []
                 for _, row in df_csv.iterrows():
                     iid = str(row.get(id_col) or "").strip().lstrip("@")
-                    # id 컬럼 값이 URL이거나 비어있거나 공백 포함(본명)이면 TikTok URL에서 username 추출
-                    if not iid or iid.lower() in ("nan", "none", "") or iid.startswith("http") or " " in iid:
-                        if tt_url_col:
-                            tt_val = _clean(row.get(tt_url_col, ""))
-                            m = re.search(r'tiktok\.com/@?([\w.]+)', tt_val)
-                            if m:
-                                iid = m.group(1)
+                    # 명시적 username 컬럼이 없거나, 값이 비어있거나 URL/공백 포함이면
+                    # → TikTok URL에서 @username 추출 시도
+                    if tt_url_col and (
+                        not _explicit_id_col
+                        or not iid or iid.lower() in ("nan", "none", "")
+                        or iid.startswith("http") or " " in iid
+                    ):
+                        tt_val = _clean(row.get(tt_url_col, ""))
+                        m = re.search(r'tiktok\.com/@?([\w.]+)', tt_val)
+                        if m:
+                            iid = m.group(1)
                     if not iid or iid.lower() in ("nan", "none", ""):
                         continue
 
