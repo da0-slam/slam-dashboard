@@ -558,7 +558,7 @@ if st.session_state.get("selected_campaign"):
     selections    = get_campaign_selections(camp["id"])
     inf_ids       = [s["influencer_id"] for s in selections]
     thumb_map     = get_influencer_thumbnails(inf_ids)
-    inf_map       = {r["influencer_id"]: r for r in get_influencers()}
+    inf_map       = {r["influencer_id"]: r for r in get_influencers(ids=inf_ids)}
     note_cnt_map  = get_note_counts(inf_ids, selected_brand_id)
 
     # ── 검색 + 플랫폼 필터 ─────────────────────────────────────────────────────

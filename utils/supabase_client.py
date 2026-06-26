@@ -263,13 +263,15 @@ def delete_brand(brand_id: str) -> None:
 
 # ─── Influencers ─────────────────────────────────────────────────────────────
 
-def get_influencers(search: str = "", limit: int = 200) -> list[dict]:
+def get_influencers(search: str = "", limit: int = 200, ids: list[str] | None = None) -> list[dict]:
     q = get_supabase().table("influencer_master").select(
         "influencer_id,account_url,platform,apify_status,cover_url,instagram_url,instagram_followers"
     )
-    if search:
+    if ids is not None:
+        q = q.in_("influencer_id", ids)
+    elif search:
         q = q.ilike("influencer_id", f"%{search}%")
-    return (q.order("influencer_id").limit(limit).execute()).data or []
+    return (q.order("influencer_id").limit(max(limit, len(ids) if ids else limit)).execute()).data or []
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -648,9 +650,10 @@ def get_influencer_contents(influencer_id: str) -> list[dict]:
 
 
 def update_influencer_cover(influencer_id: str, cover_url: str) -> None:
-    get_supabase().table("influencer_master").update(
-        {"cover_url": cover_url}
-    ).eq("influencer_id", influencer_id).execute()
+    get_supabase().table("influencer_master").upsert(
+        {"influencer_id": influencer_id, "cover_url": cover_url},
+        on_conflict="influencer_id",
+    ).execute()
 
 
 # ─── 인플루언서 메모/댓글 ─────────────────────────────────────────────────────
