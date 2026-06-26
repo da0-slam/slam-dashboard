@@ -647,6 +647,12 @@ def get_influencer_contents(influencer_id: str) -> list[dict]:
     return rows
 
 
+def update_influencer_cover(influencer_id: str, cover_url: str) -> None:
+    get_supabase().table("influencer_master").update(
+        {"cover_url": cover_url}
+    ).eq("influencer_id", influencer_id).execute()
+
+
 # ─── 인플루언서 메모/댓글 ─────────────────────────────────────────────────────
 
 def get_influencer_notes(influencer_id: str, brand_id: str) -> list[dict]:

@@ -13,7 +13,7 @@ from utils.supabase_client import (
     get_influencer_thumbnails, get_influencer_contents, get_user_profile,
     get_campaign_if_owned, get_brand_access_password_hash,
     set_brand_access_password, verify_password,
-    bulk_add_to_campaign,
+    bulk_add_to_campaign, update_influencer_cover,
     get_or_create_invite_token, get_campaign_by_invite_token,
 )
 from utils.notes_ui import show_notes_dialog
@@ -143,6 +143,92 @@ def _render_content_grid(items: list[dict]):
                         unsafe_allow_html=True,
                     )
                 st.caption(f"▶ {_fmt(play)}")
+
+
+def _fetch_missing_covers(camp_id: str) -> tuple[int, int]:
+    """캠페인 내 cover_url 없는 인플루언서 썸네일 수집. (ok, fail) 반환."""
+    from utils.storage_client import fetch_and_upload_thumbnail, extract_post_id
+    sb = __import__("utils.supabase_client", fromlist=["get_supabase"]).get_supabase()
+
+    sels = sb.table("campaign_selections").select("influencer_id").eq("campaign_id", camp_id).execute().data or []
+    inf_ids = [s["influencer_id"] for s in sels]
+    if not inf_ids:
+        return 0, 0
+
+    masters = sb.table("influencer_master").select("influencer_id,cover_url").in_("influencer_id", inf_ids).execute().data or []
+    targets = [m["influencer_id"] for m in masters if not m.get("cover_url")]
+    if not targets:
+        return 0, 0
+
+    ok = fail = 0
+    for iid in targets:
+        # 1순위: koc_contents에 Supabase 썸네일 있으면 재사용
+        koc_rows = sb.table("koc_contents").select("video_url,thumbnail_url").eq("influencer_id", iid).limit(10).execute().data or []
+        reuse = next((r["thumbnail_url"] for r in koc_rows if r.get("thumbnail_url") and "supabase" in r["thumbnail_url"]), None)
+        if reuse:
+            sb.table("influencer_master").update({"cover_url": reuse}).eq("influencer_id", iid).execute()
+            ok += 1
+            continue
+        # 2순위: video_url에서 스크랩
+        scraped = None
+        import time
+        for row in koc_rows:
+            vurl = row.get("video_url", "")
+            post_id = extract_post_id(vurl)
+            if not post_id:
+                continue
+            try:
+                saved = fetch_and_upload_thumbnail(vurl, iid, post_id)
+                if saved:
+                    scraped = saved
+                    break
+            except Exception:
+                pass
+            time.sleep(3 if "instagram.com" in vurl else 0.5)
+        if scraped:
+            sb.table("influencer_master").update({"cover_url": scraped}).eq("influencer_id", iid).execute()
+            ok += 1
+        else:
+            fail += 1
+    return ok, fail
+
+
+@st.dialog("대표 썸네일 선택", width="large")
+def pick_thumbnail_dialog(influencer_id: str):
+    st.caption(f"@{influencer_id} — 카드에 보여줄 게시물을 선택하세요")
+    contents = get_influencer_contents(influencer_id)
+    if not contents:
+        st.info("등록된 콘텐츠가 없습니다.")
+        return
+
+    COLS = 4
+    for chunk_start in range(0, len(contents), COLS):
+        row_items = contents[chunk_start:chunk_start + COLS]
+        cols = st.columns(COLS)
+        for col, c in zip(cols, row_items):
+            thumb     = c.get("thumbnail_url") or ""
+            video_url = c.get("video_url") or ""
+            play      = c.get("play_count") or 0
+            with col:
+                if thumb:
+                    st.markdown(
+                        f'<a href="{video_url}" target="_blank">'
+                        f'<img src="{thumb}" style="width:100%;border-radius:8px;aspect-ratio:9/16;object-fit:cover;display:block;"></a>'
+                        if video_url else
+                        f'<img src="{thumb}" style="width:100%;border-radius:8px;aspect-ratio:9/16;object-fit:cover;display:block;">',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        '<div style="aspect-ratio:9/16;background:#1a1a2e;border-radius:8px;'
+                        'display:flex;align-items:center;justify-content:center;font-size:2rem;">🎬</div>',
+                        unsafe_allow_html=True,
+                    )
+                st.caption(f"▶ {_fmt(play)}")
+                if thumb and st.button("✅ 대표로 설정", key=f"pick_{influencer_id}_{chunk_start}_{contents.index(c)}", use_container_width=True):
+                    update_influencer_cover(influencer_id, thumb)
+                    st.success("대표 썸네일이 변경됐습니다.")
+                    st.rerun()
 
 
 @st.dialog("콘텐츠 전체보기", width="large")
@@ -380,6 +466,17 @@ if st.session_state.get("selected_campaign"):
             except Exception as ex:
                 st.error(f"CSV 파싱 오류: {ex}")
 
+    # ── 어드민: 썸네일 없는 인플루언서 일괄 수집 ─────────────────────────────────
+    if is_admin:
+        if st.button("🖼️ 썸네일 없는 인플루언서 수집 (어드민)", key=f"fetch_covers_{camp_id}"):
+            with st.spinner("썸네일 수집 중... (인플루언서 수에 따라 시간이 걸릴 수 있습니다)"):
+                _ok, _fail = _fetch_missing_covers(camp_id)
+            if _ok + _fail == 0:
+                st.info("썸네일이 없는 인플루언서가 없습니다.")
+            else:
+                st.success(f"완료: 성공 **{_ok}명** / 실패 {_fail}명")
+            st.rerun()
+
     st.divider()
 
     # ── Undo 배너 ─────────────────────────────────────────────────────────────
@@ -523,14 +620,27 @@ if st.session_state.get("selected_campaign"):
                                     st.session_state[f"_undo_{camp_id}"] = dict(item)
                                     remove_campaign_selection(item["id"])
                                     st.rerun()
-                        b3, b4 = st.columns(2)
-                        with b3:
-                            nc = note_cnt_map.get(inf_id, 0)
-                            if st.button(f"💬 {nc}" if nc else "💬", key=f"{prefix}_g_note_{item['id']}", use_container_width=True):
-                                show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
-                        with b4:
-                            if st.button("📷 전체", key=f"{prefix}_g_all_{item['id']}", use_container_width=True):
-                                show_contents_dialog(inf_id)
+                        if is_admin:
+                            ba, bb, bc = st.columns(3)
+                            with ba:
+                                nc = note_cnt_map.get(inf_id, 0)
+                                if st.button(f"💬 {nc}" if nc else "💬", key=f"{prefix}_g_note_{item['id']}", use_container_width=True):
+                                    show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
+                            with bb:
+                                if st.button("📷 전체", key=f"{prefix}_g_all_{item['id']}", use_container_width=True):
+                                    show_contents_dialog(inf_id)
+                            with bc:
+                                if st.button("🖼️", key=f"{prefix}_g_thumb_{item['id']}", use_container_width=True, help="대표 썸네일 게시물 선택"):
+                                    pick_thumbnail_dialog(inf_id)
+                        else:
+                            b3, b4 = st.columns(2)
+                            with b3:
+                                nc = note_cnt_map.get(inf_id, 0)
+                                if st.button(f"💬 {nc}" if nc else "💬", key=f"{prefix}_g_note_{item['id']}", use_container_width=True):
+                                    show_notes_dialog(inf_id, selected_brand_id, user.email, camp_id)
+                            with b4:
+                                if st.button("📷 전체", key=f"{prefix}_g_all_{item['id']}", use_container_width=True):
+                                    show_contents_dialog(inf_id)
                         if is_admin and (item.get("ratecard") or item.get("after_nego")):
                             _p = "  →  ".join(filter(None, [item.get("ratecard"), item.get("after_nego")]))
                             st.caption(f"💰 {_p}")
@@ -606,6 +716,9 @@ if st.session_state.get("selected_campaign"):
                     with c6:
                         if st.button("📷", key=f"{prefix}_l_all_{item['id']}", use_container_width=True, help="콘텐츠 전체보기"):
                             show_contents_dialog(inf_id)
+                        if is_admin:
+                            if st.button("🖼️", key=f"{prefix}_l_thumb_{item['id']}", use_container_width=True, help="대표 썸네일 선택"):
+                                pick_thumbnail_dialog(inf_id)
 
     with tab_all:  render_selections(selections, "all")
     with tab_cand: render_selections([s for s in selections if s["status"] == "candidate"], "cand")
