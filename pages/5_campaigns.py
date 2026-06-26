@@ -284,7 +284,8 @@ if st.session_state.get("selected_campaign"):
                     return next((c for c in df_csv.columns if any(k in c for k in candidates)), None)
 
                 # 컬럼명 유연하게 인식 (Google Sheet 원본명 포함)
-                id_col      = _find_col(["influencer_id", "influencer id", "username", "tiktok_id", "tiktok", "유저명", "아이디"]) or df_csv.columns[0]
+                # "tiktok" 단독은 tiktok_url 컬럼도 매칭하므로 제외, tiktok_id만 허용
+                id_col      = _find_col(["influencer_id", "influencer id", "username", "tiktok_id", "유저명", "아이디"]) or df_csv.columns[0]
                 status_col  = _find_col(["status"])
                 note_col    = _find_col(["note", "memo", "메모"])
                 follow_col  = _find_col(["follower"])
@@ -297,7 +298,11 @@ if st.session_state.get("selected_campaign"):
                 rate_col    = _find_col(["ratecard", "rate card", "rate"])
                 nego_col    = _find_col(["after nego", "after_nego", "nego"])
                 usage_col   = _find_col(["usage"])
-                url_col     = _find_col(["url"])
+                # 플랫폼별 URL 컬럼 (Instagram 팔로워보다 먼저 정의해야 충돌 없음)
+                tt_url_col  = _find_col(["tiktok_url", "tiktok url", "tt_url"])
+                ig_fol_col  = _find_col(["instagram_f", "instagram_followers", "ig_followers"])
+                ig_url_col  = _find_col(["instagram_l", "instagram_url", "ig_url"])
+                url_col     = _find_col(["url"]) if not tt_url_col else None  # tt_url_col 있으면 url_col 불필요
 
                 # "agree"는 인플루언서가 협업 의향 표시일 뿐 → 캠페인 내 상태는 후보로 시작
                 _STATUS_MAP = {"confirmed": "confirmed", "rejected": "rejected", "nego": "candidate", "negotiating": "candidate"}
@@ -316,6 +321,13 @@ if st.session_state.get("selected_campaign"):
                 entries = []
                 for _, row in df_csv.iterrows():
                     iid = str(row.get(id_col) or "").strip().lstrip("@")
+                    # id 컬럼 값이 URL이거나 비어있으면 TikTok URL에서 username 추출
+                    if not iid or iid.lower() in ("nan", "none", "") or iid.startswith("http"):
+                        if tt_url_col:
+                            tt_val = _clean(row.get(tt_url_col, ""))
+                            m = re.search(r'tiktok\.com/@?([\w.]+)', tt_val)
+                            if m:
+                                iid = m.group(1)
                     if not iid or iid.lower() in ("nan", "none", ""):
                         continue
 
@@ -324,16 +336,21 @@ if st.session_state.get("selected_campaign"):
                     if status not in ("candidate", "confirmed", "rejected"):
                         status = "candidate"
 
+                    _tt_url = _clean(row[tt_url_col]) if tt_url_col else ""
+                    _url    = _clean(row[url_col])    if url_col    else ""
+
                     entries.append({
-                        "influencer_id": iid,
-                        "status":        status,
-                        "note":          _clean(row[note_col])    if note_col    else "",
-                        "followers":     _followers(row[follow_col]) if follow_col else None,
-                        "contact_email": _clean(row[contact_col]) if contact_col else "",
-                        "ratecard":      _clean(row[rate_col])    if rate_col    else "",
-                        "after_nego":    _clean(row[nego_col])    if nego_col    else "",
-                        "usage_rights":  _clean(row[usage_col])   if usage_col   else "",
-                        "platform_url":  _clean(row[url_col])     if url_col     else "",
+                        "influencer_id":      iid,
+                        "status":             status,
+                        "note":               _clean(row[note_col])    if note_col    else "",
+                        "followers":          _followers(row[follow_col]) if follow_col else None,
+                        "contact_email":      _clean(row[contact_col]) if contact_col else "",
+                        "ratecard":           _clean(row[rate_col])    if rate_col    else "",
+                        "after_nego":         _clean(row[nego_col])    if nego_col    else "",
+                        "usage_rights":       _clean(row[usage_col])   if usage_col   else "",
+                        "platform_url":       _tt_url or _url,
+                        "instagram_url":      _clean(row[ig_url_col])  if ig_url_col  else "",
+                        "instagram_followers": _followers(row[ig_fol_col]) if ig_fol_col else None,
                     })
 
                 if not entries:
@@ -445,8 +462,17 @@ if st.session_state.get("selected_campaign"):
                     thumb     = thumb_map.get(inf_id, {})
                     thumbnail = thumb.get("thumbnail") or inf.get("cover_url") or ""
                     video_url = thumb.get("video_url", "")
-                    _plats     = thumb.get("platforms") or ([inf.get("platform")] if inf.get("platform") else [])
-                    _plat_disp = "  ".join(_PLAT_ICON.get(p, p) for p in _plats) if _plats else ""
+                    # 플랫폼 아이콘: URL이 있으면 클릭 가능한 링크로, 없으면 텍스트 아이콘
+                    _tt_url  = item.get("platform_url") or ""
+                    _ig_url  = inf.get("instagram_url") or ""
+                    _plat_html = ""
+                    if _tt_url:
+                        _plat_html += f'<a href="{_tt_url}" target="_blank" style="color:#fff;text-decoration:none;margin-right:4px;">🎵</a>'
+                    if _ig_url:
+                        _plat_html += f'<a href="{_ig_url}" target="_blank" style="color:#fff;text-decoration:none;margin-right:4px;">📸</a>'
+                    if not _plat_html:
+                        _plats = thumb.get("platforms") or ([inf.get("platform")] if inf.get("platform") else [])
+                        _plat_html = "  ".join(_PLAT_ICON.get(p, p) for p in _plats) if _plats else ""
                     _img_inner = f'<img src="{thumbnail}">' if thumbnail else '<div class="koc-mini-ph">🎬</div>'
                     img_tag = (
                         f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{_img_inner}</a>'
@@ -460,7 +486,7 @@ if st.session_state.get("selected_campaign"):
   <div class="r">#{rank}</div>
   <div class="info">
     <p class="n">@{inf_id}</p>
-    <p class="s">{_plat_disp} {STATUS_LABEL[status]}</p>
+    <p class="s">{_plat_html} {STATUS_LABEL[status]}</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -524,11 +550,17 @@ if st.session_state.get("selected_campaign"):
                     with c2:
                         st.markdown(f"{STATUS_COLOR[status]} **@{inf_id}** `{STATUS_LABEL[status]}`")
                         _purl  = item.get("platform_url") or ""
-                        _plats = thumb.get("platforms") or ([inf.get("platform")] if inf.get("platform") else [])
-                        _plat  = "  ".join(_PLAT_ICON.get(p, p) + " " + p for p in _plats) if _plats else ""
-                        _link  = f"[↗ 프로필]({_purl})" if _purl else (f"[↗ 영상]({video_url})" if video_url else "")
-                        _fol   = f"👥 {_fmt(item['followers'])}" if item.get("followers") else ""
-                        st.caption(f"{_plat}  {_fol}  {_link}".strip())
+                        _igurl = inf.get("instagram_url") or ""
+                        # 플랫폼별 클릭 가능한 아이콘 링크 (한 사람이 여러 SNS를 가질 수 있음)
+                        _icon_links = []
+                        if _purl:
+                            _icon_links.append(f"[🎵 TikTok]({_purl})")
+                        if _igurl:
+                            _icon_links.append(f"[📸 Instagram]({_igurl})")
+                        if not _icon_links and video_url:
+                            _icon_links.append(f"[↗ 영상]({video_url})")
+                        _fol = f"👥 {_fmt(item['followers'])}" if item.get("followers") else ""
+                        st.caption("  ".join(filter(None, _icon_links + [_fol])))
                         _price_info = [
                             f"💰 {item['ratecard']}" if item.get("ratecard") else "",
                             f"→ {item['after_nego']}" if item.get("after_nego") else "",

@@ -265,7 +265,7 @@ def delete_brand(brand_id: str) -> None:
 
 def get_influencers(search: str = "", limit: int = 200) -> list[dict]:
     q = get_supabase().table("influencer_master").select(
-        "influencer_id,account_url,platform,apify_status,cover_url"
+        "influencer_id,account_url,platform,apify_status,cover_url,instagram_url,instagram_followers"
     )
     if search:
         q = q.ilike("influencer_id", f"%{search}%")
@@ -551,15 +551,22 @@ def bulk_add_to_campaign(
             to_insert, on_conflict="campaign_id,influencer_id"
         ).execute()
 
-        # followers 있는 인플루언서는 influencer_master에도 반영
-        master_rows = [
-            {
-                "influencer_id":      row["influencer_id"],
-                "instagram_followers": row["followers"],
-                "account_url":         row.get("platform_url") or None,
-            }
-            for row in to_insert if row.get("followers")
-        ]
+        # influencer_master 업데이트 (TikTok URL → account_url, Instagram URL/팔로워)
+        inserted_ids = {row["influencer_id"] for row in to_insert}
+        master_rows = []
+        for e in entries:
+            iid = str(e.get("influencer_id") or "").strip().lstrip("@")
+            if iid not in inserted_ids:
+                continue
+            mrow: dict = {"influencer_id": iid}
+            if e.get("platform_url"):
+                mrow["account_url"] = e["platform_url"]
+            if e.get("instagram_url"):
+                mrow["instagram_url"] = e["instagram_url"]
+            if e.get("instagram_followers"):
+                mrow["instagram_followers"] = e["instagram_followers"]
+            if len(mrow) > 1:
+                master_rows.append(mrow)
         if master_rows:
             try:
                 sb.table("influencer_master").upsert(
