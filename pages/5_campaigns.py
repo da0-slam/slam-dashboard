@@ -611,7 +611,7 @@ if st.session_state.get("selected_campaign"):
                     status    = item["status"]
                     inf       = inf_map.get(inf_id, {})
                     thumb     = thumb_map.get(inf_id, {})
-                    thumbnail = thumb.get("thumbnail") or inf.get("cover_url") or ""
+                    thumbnail = inf.get("cover_url") or thumb.get("thumbnail") or ""
                     video_url = thumb.get("video_url", "")
                     # 플랫폼 아이콘: URL이 있으면 클릭 가능한 링크로, 없으면 텍스트 아이콘
                     _tt_url  = item.get("platform_url") or ""
@@ -699,7 +699,7 @@ if st.session_state.get("selected_campaign"):
                 status    = item["status"]
                 inf       = inf_map.get(inf_id, {})
                 thumb     = thumb_map.get(inf_id, {})
-                thumbnail = thumb.get("thumbnail") or inf.get("cover_url") or ""
+                thumbnail = inf.get("cover_url") or thumb.get("thumbnail") or ""
                 video_url = thumb.get("video_url", "")
                 with st.container(border=True):
                     c1, c2, c3, c4, c5, c6 = st.columns([1, 4, 2, 1, 1, 1])
