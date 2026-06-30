@@ -157,15 +157,7 @@ def detect_lang(caption: str) -> str:
         return max(valid, key=valid.get)
     return "🌐 English"
 
-for r in all_contents:
-    r["er"]    = calc_er(r)
-    r["grade"] = calc_grade(r["er"])
-    r["lang"]  = detect_lang(r.get("caption") or "")
-
-# 업로드 연도 파싱
-for r in all_contents:
-    pt = r.get("posted_at") or ""
-    r["year"] = pt[:4] if pt else "?"
+# er/grade/lang/year는 get_browse_contents() 캐시 안에서 계산됨
 
 # fav_map은 필터에서도 필요하므로 미리 로드
 fav_map  = get_brand_selection_map(sel_brand_id)

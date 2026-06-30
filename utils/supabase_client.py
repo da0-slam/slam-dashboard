@@ -612,6 +612,38 @@ def get_campaign_selection_map(campaign_id: str) -> dict[str, dict]:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_browse_contents(platform: str | None = None) -> list[dict]:
+    import re as _re2
+    _fyp_re = _re2.compile(r'#fyp\S*', _re2.IGNORECASE)
+
+    def _er(r):
+        play = r.get("play_count") or 0
+        if not play:
+            return 0.0
+        return sum(r.get(k) or 0 for k in ("like_count", "comment_count", "share_count", "save_count")) / play * 100
+
+    def _grade(er):
+        if er >= 10: return "S"
+        if er >= 5:  return "A"
+        if er >= 2:  return "B"
+        return "C"
+
+    def _lang(caption: str) -> str:
+        if not caption or not caption.strip():
+            return "❓ Others"
+        text = _fyp_re.sub('', caption)
+        counts = {"🇰🇷 Korean": 0, "🇯🇵 Japanese": 0, "🇸🇦 Arabic": 0, "🇨🇳 Chinese": 0}
+        for c in text:
+            if '가' <= c <= '힣' or 'ㄱ' <= c <= 'ㆎ':
+                counts["🇰🇷 Korean"] += 1
+            elif '぀' <= c <= 'ゟ' or '゠' <= c <= 'ヿ':
+                counts["🇯🇵 Japanese"] += 1
+            elif '؀' <= c <= 'ۿ' or 'ݐ' <= c <= 'ݿ':
+                counts["🇸🇦 Arabic"] += 1
+            elif '一' <= c <= '鿿':
+                counts["🇨🇳 Chinese"] += 1
+        valid = {lang: cnt for lang, cnt in counts.items() if cnt >= 3}
+        return max(valid, key=valid.get) if valid else "🌐 English"
+
     sb = get_supabase()
     all_rows: list[dict] = []
     page_size = 1000
@@ -629,6 +661,15 @@ def get_browse_contents(platform: str | None = None) -> list[dict]:
         if len(page) < page_size:
             break
         offset += page_size
+
+    for r in all_rows:
+        er = _er(r)
+        r["er"]    = er
+        r["grade"] = _grade(er)
+        r["lang"]  = _lang(r.get("caption") or "")
+        pt = r.get("posted_at") or ""
+        r["year"]  = pt[:4] if pt else "?"
+
     return all_rows
 
 
@@ -855,7 +896,9 @@ def get_campaign_posts(
     q = (
         get_supabase()
         .table("campaign_posts")
-        .select("*")
+        .select("id,brand_id,campaign_id,influencer_id,participant_id,influencer_name,"
+                "platform,post_url,upload_date,views,likes,comments,saves,shares,"
+                "thumbnail_url,last_tracked_at,created_at")
         .eq("brand_id", brand_id)
     )
     if campaign_id:
