@@ -80,6 +80,7 @@ def sidebar_user_info() -> None:
                 st.divider()
 
         st.caption(f"👤 {user.email}")
+        st.page_link("pages/8_settings.py", label="⚙️ 계정 설정", use_container_width=True)
         if st.button("로그아웃", use_container_width=True, key="_sidebar_logout"):
             from utils.supabase_client import sign_out
             from utils.session import clear_session

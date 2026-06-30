@@ -129,6 +129,42 @@ def sign_out() -> None:
         pass
 
 
+def update_user_password(new_password: str) -> tuple[bool, str]:
+    """현재 세션의 access_token으로 비밀번호 변경. (bool, 오류메시지) 반환."""
+    access_token = st.session_state.get("access_token", "")
+    if not access_token:
+        return False, "세션이 만료되었습니다. 다시 로그인해주세요."
+    r = _req.put(
+        _aurl("/user"),
+        headers={**_aheaders(), "Authorization": f"Bearer {access_token}"},
+        json={"password": new_password},
+        timeout=15,
+    )
+    if r.ok:
+        return True, ""
+    data = r.json()
+    msg = data.get("error_description") or data.get("msg") or data.get("error") or r.text
+    return False, msg
+
+
+def update_user_email(new_email: str) -> tuple[bool, str]:
+    """현재 세션의 access_token으로 이메일 변경 요청 (확인 메일 발송)."""
+    access_token = st.session_state.get("access_token", "")
+    if not access_token:
+        return False, "세션이 만료되었습니다. 다시 로그인해주세요."
+    r = _req.put(
+        _aurl("/user"),
+        headers={**_aheaders(), "Authorization": f"Bearer {access_token}"},
+        json={"email": new_email},
+        timeout=15,
+    )
+    if r.ok:
+        return True, ""
+    data = r.json()
+    msg = data.get("error_description") or data.get("msg") or data.get("error") or r.text
+    return False, msg
+
+
 def refresh_session(access_token: str, refresh_token: str):
     """세션 복원용 — refresh_token으로 새 access_token 발급."""
     r = _req.post(
