@@ -1241,6 +1241,46 @@ with tab4:
                 with st.expander(f"경고 / 건너뜀 ({len(_de)}건)"):
                     for _e in _de:
                         st.warning(_e)
+            if "mi_thumb_camp" in st.session_state:
+                _tc = st.session_state.pop("mi_thumb_camp")
+                _th_posts = [
+                    p for p in get_campaign_posts(brand_id, _tc)
+                    if p.get("platform") in ("tiktok", "instagram") and not p.get("thumbnail_url")
+                ]
+                if _th_posts:
+                    st.session_state["mi_thumb_queue"] = [
+                        {"id": p["id"], "url": p["post_url"], "name": p.get("influencer_name") or ""}
+                        for p in _th_posts
+                    ]
+                    st.session_state["mi_thumb_off"] = 0
+                    st.rerun()
+
+        # ── 썸네일 스크랩 단계 (이관 완료 후 자동 실행) ──────────────────────
+        if st.session_state.get("mi_thumb_queue") is not None:
+            _th_q     = st.session_state["mi_thumb_queue"]
+            _th_off   = st.session_state.get("mi_thumb_off", 0)
+            _TH_N     = 3
+            _th_total = len(_th_q)
+            _th_chunk = _th_q[_th_off : _th_off + _TH_N]
+            _th_done  = min(_th_off + _TH_N, _th_total)
+            st.progress(_th_done / _th_total, text=f"썸네일 스크랩 중... ({_th_done}/{_th_total})")
+            if _th_chunk:
+                for _tj in _th_chunk:
+                    try:
+                        _t = fetch_and_upload_thumbnail(
+                            _tj["url"], _tj["name"], _sanitize_storage_key(_tj["id"])
+                        )
+                        if _t:
+                            update_campaign_post_thumbnail(_tj["id"], brand_id, _t)
+                    except Exception:
+                        pass
+                st.session_state["mi_thumb_off"] = _th_off + _TH_N
+                st.rerun()
+            else:
+                st.session_state.pop("mi_thumb_queue")
+                st.session_state.pop("mi_thumb_off", None)
+                _load_all.clear()
+                st.rerun()
 
         # ── 공통 처리 로직 ────────────────────────────────────────────────────
         if raw_csv is not None:
@@ -1388,6 +1428,7 @@ with tab4:
                         st.session_state["mi_q_overwrite"]  = overwrite_mode
                         st.session_state["mi_q_p_count"]    = final_p_count
                         st.session_state["mi_q_force_p"]    = (manual_p_count > 0)
+                        st.session_state["mi_thumb_camp"]   = mi_campaign_id
                         st.rerun()
 
             except Exception as ex:
