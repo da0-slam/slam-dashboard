@@ -94,6 +94,7 @@ st.markdown("""
                 background:linear-gradient(transparent,rgba(0,0,0,.8));padding:14px 8px 8px;}
 .koc-mini .n{color:#fff;font-weight:700;font-size:12px;margin:0;}
 .koc-mini .s{color:rgba(255,255,255,.8);font-size:10px;margin:2px 0 0;}
+.koc-mini .f{color:#ffd86e;font-size:11px;font-weight:700;margin:3px 0 0;letter-spacing:.3px;}
 .grade-s{background:#FF6B2C;} .grade-a{background:#3B82F6;}
 .grade-b{background:#6B7280;} .grade-c{background:#374151;}
 </style>
@@ -627,6 +628,14 @@ if st.session_state.get("selected_campaign"):
                         f'<a href="{video_url}" target="_blank" style="display:block;width:100%;height:100%;">{_img_inner}</a>'
                         if video_url else _img_inner
                     )
+                    _tt_fol = item.get("followers")
+                    _ig_fol = inf.get("instagram_followers")
+                    _fol_parts = []
+                    if _tt_fol:
+                        _fol_parts.append(f"🎵 {_fmt(_tt_fol)}")
+                    if _ig_fol:
+                        _fol_parts.append(f"📸 {_fmt(_ig_fol)}")
+                    _fol_html = f'<p class="f">👥 {"&nbsp;·&nbsp;".join(_fol_parts)}</p>' if _fol_parts else ""
                     with col:
                         st.markdown(f"""
 <div class="koc-mini">
@@ -636,6 +645,7 @@ if st.session_state.get("selected_campaign"):
   <div class="info">
     <p class="n">@{inf_id}</p>
     <p class="s">{_plat_html} {STATUS_LABEL[status]}</p>
+    {_fol_html}
   </div>
 </div>
 """, unsafe_allow_html=True)
