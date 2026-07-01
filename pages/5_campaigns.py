@@ -629,11 +629,11 @@ if st.session_state.get("selected_campaign"):
                         if video_url else _img_inner
                     )
                     _tt_fol = item.get("followers")
-                    _ig_fol = inf.get("instagram_followers")
+                    _ig_fol = inf.get("instagram_followers") if inf.get("instagram_url") else None
                     _fol_parts = []
                     if _tt_fol:
                         _fol_parts.append(f"🎵 {_fmt(_tt_fol)}")
-                    if _ig_fol:
+                    if _ig_fol and _ig_fol != _tt_fol:
                         _fol_parts.append(f"📸 {_fmt(_ig_fol)}")
                     _fol_html = f'<p class="f">👥 {"&nbsp;·&nbsp;".join(_fol_parts)}</p>' if _fol_parts else ""
                     with col:
