@@ -318,7 +318,14 @@ if st.session_state.get("selected_campaign"):
 
     _addr_sheet = camp.get("address_sheet_url") or ""
     if _addr_sheet:
-        st.link_button("📋 주소 확인 시트", _addr_sheet, use_container_width=False, type="secondary")
+        st.markdown(
+            f'<a href="{_addr_sheet}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;'
+            f'padding:10px 22px;background:#16a34a;color:#fff;border-radius:8px;text-decoration:none;'
+            f'font-weight:700;font-size:15px;box-shadow:0 2px 8px rgba(22,163,74,.35);">'
+            f'📋 주소 확인 시트 &nbsp;↗</a>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
 
     with st.expander("⚙️ 캠페인 설정"):
         c1, c2 = st.columns(2)
@@ -342,7 +349,7 @@ if st.session_state.get("selected_campaign"):
             st.success("저장했습니다.")
             st.rerun()
 
-    # ── 초대 링크 (항상 표시) ─────────────────────────────────────────────────
+    # ── 초대 링크 ────────────────────────────────────────────────────────────
     _invite_key = f"_invite_url_{camp_id}"
     if not st.session_state.get(_invite_key):
         token = get_or_create_invite_token(camp_id)
@@ -350,8 +357,7 @@ if st.session_state.get("selected_campaign"):
             site = os.environ.get("SITE_URL", "http://localhost:8501").rstrip("/")
             st.session_state[_invite_key] = f"{site}/campaigns?invite={token}"
     if st.session_state.get(_invite_key):
-        with st.container(border=True):
-            st.markdown("**🔗 초대 링크**")
+        with st.expander("🔗 초대 링크"):
             st.text_input(
                 "팀원이 바로 접근할 수 있습니다.",
                 value=st.session_state[_invite_key],
