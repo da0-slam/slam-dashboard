@@ -316,6 +316,10 @@ if st.session_state.get("selected_campaign"):
     with col_title:
         st.subheader(f"📌 {camp['name']}  {CAMP_STATUS.get(camp['status'], '')}")
 
+    _addr_sheet = camp.get("address_sheet_url") or ""
+    if _addr_sheet:
+        st.link_button("📋 주소 확인 시트", _addr_sheet, use_container_width=False, type="secondary")
+
     with st.expander("⚙️ 캠페인 설정"):
         c1, c2 = st.columns(2)
         with c1:
@@ -326,9 +330,15 @@ if st.session_state.get("selected_campaign"):
             )
         with c2:
             new_name = st.text_input("캠페인명", value=camp["name"])
+        new_addr_sheet = st.text_input(
+            "📋 주소 확인 구글 시트 URL",
+            value=camp.get("address_sheet_url") or "",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            help="확정 인플루언서 주소 수집용 구글 시트 링크. 저장 후 캠페인 상단에 버튼이 표시됩니다.",
+        )
         if st.button("저장", type="primary"):
-            update_campaign(camp["id"], {"name": new_name, "status": new_status})
-            st.session_state.selected_campaign = {**camp, "name": new_name, "status": new_status}
+            update_campaign(camp["id"], {"name": new_name, "status": new_status, "address_sheet_url": new_addr_sheet or None})
+            st.session_state.selected_campaign = {**camp, "name": new_name, "status": new_status, "address_sheet_url": new_addr_sheet or None}
             st.success("저장했습니다.")
             st.rerun()
 
