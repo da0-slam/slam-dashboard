@@ -853,6 +853,12 @@ def get_influencer_thumbnails(influencer_ids: list[str]) -> dict[str, dict]:
                 "platforms":   sorted(platforms_map.get(iid, set())),
                 "er":          agg.get(iid, {}).get("max_er", 0.0),
             }
+    # 역참조 맵: thumbnail_url → video_url (cover_url 변경 시 올바른 클릭 URL 조회용)
+    result["__thumb_to_vurl"] = {
+        r["thumbnail_url"]: r["video_url"]
+        for r in rows
+        if r.get("thumbnail_url") and r.get("video_url")
+    }
     return result
 
 

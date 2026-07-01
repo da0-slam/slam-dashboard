@@ -259,8 +259,8 @@ def pick_thumbnail_dialog(influencer_id: str):
             st.caption(f"▶ {_fmt(play)}")
             if thumb and st.button("✅ 대표로 설정", key=f"pick_{influencer_id}_{idx}", use_container_width=True):
                 update_influencer_cover(influencer_id, thumb)
-                # session_state에 즉시 저장 → DB 조회 지연과 무관하게 반영
                 st.session_state[f"_cover_{influencer_id}"] = thumb
+                st.session_state[f"_cvurl_{influencer_id}"] = c.get("video_url") or ""
                 st.rerun()
 
 
@@ -553,11 +553,15 @@ if st.session_state.get("selected_campaign"):
     selections    = get_campaign_selections(camp["id"])
     inf_ids       = [s["influencer_id"] for s in selections]
     thumb_map     = get_influencer_thumbnails(inf_ids)
+    _cover_to_vurl = thumb_map.pop("__thumb_to_vurl", {})  # thumbnail_url → video_url 역참조
     inf_map       = {r["influencer_id"]: r for r in get_influencers(ids=inf_ids)}
-    # pick_thumbnail_dialog에서 저장한 cover_url 즉시 반영 (DB 재조회 지연 우회)
+    # pick_thumbnail_dialog에서 저장한 cover_url / video_url 즉시 반영
     for _k in [k for k in st.session_state if k.startswith("_cover_")]:
         _iid = _k[len("_cover_"):]
         inf_map.setdefault(_iid, {})["cover_url"] = st.session_state.pop(_k)
+    for _k in [k for k in st.session_state if k.startswith("_cvurl_")]:
+        _iid = _k[len("_cvurl_"):]
+        _cover_to_vurl[inf_map.get(_iid, {}).get("cover_url", "")] = st.session_state.pop(_k)
     note_cnt_map  = get_note_counts(inf_ids, selected_brand_id)
 
     # ── 검색 + 플랫폼 필터 ─────────────────────────────────────────────────────
@@ -611,7 +615,7 @@ if st.session_state.get("selected_campaign"):
                     inf       = inf_map.get(inf_id, {})
                     thumb     = thumb_map.get(inf_id, {})
                     thumbnail = inf.get("cover_url") or thumb.get("thumbnail") or ""
-                    video_url = thumb.get("video_url", "")
+                    video_url = _cover_to_vurl.get(thumbnail) or thumb.get("video_url", "")
                     # 플랫폼 아이콘: URL이 있으면 클릭 가능한 링크로, 없으면 텍스트 아이콘
                     _tt_url  = item.get("platform_url") or ""
                     _ig_url  = inf.get("instagram_url") or ""
