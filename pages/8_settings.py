@@ -1,9 +1,10 @@
 import streamlit as st
-from utils.auth import require_auth, sidebar_user_info
+from utils.auth import require_auth, sidebar_user_info, block_if_demo
 from utils.supabase_client import sign_in, update_user_password, update_user_email
 
 st.set_page_config(page_title="계정 설정", page_icon="⚙️", layout="centered")
 user = require_auth()
+block_if_demo()
 sidebar_user_info()
 
 st.title("⚙️ 계정 설정")

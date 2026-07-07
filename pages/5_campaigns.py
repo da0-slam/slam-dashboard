@@ -3,7 +3,7 @@ import re
 import requests
 import pandas as pd
 import streamlit as st
-from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
+from utils.auth import require_auth, sidebar_user_info, get_active_brand_id, block_if_demo
 import os
 from utils.supabase_client import (
     get_brands, get_brand_by_id, get_influencers,
@@ -20,6 +20,7 @@ from utils.notes_ui import show_notes_dialog
 
 st.set_page_config(page_title="캠페인 관리", page_icon="📋", layout="wide")
 user = require_auth()
+block_if_demo()
 sidebar_user_info()
 
 # ─── 초대링크 처리 (페이지 로드 시 invite 쿼리 파라미터 확인) ────────────────────

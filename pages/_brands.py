@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.auth import require_auth, sidebar_user_info
+from utils.auth import require_auth, sidebar_user_info, block_if_demo
 from utils.supabase_client import (
     get_brands, create_brand, update_brand, delete_brand,
     set_brand_access_password,
@@ -8,6 +8,7 @@ from utils.supabase_client import (
 st.set_page_config(page_title="브랜드사 관리", page_icon="🏢", layout="wide")
 
 user = require_auth()
+block_if_demo()
 sidebar_user_info()
 
 from utils.supabase_client import get_user_profile as _get_profile

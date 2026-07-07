@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.auth import require_auth, sidebar_user_info
+from utils.auth import require_auth, sidebar_user_info, block_if_demo
 from utils.supabase_client import (
     get_brands,
     get_brand_selections,
@@ -12,6 +12,7 @@ from utils.supabase_client import (
 st.set_page_config(page_title="인플루언서 선택 관리", page_icon="👥", layout="wide")
 
 require_auth()
+block_if_demo()
 sidebar_user_info()
 
 st.title("👥 인플루언서 선택 관리")

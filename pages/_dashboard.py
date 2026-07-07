@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.auth import require_auth, sidebar_user_info
+from utils.auth import require_auth, sidebar_user_info, block_if_demo
 from utils.supabase_client import (
     get_pipeline_stats, get_total_content_count, get_top_contents,
     get_all_user_profiles, get_all_auth_users, get_brands,
@@ -11,6 +11,7 @@ from utils.supabase_client import (
 st.set_page_config(page_title="수집 데이터 대시보드", page_icon="📊", layout="wide")
 
 user = require_auth()
+block_if_demo()
 sidebar_user_info()
 
 # admin 전용 페이지

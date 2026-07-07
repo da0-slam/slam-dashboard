@@ -76,7 +76,9 @@ def _oauth_link(provider: str) -> str:
 
 # ─── 로그인 상태: 홈 화면 ─────────────────────────────────────────────────────
 if st.session_state.user:
-    from utils.auth import sidebar_user_info
+    from utils.auth import sidebar_user_info, _is_demo_user
+    if _is_demo_user(st.session_state.user):
+        st.switch_page("pages/6_content_performance.py")
     sidebar_user_info()
 
     st.title("인플루언서 관리 대시보드")

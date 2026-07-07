@@ -4,7 +4,7 @@ import time as _time
 import requests
 import pandas as pd
 import streamlit as st
-from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
+from utils.auth import require_auth, sidebar_user_info, get_active_brand_id, block_if_demo
 from utils.supabase_client import (
     get_brands, get_brand_by_id, get_campaigns,
     get_browse_contents, get_influencer_contents,
@@ -18,6 +18,7 @@ from utils.notes_ui import show_notes_dialog, render_notes_inline, _avatar_color
 
 st.set_page_config(page_title="KOC Intelligence Viewer", page_icon="🎬", layout="wide")
 user = require_auth()
+block_if_demo()
 sidebar_user_info()
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────

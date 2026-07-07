@@ -4,7 +4,7 @@ import re
 import os as _os
 from collections import Counter
 
-from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
+from utils.auth import require_auth, sidebar_user_info, get_active_brand_id, block_if_demo
 from utils.supabase_client import (
     get_brands,
     get_user_profile,
@@ -23,6 +23,7 @@ from utils.storage_client import (
 st.set_page_config(page_title="전략", page_icon="🎯", layout="wide")
 
 user = require_auth()
+block_if_demo()
 sidebar_user_info()
 
 profile = get_user_profile(user.id)

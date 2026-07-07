@@ -1,5 +1,13 @@
 import streamlit as st
 
+# 데모 리포트 계정 — 콘텐츠 성과 관리 페이지만 접근 가능 (user_profiles.role 체크 제약 때문에
+# role 자체는 brand_user로 두고, 이메일로 데모 여부를 판별한다)
+_DEMO_EMAILS = {"owm@report.com"}
+
+
+def _is_demo_user(user) -> bool:
+    return (getattr(user, "email", "") or "").strip().lower() in _DEMO_EMAILS
+
 
 def require_auth():
     if not st.session_state.get("user"):
@@ -13,6 +21,13 @@ def require_auth():
     from utils.session import ensure_session_in_url
     ensure_session_in_url()
     return st.session_state.user
+
+
+def block_if_demo() -> None:
+    """데모 계정은 콘텐츠 성과 관리 페이지만 접근 가능 — 다른 페이지 접근 시 리다이렉트."""
+    user = st.session_state.get("user")
+    if user and _is_demo_user(user):
+        st.switch_page("pages/6_content_performance.py")
 
 
 def get_active_brand_id(profile: dict) -> str | None:
@@ -33,6 +48,23 @@ def sidebar_user_info() -> None:
         from utils.supabase_client import get_user_profile, get_brands
         profile = get_user_profile(user.id)
         is_admin = profile.get("role") == "admin"
+
+        if _is_demo_user(user):
+            # 데모 계정: 콘텐츠 성과 관리 외 모든 페이지를 사이드바 네비에서 숨김
+            st.markdown("""
+<style>
+[data-testid="stSidebarNav"] li:not(:has(a[href*="6_content_performance"])) { display:none!important; }
+</style>
+""", unsafe_allow_html=True)
+            st.caption(f"👤 {user.email}")
+            if st.button("로그아웃", use_container_width=True, key="_sidebar_logout"):
+                from utils.supabase_client import sign_out
+                from utils.session import clear_session
+                sign_out()
+                clear_session()
+                st.session_state.clear()
+                st.rerun()
+            return
 
         if is_admin:
             st.markdown("**🔧 관리자 메뉴**")
