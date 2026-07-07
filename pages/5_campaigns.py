@@ -669,30 +669,30 @@ if st.session_state.get("selected_campaign"):
   </div>
 </div>
 """, unsafe_allow_html=True)
-                        if status == "confirmed":
+                        if status == "rejected":
+                            b1, b2 = st.columns(2)
+                            with b1:
+                                if st.button("후보", key=f"{prefix}_g_ns_{item['id']}", use_container_width=True):
+                                    update_campaign_selection(item["id"], "candidate")
+                                    st.rerun()
+                            with b2:
+                                if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
+                                    st.session_state[f"_undo_{camp_id}"] = dict(item)
+                                    remove_campaign_selection(item["id"])
+                                    st.rerun()
+                        else:
+                            other_status = "candidate" if status == "confirmed" else "confirmed"
+                            other_label  = "후보" if status == "confirmed" else "확정"
                             b1, b2, b3 = st.columns(3)
                             with b1:
-                                if st.button("후보", key=f"{prefix}_g_cand_{item['id']}", use_container_width=True):
-                                    update_campaign_selection(item["id"], "candidate")
+                                if st.button(other_label, key=f"{prefix}_g_ns_{item['id']}", use_container_width=True):
+                                    update_campaign_selection(item["id"], other_status)
                                     st.rerun()
                             with b2:
                                 if st.button("제외", key=f"{prefix}_g_rej_{item['id']}", use_container_width=True):
                                     update_campaign_selection(item["id"], "rejected")
                                     st.rerun()
                             with b3:
-                                if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
-                                    st.session_state[f"_undo_{camp_id}"] = dict(item)
-                                    remove_campaign_selection(item["id"])
-                                    st.rerun()
-                        else:
-                            b1, b2 = st.columns(2)
-                            next_s = {"candidate": "confirmed", "rejected": "candidate"}[status]
-                            next_l = {"candidate": "확정", "rejected": "후보"}[status]
-                            with b1:
-                                if st.button(next_l, key=f"{prefix}_g_ns_{item['id']}", use_container_width=True):
-                                    update_campaign_selection(item["id"], next_s)
-                                    st.rerun()
-                            with b2:
                                 if st.button("삭제", key=f"{prefix}_g_rm_{item['id']}", use_container_width=True):
                                     st.session_state[f"_undo_{camp_id}"] = dict(item)
                                     remove_campaign_selection(item["id"])
@@ -765,22 +765,22 @@ if st.session_state.get("selected_campaign"):
                         if item.get("note"):
                             st.caption(f"📝 {item['note']}")
                     with c3:
-                        if status == "confirmed":
+                        if status == "rejected":
+                            if st.button("후보로", key=f"{prefix}_l_ns_{item['id']}", use_container_width=True):
+                                update_campaign_selection(item["id"], "candidate")
+                                st.rerun()
+                        else:
+                            other_status = "candidate" if status == "confirmed" else "confirmed"
+                            other_label  = "후보" if status == "confirmed" else "확정"
                             la, lb = st.columns(2)
                             with la:
-                                if st.button("후보", key=f"{prefix}_l_cand_{item['id']}", use_container_width=True):
-                                    update_campaign_selection(item["id"], "candidate")
+                                if st.button(other_label, key=f"{prefix}_l_ns_{item['id']}", use_container_width=True):
+                                    update_campaign_selection(item["id"], other_status)
                                     st.rerun()
                             with lb:
                                 if st.button("제외", key=f"{prefix}_l_rej_{item['id']}", use_container_width=True):
                                     update_campaign_selection(item["id"], "rejected")
                                     st.rerun()
-                        else:
-                            next_s = {"candidate": "confirmed", "rejected": "candidate"}[status]
-                            next_l = {"candidate": "확정", "rejected": "후보로"}[status]
-                            if st.button(next_l, key=f"{prefix}_l_ns_{item['id']}", use_container_width=True):
-                                update_campaign_selection(item["id"], next_s)
-                                st.rerun()
                     with c4:
                         nc = note_cnt_map.get(inf_id, 0)
                         if st.button(f"💬{nc}" if nc else "💬", key=f"{prefix}_l_note_{item['id']}", use_container_width=True, help="메모/댓글"):
