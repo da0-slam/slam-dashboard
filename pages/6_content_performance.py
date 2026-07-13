@@ -287,8 +287,13 @@ filter_campaign_id: str | None = camp_choices[sel_camp_label]
 
 st.sidebar.header("필터")
 
-platform_choice = st.sidebar.selectbox("플랫폼", ["전체", "Instagram", "TikTok", "X", "기타"], index=0, key="cp_plat")
-filter_platform = {"전체": None, "Instagram": "instagram", "TikTok": "tiktok", "X": "x", "기타": "other"}[platform_choice]
+platform_choice = st.sidebar.selectbox(
+    "플랫폼", ["전체", "Instagram", "TikTok", "X", "샤오홍슈", "기타"], index=0, key="cp_plat",
+)
+filter_platform = {
+    "전체": None, "Instagram": "instagram", "TikTok": "tiktok", "X": "x",
+    "샤오홍슈": "xiaohongshu", "기타": "other",
+}[platform_choice]
 
 st.sidebar.markdown("**업로드 기간**")
 sc1, sc2 = st.sidebar.columns(2)
@@ -898,10 +903,11 @@ with tab4:
                 "인플루언서명 *",
                 value=ep.get("influencer_name", ""),
             )
+            _PLAT_OPTS = ["instagram", "tiktok", "x", "xiaohongshu", "other"]
             e_plat = ec2.selectbox(
                 "플랫폼 *",
-                ["instagram", "tiktok"],
-                index=0 if ep.get("platform") == "instagram" else 1,
+                _PLAT_OPTS,
+                index=_PLAT_OPTS.index(ep.get("platform")) if ep.get("platform") in _PLAT_OPTS else 0,
             )
             e_url = st.text_input("게시물 URL *", value=ep.get("post_url", ""))
 
@@ -1005,7 +1011,7 @@ with tab4:
             sel_camp_form = fa1.selectbox("캠페인 *", camp_labels, index=default_camp_idx)
             form_campaign_id = campaign_name_to_id[sel_camp_form]
 
-            form_platform = fa2.selectbox("플랫폼 *", ["instagram", "tiktok"])
+            form_platform = fa2.selectbox("플랫폼 *", ["instagram", "tiktok", "x", "xiaohongshu", "other"])
 
             # 인플루언서 선택
             participants = _load_participants(form_campaign_id, brand_id)
@@ -1364,6 +1370,9 @@ with tab4:
 - 구 형식(`views/likes/…` 단일 컬럼)도 그대로 지원됩니다
 
 **Google Sheet 컬럼명 자동 인식**: `Posting URL (TT)`, `Posting URL (IG)`, `Posting URL (X)`, `others(LIPS)`, `Views`, `Likes▼`, `Comments`, `Saves`
+
+**단일 플랫폼 전용 시트**(예: 샤오홍슈만 있는 시트에 플랫폼 구분 없는 `Posting URL` 컬럼만 있는 경우)는
+아래에서 플랫폼을 직접 지정하세요.
 """)
 
         mi_camp_label = st.selectbox(
@@ -1372,6 +1381,21 @@ with tab4:
             key="mi_camp",
         )
         mi_campaign_id = campaign_name_to_id[mi_camp_label]
+
+        _MI_PLATFORM_OPTIONS = {
+            "자동 감지 (플랫폼별 컬럼명 사용)": None,
+            "TikTok": "tiktok",
+            "Instagram": "instagram",
+            "X (Twitter)": "x",
+            "샤오홍슈 (Xiaohongshu/RedNote)": "xiaohongshu",
+            "기타": "other",
+        }
+        mi_platform_label = st.selectbox(
+            "이 시트 전체의 플랫폼 (구분 컬럼 없는 단일 플랫폼 시트일 때만 선택)",
+            list(_MI_PLATFORM_OPTIONS.keys()),
+            key="mi_force_platform",
+        )
+        mi_force_platform = _MI_PLATFORM_OPTIONS[mi_platform_label]
 
         import_method = st.radio(
             "가져오기 방법",
@@ -1458,6 +1482,7 @@ with tab4:
                 overwrite=st.session_state.get("mi_q_overwrite", False),
                 participant_count=st.session_state["mi_q_p_count"] if _is_last else None,
                 force_participant_count=st.session_state.get("mi_q_force_p", False),
+                force_platform=st.session_state.get("mi_q_force_platform"),
             )
             st.session_state["mi_q_created"] = st.session_state.get("mi_q_created", 0) + _chunk_c
             st.session_state["mi_q_errors"]  = st.session_state.get("mi_q_errors",  []) + _chunk_e
@@ -1469,7 +1494,7 @@ with tab4:
                     "업데이트" if st.session_state.get("mi_q_overwrite", False) else "생성",
                 )
                 for _k in ("mi_pending_rows", "mi_offset", "mi_q_campaign",
-                           "mi_q_overwrite", "mi_q_p_count", "mi_q_force_p"):
+                           "mi_q_overwrite", "mi_q_p_count", "mi_q_force_p", "mi_q_force_platform"):
                     st.session_state.pop(_k, None)
                 _load_all.clear()
             st.rerun()
@@ -1591,10 +1616,12 @@ with tab4:
                 col_aliases = {
                     "name":          ["name", "full name", "인플루언서", "influencer", "influencer_name"],
                     "ig_url":        ["ig_url", "posting url (ig)", "ig url", "instagram_url", "instagram url"],
-                    "tt_url":        ["tt_url", "posting url (tt)", "tt url", "tiktok_url", "tiktok url"],
+                    "tt_url":        ["tt_url", "posting url (tt)", "tt url", "tiktok_url", "tiktok url",
+                                       "posting url", "post url", "url", "link"],
                     "x_url":         ["x_url", "posting url (x)", "x url", "twitter_url", "x/twitter url"],
                     "lips_url":      ["lips_url", "others(lips)", "others(lip)", "lips url", "lips posting url", "other url"],
-                    "upload_day":    ["upload_day", "upload day", "upload day(within the last month)", "uploadday", "날짜", "date", "visit date"],
+                    "upload_day":    ["upload_day", "upload day", "upload day(within the last month)", "uploadday",
+                                       "upload date", "날짜", "date", "visit date"],
                     "tt_views":      ["tt_views", "views", "view", "조회수", "재생수"],
                     "tt_likes":      ["tt_likes", "likes", "likes▼", "likes♥", "like", "좋아요"],
                     "tt_comments":   ["tt_comments", "comments", "comment", "댓글"],
@@ -1694,10 +1721,14 @@ with tab4:
 
                     # ── 플랫폼별 현황 ──────────────────────────────────────
                     info_parts = []
+                    tt_cnt    = sum(1 for r in rows_to_migrate if _clean(r.get("tt_url","")))
                     dual_cnt  = sum(1 for r in rows_to_migrate if _clean(r.get("tt_url","")) and _clean(r.get("ig_url","")))
                     x_cnt     = sum(1 for r in rows_to_migrate if _clean(r.get("x_url","")))
                     lips_cnt  = sum(1 for r in rows_to_migrate if _clean(r.get("lips_url","")))
-                    if dual_cnt:  info_parts.append(f"TikTok+Instagram 동시: **{dual_cnt}명**")
+                    if mi_force_platform:
+                        if tt_cnt: info_parts.append(f"{mi_platform_label}: **{tt_cnt}명**")
+                    else:
+                        if dual_cnt:  info_parts.append(f"TikTok+Instagram 동시: **{dual_cnt}명**")
                     if x_cnt:     info_parts.append(f"X: **{x_cnt}명**")
                     if lips_cnt:  info_parts.append(f"LIPS/기타: **{lips_cnt}명**")
                     if info_parts:
@@ -1732,6 +1763,7 @@ with tab4:
                         st.session_state["mi_q_overwrite"]  = overwrite_mode
                         st.session_state["mi_q_p_count"]    = final_p_count
                         st.session_state["mi_q_force_p"]    = (manual_p_count > 0)
+                        st.session_state["mi_q_force_platform"] = mi_force_platform
                         st.session_state["mi_thumb_camp"]   = mi_campaign_id
                         st.rerun()
 

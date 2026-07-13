@@ -1393,14 +1393,19 @@ def migrate_google_sheet_rows(
     overwrite: bool = False,
     participant_count: int | None = None,
     force_participant_count: bool = False,
+    force_platform: str | None = None,
     progress_callback=None,  # callable(current: int, total: int, name: str)
 ) -> tuple[int, list[str]]:
     """Google Sheet 형식의 rows를 campaign_posts로 이관합니다.
 
+    force_platform: 시트가 플랫폼별로 구분된 URL 컬럼(ig_url/tt_url/...) 없이
+        "Posting URL" 같은 단일 URL 컬럼만 쓰는 경우, 이 값으로 tt_url 슬롯의
+        플랫폼 라벨을 강제 지정합니다 (예: 'xiaohongshu'). None이면 기존처럼 'tiktok'.
+
     row 형식 (플랫폼별 지표 분리):
         name         : 인플루언서 표시 이름
         ig_url       : Instagram 게시물 URL
-        tt_url       : TikTok 게시물 URL
+        tt_url       : TikTok 게시물 URL (force_platform 지정 시 해당 플랫폼 URL)
         x_url        : X(트위터) 게시물 URL
         lips_url     : LIPS 등 기타 플랫폼 URL
         upload_day   : 업로드 날짜 (YYYY/MM/DD 또는 YYYY-MM-DD)
@@ -1535,7 +1540,7 @@ def migrate_google_sheet_rows(
 
         to_create: list[dict] = []
         if tt_url:
-            to_create.append({"platform": "tiktok",    "post_url": tt_url,   **tt_metrics})
+            to_create.append({"platform": force_platform or "tiktok", "post_url": tt_url, **tt_metrics})
         if ig_url:
             to_create.append({"platform": "instagram", "post_url": ig_url,   **ig_metrics})
         if x_url:
