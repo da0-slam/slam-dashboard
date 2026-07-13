@@ -12,7 +12,7 @@ from utils.supabase_client import (
     create_campaign_post,
     delete_campaign_post,
     detect_platform_from_url,
-    fetch_metrics_from_apify_debug,
+    fetch_metrics_from_apify_batch,
     get_brands,
     get_campaign_participants_info,
     get_campaign_post_by_id,
@@ -1129,9 +1129,9 @@ with tab4:
                     )
                     st.rerun()
 
-        # ── 청크 단위 Apify 조회 (rerun마다 1개씩 처리, 타임아웃 방지) ────────
+        # ── 청크 단위 Apify 조회 (같은 플랫폼 URL을 최대한 한 번의 액터 실행으로 묶어 조회) ──
         if _ap_pending is not None:
-            _AP_CHUNK = 1
+            _AP_CHUNK = 8
             _ap_offset = st.session_state.get("ap_offset", 0)
             _ap_total = len(_ap_pending)
             _ap_chunk = _ap_pending[_ap_offset:_ap_offset + _AP_CHUNK]
@@ -1144,9 +1144,12 @@ with tab4:
             if _ap_chunk:
                 ap_campaign_id = st.session_state["ap_campaign_id"]
                 ap_participants = _load_participants(ap_campaign_id, brand_id)
+                batch_results = fetch_metrics_from_apify_batch(
+                    [(it["url"], it["platform"]) for it in _ap_chunk]
+                )
                 for item in _ap_chunk:
                     url, plat = item["url"], item["platform"]
-                    metrics, debug_reason = fetch_metrics_from_apify_debug(url, plat)
+                    metrics, debug_reason = batch_results.get(url, (None, "알 수 없는 오류"))
                     row = {
                         "url": url, "platform": plat,
                         "views": 0, "likes": 0, "comments": 0, "saves": 0, "shares": 0,
@@ -1545,15 +1548,18 @@ with tab4:
         ):
             _av_q = st.session_state["mi_apify_queue"]
             _av_off = st.session_state.get("mi_apify_off", 0)
-            _AV_N = 1
+            _AV_N = 8
             _av_total = len(_av_q)
             _av_chunk = _av_q[_av_off:_av_off + _AV_N]
             _av_done = min(_av_off + _AV_N, _av_total)
             st.progress(_av_done / _av_total, text=f"값 자동 트래킹 중 (Apify)... ({_av_done}/{_av_total})")
             if _av_chunk:
+                _av_batch = fetch_metrics_from_apify_batch(
+                    [(aj["url"], aj["platform"]) for aj in _av_chunk]
+                )
                 for _aj in _av_chunk:
                     try:
-                        _m, _ = fetch_metrics_from_apify_debug(_aj["url"], _aj["platform"])
+                        _m, _ = _av_batch.get(_aj["url"], (None, "알 수 없는 오류"))
                         if _m:
                             update_campaign_post(_aj["id"], brand_id, {
                                 "views": _m["views"], "likes": _m["likes"],

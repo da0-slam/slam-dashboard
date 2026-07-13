@@ -1,4 +1,5 @@
 import os
+import re
 import hashlib
 import base64
 from os import urandom
@@ -1120,6 +1121,10 @@ _APIFY_ACTORS = {
     "instagram": "apify~instagram-scraper",
 }
 
+# 액터 1회 실행에 묶어서 보낼 최대 URL 수 (배치가 클수록 실행 횟수↓ → 속도/비용↓,
+# 대신 동기 실행 타임아웃 안에 끝나야 하므로 과도하게 키우지 않음)
+_APIFY_MAX_BATCH = 8
+
 
 def detect_platform_from_url(url: str) -> str | None:
     """URL에서 플랫폼을 추론합니다 (tiktok/instagram만 지원)."""
@@ -1131,8 +1136,83 @@ def detect_platform_from_url(url: str) -> str | None:
     return None
 
 
+def _extract_stable_id(url: str, platform: str) -> str | None:
+    """배치 결과 매칭용 ID. URL 자체에 이미 들어있는 경우만 추출 가능
+    (vt.tiktok.com 같은 단축 URL은 액터가 리다이렉트를 풀어야 알 수 있어 None)."""
+    if platform == "tiktok":
+        m = re.search(r"/video/(\d+)", url or "")
+        return m.group(1) if m else None
+    if platform == "instagram":
+        m = re.search(r"/(?:p|reel|tv)/([^/?#]+)", url or "")
+        return m.group(1) if m else None
+    return None
+
+
+def _run_apify_actor(actor: str, run_input: dict, token: str) -> tuple[list[dict] | None, str]:
+    try:
+        resp = _req.post(
+            f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
+            params={"token": token, "timeout": 280},
+            json=run_input,
+            timeout=300,
+        )
+    except _req.RequestException as e:
+        return None, f"Apify 요청 실패: {e}"
+    if not resp.ok:
+        return None, f"Apify HTTP {resp.status_code}: {resp.text[:200]}"
+    try:
+        return resp.json(), "ok"
+    except ValueError:
+        return None, f"Apify 응답 JSON 파싱 실패: {resp.text[:200]}"
+
+
+def _map_apify_item(item: dict, platform: str) -> dict:
+    """Apify 아이템 → 지표 dict. '_id'는 배치 매칭 전용 내부 키(결과에 포함 안 됨)."""
+    if platform == "tiktok":
+        stats = item.get("statsV2") or {}
+        author = item.get("authorMeta") or {}
+        thumb = (item.get("covers") or {}).get("default") or (item.get("videoMeta") or {}).get("coverUrl")
+        video_url = item.get("webVideoUrl") or item.get("videoUrl") or ""
+        vid_m = re.search(r"/video/(\d+)", video_url)
+        return {
+            "views":    int(item.get("playCount")    or stats.get("playCount")    or 0),
+            "likes":    int(item.get("diggCount")    or stats.get("diggCount")    or 0),
+            "comments": int(item.get("commentCount") or stats.get("commentCount") or 0),
+            "saves":    int(item.get("collectCount") or stats.get("collectCount") or 0),
+            "shares":   int(item.get("shareCount")   or stats.get("shareCount")   or 0),
+            "thumbnail_url": thumb,
+            "upload_date":   (item.get("createTimeISO") or "")[:10] or None,
+            "username":      (author.get("uniqueId") or "").lower(),
+            "_id":           vid_m.group(1) if vid_m else None,
+        }
+    else:  # instagram
+        images = item.get("images") or []
+        post_url = ""
+        for field in ("videoUrl", "url", "postUrl"):
+            u = (item.get(field) or "").strip()
+            if u and "instagram.com" in u and re.search(r"/(?:p|reel|tv)/", u):
+                post_url = u.split("?")[0].rstrip("/")
+                break
+        sc_m = re.search(r"/(?:p|reel|tv)/([^/?#]+)", post_url)
+        return {
+            "views":    int(item.get("videoViewCount") or item.get("videoPlayCount") or 0),
+            "likes":    int(item.get("likesCount") or 0),
+            "comments": int(item.get("commentsCount") or 0),
+            "saves":    int(item.get("savesCount") or 0),
+            "shares":   int(item.get("videoShareCount") or 0),
+            "thumbnail_url": (images[0] if images else None) or item.get("displayUrl"),
+            "upload_date":   (item.get("timestamp") or "")[:10] or None,
+            "username":      (item.get("ownerUsername") or "").lower(),
+            "_id":           sc_m.group(1) if sc_m else None,
+        }
+
+
+def _strip_internal(mapped: dict) -> dict:
+    return {k: v for k, v in mapped.items() if not k.startswith("_")}
+
+
 def fetch_metrics_from_apify_debug(post_url: str, platform: str) -> tuple[dict | None, str]:
-    """Apify 액터를 동기 실행해 게시물 성과 지표를 가져옵니다.
+    """Apify 액터를 동기 실행해 게시물 1건의 성과 지표를 가져옵니다.
 
     - platform == 'tiktok'    → actor: clockworks/tiktok-scraper
     - platform == 'instagram' → actor: apify/instagram-scraper
@@ -1153,57 +1233,77 @@ def fetch_metrics_from_apify_debug(post_url: str, platform: str) -> tuple[dict |
         if platform == "tiktok"
         else {"directUrls": [post_url], "resultsType": "posts", "resultsLimit": 1}
     )
-    try:
-        resp = _req.post(
-            f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
-            params={"token": token, "timeout": 120},
-            json=run_input,
-            timeout=150,
-        )
-    except _req.RequestException as e:
-        return None, f"Apify 요청 실패: {e}"
-    if not resp.ok:
-        return None, f"Apify HTTP {resp.status_code}: {resp.text[:200]}"
-
-    try:
-        items = resp.json()
-    except ValueError:
-        return None, f"Apify 응답 JSON 파싱 실패: {resp.text[:200]}"
+    items, reason = _run_apify_actor(actor, run_input, token)
+    if items is None:
+        return None, reason
     if not items:
         return None, "Apify가 빈 결과를 반환함 (게시물을 찾지 못했거나 비공개 계정)"
-    item = items[0]
-
-    if platform == "tiktok":
-        stats = item.get("statsV2") or {}
-        author = item.get("authorMeta") or {}
-        thumb = (item.get("covers") or {}).get("default") or (item.get("videoMeta") or {}).get("coverUrl")
-        return {
-            "views":    int(item.get("playCount")    or stats.get("playCount")    or 0),
-            "likes":    int(item.get("diggCount")    or stats.get("diggCount")    or 0),
-            "comments": int(item.get("commentCount") or stats.get("commentCount") or 0),
-            "saves":    int(item.get("collectCount") or stats.get("collectCount") or 0),
-            "shares":   int(item.get("shareCount")   or stats.get("shareCount")   or 0),
-            "thumbnail_url": thumb,
-            "upload_date":   (item.get("createTimeISO") or "")[:10] or None,
-            "username":      (author.get("uniqueId") or "").lower(),
-        }, "ok"
-    else:  # instagram
-        images = item.get("images") or []
-        return {
-            "views":    int(item.get("videoViewCount") or item.get("videoPlayCount") or 0),
-            "likes":    int(item.get("likesCount") or 0),
-            "comments": int(item.get("commentsCount") or 0),
-            "saves":    int(item.get("savesCount") or 0),
-            "shares":   int(item.get("videoShareCount") or 0),
-            "thumbnail_url": (images[0] if images else None) or item.get("displayUrl"),
-            "upload_date":   (item.get("timestamp") or "")[:10] or None,
-            "username":      (item.get("ownerUsername") or "").lower(),
-        }, "ok"
+    return _strip_internal(_map_apify_item(items[0], platform)), "ok"
 
 
 def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
     metrics, _ = fetch_metrics_from_apify_debug(post_url, platform)
     return metrics
+
+
+def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tuple[dict | None, str]]:
+    """여러 (url, platform)을 플랫폼별로 묶어 최소 횟수의 Apify 액터 실행으로 조회합니다.
+
+    URL 자체에서 안정적인 게시물 ID를 알 수 있는 경우(일반 tiktok.com/instagram.com URL)만
+    최대 _APIFY_MAX_BATCH개씩 한 번에 실행하고, 결과를 ID로 정확히 매칭합니다.
+    ID를 알 수 없는 경우(vt.tiktok.com 등 단축 URL)는 정확도를 위해 1건씩 개별 실행합니다.
+
+    returns: {url: (metrics_dict_or_None, debug_reason)}
+    """
+    token = os.environ.get("APIFY_TOKEN", "").strip()
+    if not token:
+        return {u: (None, "APIFY_TOKEN 환경변수가 설정되지 않음") for u, _ in items}
+
+    result: dict[str, tuple[dict | None, str]] = {}
+    by_platform: dict[str, list[str]] = {}
+    for u, p in items:
+        by_platform.setdefault(p, []).append(u)
+
+    for platform, urls in by_platform.items():
+        actor = _APIFY_ACTORS.get(platform)
+        if not actor:
+            for u in urls:
+                result[u] = (None, f"지원하지 않는 플랫폼: {platform}")
+            continue
+
+        tagged = [(u, _extract_stable_id(u, platform)) for u in urls]
+        with_id = [(u, sid) for u, sid in tagged if sid]
+        without_id = [u for u, sid in tagged if not sid]
+
+        for i in range(0, len(with_id), _APIFY_MAX_BATCH):
+            chunk = with_id[i:i + _APIFY_MAX_BATCH]
+            chunk_urls = [u for u, _ in chunk]
+            run_input = (
+                {"postURLs": chunk_urls, "shouldDownloadVideos": False, "shouldDownloadCovers": False}
+                if platform == "tiktok"
+                else {"directUrls": chunk_urls, "resultsType": "posts", "resultsLimit": len(chunk_urls)}
+            )
+            batch_items, reason = _run_apify_actor(actor, run_input, token)
+            if batch_items is None:
+                for u, _ in chunk:
+                    result[u] = (None, reason)
+                continue
+            by_id = {}
+            for it in batch_items:
+                mapped = _map_apify_item(it, platform)
+                if mapped.get("_id"):
+                    by_id[mapped["_id"]] = mapped
+            for u, sid in chunk:
+                mapped = by_id.get(sid)
+                if mapped:
+                    result[u] = (_strip_internal(mapped), "ok")
+                else:
+                    result[u] = (None, "Apify 결과에서 해당 게시물을 찾지 못함 (삭제/비공개 가능성)")
+
+        for u in without_id:
+            result[u] = fetch_metrics_from_apify_debug(u, platform)
+
+    return result
 
 
 def refresh_post_metrics(post_id: str, brand_id: str) -> bool:
