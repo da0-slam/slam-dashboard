@@ -1138,13 +1138,23 @@ def detect_platform_from_url(url: str) -> str | None:
 
 def _extract_stable_id(url: str, platform: str) -> str | None:
     """배치 결과 매칭용 ID. URL 자체에 이미 들어있는 경우만 추출 가능
-    (vt.tiktok.com 같은 단축 URL은 액터가 리다이렉트를 풀어야 알 수 있어 None)."""
-    if platform == "tiktok":
-        m = re.search(r"/video/(\d+)", url or "")
-        return m.group(1) if m else None
+    (instagram만 사용 — tiktok은 submittedVideoUrl 에코로 매칭하므로 불필요)."""
     if platform == "instagram":
         m = re.search(r"/(?:p|reel|tv)/([^/?#]+)", url or "")
         return m.group(1) if m else None
+    return None
+
+
+def _norm_url(url: str) -> str:
+    return (url or "").strip().split("?")[0].rstrip("/")
+
+
+def _apify_item_error(item: dict) -> str | None:
+    """clockworks/tiktok-scraper는 실패 시 빈 배열이 아니라 errorCode가 있는
+    에러 아이템을 push함 (예: POST_NOT_FOUND_OR_PRIVATE). 이걸 놓치면 값 0으로
+    '성공' 처리될 위험이 있어 먼저 체크한다."""
+    if item.get("errorCode"):
+        return item.get("error") or item.get("errorCode")
     return None
 
 
@@ -1167,7 +1177,7 @@ def _run_apify_actor(actor: str, run_input: dict, token: str) -> tuple[list[dict
 
 
 def _map_apify_item(item: dict, platform: str) -> dict:
-    """Apify 아이템 → 지표 dict. '_id'는 배치 매칭 전용 내부 키(결과에 포함 안 됨)."""
+    """Apify 아이템 → 지표 dict. '_id'/'_submitted_url'은 배치 매칭 전용 내부 키(결과에 포함 안 됨)."""
     if platform == "tiktok":
         stats = item.get("statsV2") or {}
         author = item.get("authorMeta") or {}
@@ -1184,6 +1194,8 @@ def _map_apify_item(item: dict, platform: str) -> dict:
             "upload_date":   (item.get("createTimeISO") or "")[:10] or None,
             "username":      (author.get("uniqueId") or "").lower(),
             "_id":           vid_m.group(1) if vid_m else None,
+            # 액터가 제출한 URL을 그대로 돌려주는 필드 — 단축 URL이어도 원본과 정확히 매칭 가능
+            "_submitted_url": _norm_url(item.get("submittedVideoUrl") or ""),
         }
     else:  # instagram
         images = item.get("images") or []
@@ -1238,6 +1250,9 @@ def fetch_metrics_from_apify_debug(post_url: str, platform: str) -> tuple[dict |
         return None, reason
     if not items:
         return None, "Apify가 빈 결과를 반환함 (게시물을 찾지 못했거나 비공개 계정)"
+    err = _apify_item_error(items[0])
+    if err:
+        return None, f"Apify 오류: {err}"
     return _strip_internal(_map_apify_item(items[0], platform)), "ok"
 
 
@@ -1249,9 +1264,10 @@ def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
 def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tuple[dict | None, str]]:
     """여러 (url, platform)을 플랫폼별로 묶어 최소 횟수의 Apify 액터 실행으로 조회합니다.
 
-    URL 자체에서 안정적인 게시물 ID를 알 수 있는 경우(일반 tiktok.com/instagram.com URL)만
-    최대 _APIFY_MAX_BATCH개씩 한 번에 실행하고, 결과를 ID로 정확히 매칭합니다.
-    ID를 알 수 없는 경우(vt.tiktok.com 등 단축 URL)는 정확도를 위해 1건씩 개별 실행합니다.
+    - tiktok: 액터가 결과에 담아 돌려주는 submittedVideoUrl(제출한 URL 그대로 에코)로
+      정확히 매칭하므로, 단축 URL(vt.tiktok.com 등)도 포함해 전부 배치 처리합니다.
+    - instagram: URL 자체에서 뽑아낸 shortcode로 매칭. 단축/공유 URL처럼 shortcode를
+      알 수 없는 경우만 정확도를 위해 1건씩 개별 실행합니다.
 
     returns: {url: (metrics_dict_or_None, debug_reason)}
     """
@@ -1271,6 +1287,44 @@ def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tu
                 result[u] = (None, f"지원하지 않는 플랫폼: {platform}")
             continue
 
+        if platform == "tiktok":
+            for i in range(0, len(urls), _APIFY_MAX_BATCH):
+                chunk = urls[i:i + _APIFY_MAX_BATCH]
+                run_input = {
+                    "postURLs": chunk,
+                    "shouldDownloadVideos": False,
+                    "shouldDownloadCovers": False,
+                }
+                batch_items, reason = _run_apify_actor(actor, run_input, token)
+                if batch_items is None:
+                    for u in chunk:
+                        result[u] = (None, reason)
+                    continue
+                by_submitted: dict[str, dict] = {}
+                errors_by_submitted: dict[str, str] = {}
+                for it in batch_items:
+                    err = _apify_item_error(it)
+                    key = _norm_url(it.get("url") or it.get("input") or "")
+                    if err:
+                        if key:
+                            errors_by_submitted[key] = err
+                        continue
+                    mapped = _map_apify_item(it, platform)
+                    submitted = mapped.get("_submitted_url") or key
+                    if submitted:
+                        by_submitted[submitted] = mapped
+                for u in chunk:
+                    nu = _norm_url(u)
+                    mapped = by_submitted.get(nu)
+                    if mapped:
+                        result[u] = (_strip_internal(mapped), "ok")
+                    elif nu in errors_by_submitted:
+                        result[u] = (None, f"Apify 오류: {errors_by_submitted[nu]}")
+                    else:
+                        result[u] = (None, "Apify 결과에서 해당 게시물을 찾지 못함 (삭제/비공개 가능성)")
+            continue
+
+        # instagram: shortcode 기반 매칭
         tagged = [(u, _extract_stable_id(u, platform)) for u in urls]
         with_id = [(u, sid) for u, sid in tagged if sid]
         without_id = [u for u, sid in tagged if not sid]
@@ -1278,11 +1332,9 @@ def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tu
         for i in range(0, len(with_id), _APIFY_MAX_BATCH):
             chunk = with_id[i:i + _APIFY_MAX_BATCH]
             chunk_urls = [u for u, _ in chunk]
-            run_input = (
-                {"postURLs": chunk_urls, "shouldDownloadVideos": False, "shouldDownloadCovers": False}
-                if platform == "tiktok"
-                else {"directUrls": chunk_urls, "resultsType": "posts", "resultsLimit": len(chunk_urls)}
-            )
+            run_input = {
+                "directUrls": chunk_urls, "resultsType": "posts", "resultsLimit": len(chunk_urls),
+            }
             batch_items, reason = _run_apify_actor(actor, run_input, token)
             if batch_items is None:
                 for u, _ in chunk:
@@ -1290,6 +1342,9 @@ def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tu
                 continue
             by_id = {}
             for it in batch_items:
+                err = _apify_item_error(it)
+                if err:
+                    continue
                 mapped = _map_apify_item(it, platform)
                 if mapped.get("_id"):
                     by_id[mapped["_id"]] = mapped
