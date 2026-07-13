@@ -1131,17 +1131,22 @@ def detect_platform_from_url(url: str) -> str | None:
     return None
 
 
-def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
+def fetch_metrics_from_apify_debug(post_url: str, platform: str) -> tuple[dict | None, str]:
     """Apify 액터를 동기 실행해 게시물 성과 지표를 가져옵니다.
 
     - platform == 'tiktok'    → actor: clockworks/tiktok-scraper
     - platform == 'instagram' → actor: apify/instagram-scraper
-    returns: {views, likes, comments, saves, shares, thumbnail_url, upload_date, username} or None
+    returns: (metrics_dict_or_None, debug_reason)
+      metrics_dict: {views, likes, comments, saves, shares, thumbnail_url, upload_date, username}
     """
     token = os.environ.get("APIFY_TOKEN", "").strip()
     actor = _APIFY_ACTORS.get(platform)
-    if not token or not actor or not post_url:
-        return None
+    if not token:
+        return None, "APIFY_TOKEN 환경변수가 설정되지 않음"
+    if not actor:
+        return None, f"지원하지 않는 플랫폼: {platform}"
+    if not post_url:
+        return None, "URL이 비어있음"
 
     run_input = (
         {"postURLs": [post_url], "shouldDownloadVideos": False, "shouldDownloadCovers": False}
@@ -1155,17 +1160,17 @@ def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
             json=run_input,
             timeout=150,
         )
-    except _req.RequestException:
-        return None
+    except _req.RequestException as e:
+        return None, f"Apify 요청 실패: {e}"
     if not resp.ok:
-        return None
+        return None, f"Apify HTTP {resp.status_code}: {resp.text[:200]}"
 
     try:
         items = resp.json()
     except ValueError:
-        return None
+        return None, f"Apify 응답 JSON 파싱 실패: {resp.text[:200]}"
     if not items:
-        return None
+        return None, "Apify가 빈 결과를 반환함 (게시물을 찾지 못했거나 비공개 계정)"
     item = items[0]
 
     if platform == "tiktok":
@@ -1181,7 +1186,7 @@ def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
             "thumbnail_url": thumb,
             "upload_date":   (item.get("createTimeISO") or "")[:10] or None,
             "username":      (author.get("uniqueId") or "").lower(),
-        }
+        }, "ok"
     else:  # instagram
         images = item.get("images") or []
         return {
@@ -1193,7 +1198,12 @@ def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
             "thumbnail_url": (images[0] if images else None) or item.get("displayUrl"),
             "upload_date":   (item.get("timestamp") or "")[:10] or None,
             "username":      (item.get("ownerUsername") or "").lower(),
-        }
+        }, "ok"
+
+
+def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
+    metrics, _ = fetch_metrics_from_apify_debug(post_url, platform)
+    return metrics
 
 
 def refresh_post_metrics(post_id: str, brand_id: str) -> bool:

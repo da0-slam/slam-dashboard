@@ -12,7 +12,7 @@ from utils.supabase_client import (
     create_campaign_post,
     delete_campaign_post,
     detect_platform_from_url,
-    fetch_metrics_from_apify,
+    fetch_metrics_from_apify_debug,
     get_brands,
     get_campaign_participants_info,
     get_campaign_post_by_id,
@@ -1146,13 +1146,14 @@ with tab4:
                 ap_participants = _load_participants(ap_campaign_id, brand_id)
                 for item in _ap_chunk:
                     url, plat = item["url"], item["platform"]
-                    metrics = fetch_metrics_from_apify(url, plat)
+                    metrics, debug_reason = fetch_metrics_from_apify_debug(url, plat)
                     row = {
                         "url": url, "platform": plat,
                         "views": 0, "likes": 0, "comments": 0, "saves": 0, "shares": 0,
                         "thumbnail_url": None, "upload_date": None,
                         "influencer_name": "", "participant_id": None, "influencer_id": None,
                         "matched": False, "status": "ok" if metrics else "failed",
+                        "debug_reason": debug_reason,
                     }
                     if metrics:
                         row.update({
@@ -1216,6 +1217,8 @@ with tab4:
                             "✅ 매칭됨" if row["matched"] else "⚠️ 매칭 실패 — 이름 직접 입력 필요"
                         )
                         st.markdown(f"`{badge}` {status_txt}")
+                        if row["status"] == "failed" and row.get("debug_reason"):
+                            st.caption(f"사유: {row['debug_reason']}")
                         st.caption(row["url"][:70] + ("..." if len(row["url"]) > 70 else ""))
                         if row["status"] == "ok":
                             st.caption(
