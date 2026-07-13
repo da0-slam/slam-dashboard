@@ -1113,26 +1113,87 @@ def get_campaign_participants_info(campaign_id: str, brand_id: str) -> list[dict
     return selections
 
 
-# ── Apify 자동 트래킹 (Placeholder) ──────────────────────────────────────────
+# ── Apify 자동 트래킹 ─────────────────────────────────────────────────────────
+
+_APIFY_ACTORS = {
+    "tiktok": "clockworks~tiktok-scraper",
+    "instagram": "apify~instagram-scraper",
+}
+
+
+def detect_platform_from_url(url: str) -> str | None:
+    """URL에서 플랫폼을 추론합니다 (tiktok/instagram만 지원)."""
+    u = (url or "").lower()
+    if "tiktok.com" in u:
+        return "tiktok"
+    if "instagram.com" in u:
+        return "instagram"
+    return None
+
 
 def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
-    """Apify에서 게시물 성과 지표를 가져옵니다. (현재 미구현 placeholder)
+    """Apify 액터를 동기 실행해 게시물 성과 지표를 가져옵니다.
 
-    향후 구현 방향:
-      - platform == 'tiktok'  → actor: clockworks/tiktok-scraper
-      - platform == 'instagram' → actor: apify/instagram-scraper
-      returns: {views, likes, comments, saves, shares} or None
+    - platform == 'tiktok'    → actor: clockworks/tiktok-scraper
+    - platform == 'instagram' → actor: apify/instagram-scraper
+    returns: {views, likes, comments, saves, shares, thumbnail_url, upload_date, username} or None
     """
-    # TODO: Implement Apify integration
-    # from apify_client import ApifyClient
-    # client = ApifyClient(os.environ.get("APIFY_TOKEN"))
-    # actor_id = "clockworks/tiktok-scraper" if platform == "tiktok" else "apify/instagram-scraper"
-    # run = client.actor(actor_id).call(run_input={"directUrls": [post_url], "maxItems": 1})
-    # items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
-    # if not items: return None
-    # item = items[0]
-    # return {"views": item.get("playCount",0), "likes": item.get("likesCount",0), ...}
-    return None
+    token = os.environ.get("APIFY_TOKEN", "").strip()
+    actor = _APIFY_ACTORS.get(platform)
+    if not token or not actor or not post_url:
+        return None
+
+    run_input = (
+        {"postURLs": [post_url], "shouldDownloadVideos": False, "shouldDownloadCovers": False}
+        if platform == "tiktok"
+        else {"directUrls": [post_url], "resultsType": "posts", "resultsLimit": 1}
+    )
+    try:
+        resp = _req.post(
+            f"https://api.apify.com/v2/acts/{actor}/run-sync-get-dataset-items",
+            params={"token": token, "timeout": 120},
+            json=run_input,
+            timeout=150,
+        )
+    except _req.RequestException:
+        return None
+    if not resp.ok:
+        return None
+
+    try:
+        items = resp.json()
+    except ValueError:
+        return None
+    if not items:
+        return None
+    item = items[0]
+
+    if platform == "tiktok":
+        stats = item.get("statsV2") or {}
+        author = item.get("authorMeta") or {}
+        thumb = (item.get("covers") or {}).get("default") or (item.get("videoMeta") or {}).get("coverUrl")
+        return {
+            "views":    int(item.get("playCount")    or stats.get("playCount")    or 0),
+            "likes":    int(item.get("diggCount")    or stats.get("diggCount")    or 0),
+            "comments": int(item.get("commentCount") or stats.get("commentCount") or 0),
+            "saves":    int(item.get("collectCount") or stats.get("collectCount") or 0),
+            "shares":   int(item.get("shareCount")   or stats.get("shareCount")   or 0),
+            "thumbnail_url": thumb,
+            "upload_date":   (item.get("createTimeISO") or "")[:10] or None,
+            "username":      (author.get("uniqueId") or "").lower(),
+        }
+    else:  # instagram
+        images = item.get("images") or []
+        return {
+            "views":    int(item.get("videoViewCount") or item.get("videoPlayCount") or 0),
+            "likes":    int(item.get("likesCount") or 0),
+            "comments": int(item.get("commentsCount") or 0),
+            "saves":    int(item.get("savesCount") or 0),
+            "shares":   int(item.get("videoShareCount") or 0),
+            "thumbnail_url": (images[0] if images else None) or item.get("displayUrl"),
+            "upload_date":   (item.get("timestamp") or "")[:10] or None,
+            "username":      (item.get("ownerUsername") or "").lower(),
+        }
 
 
 def refresh_post_metrics(post_id: str, brand_id: str) -> bool:

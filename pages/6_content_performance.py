@@ -6,11 +6,13 @@ import pandas as pd
 import streamlit as st
 
 from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
-from utils.storage_client import fetch_and_upload_thumbnail
+from utils.storage_client import fetch_and_upload_thumbnail, upload_thumbnail
 from utils.supabase_client import (
     bulk_upsert_post_comments,
     create_campaign_post,
     delete_campaign_post,
+    detect_platform_from_url,
+    fetch_metrics_from_apify,
     get_brands,
     get_campaign_participants_info,
     get_campaign_post_by_id,
@@ -21,6 +23,7 @@ from utils.supabase_client import (
     get_user_profile,
     migrate_google_sheet_rows,
     post_url_exists,
+    update_campaign,
     update_campaign_post,
     update_campaign_post_thumbnail,
 )
@@ -423,11 +426,8 @@ with tab1:
             df["influencer_name"].str.strip().str.lower()
             .apply(lambda x: x not in _HDR and x != "")
         ]
-        # upload_date 있는 사람만 업로드 인원으로 집계
-        _df_uploaded = _df_valid[
-            _df_valid["upload_date"].fillna("").astype(str).str.strip() != ""
-        ]
-        total_influencers = _df_uploaded["influencer_name"].nunique()
+        # 게시물(URL)이 있는 사람 = 참여(업로드)한 인플루언서
+        total_influencers = _df_valid["influencer_name"].nunique()
         total_posts       = len(df)
         ig_posts          = int((df["platform"] == "instagram").sum())
         tt_posts          = int((df["platform"] == "tiktok").sum())
@@ -444,20 +444,31 @@ with tab1:
         if filter_campaign_id:
             camp_data = next((c for c in campaigns if c["id"] == filter_campaign_id), {})
             p_count = camp_data.get("participant_count")
+
+            with st.expander(f"📦 발송 인원 수정 (현재: {p_count or 0}명)"):
+                new_p_count = st.number_input(
+                    "발송 인원", min_value=0, step=1,
+                    value=int(p_count or 0), key="cp_edit_p_count",
+                )
+                if st.button("저장", key="cp_save_p_count"):
+                    update_campaign(filter_campaign_id, {"participant_count": int(new_p_count)})
+                    _load_campaigns.clear()
+                    st.success("발송 인원이 저장되었습니다.")
+                    st.rerun()
+
             if p_count:
                 _HEADER_NAMES = {
                     "name", "full name", "인플루언서", "인플루언서명", "influencer",
                     "influencer_name", "이름", "계정", "아이디", "id",
                 }
                 u_count = df[
-                    (df["influencer_name"].str.strip().str.lower()
-                     .apply(lambda x: x not in _HEADER_NAMES and x != ""))
-                    & (df["upload_date"].fillna("").astype(str).str.strip() != "")
+                    df["influencer_name"].str.strip().str.lower()
+                    .apply(lambda x: x not in _HEADER_NAMES and x != "")
                 ]["influencer_name"].nunique()
                 if p_count < u_count:
                     st.warning(
                         f"발송 인원({p_count:,}명)이 업로드 인원({u_count:,}명)보다 적습니다. "
-                        "'게시물 관리' 탭의 Google Sheet 이관에서 발송 인원을 수정해주세요."
+                        "위 '발송 인원 수정'에서 발송 인원을 수정해주세요."
                     )
                 else:
                     u_rate  = round(u_count / p_count * 100, 1)
@@ -1065,6 +1076,215 @@ with tab4:
                 else:
                     st.error("게시물 추가에 실패했습니다.")
 
+    # ── URL 붙여넣기로 자동 트래킹 (Apify) ────────────────────────────────────
+
+    with st.expander("🔄 URL 붙여넣기로 자동 트래킹 (Apify)", expanded=False):
+        st.caption(
+            "TikTok · Instagram 게시물 URL을 한 줄에 하나씩 붙여넣으면 "
+            "Apify로 조회수/좋아요/댓글 등을 자동으로 가져와 캠페인에 추가합니다."
+        )
+
+        _ap_pending = st.session_state.get("ap_pending")
+        _ap_preview = st.session_state.get("ap_preview")
+
+        # ── 입력 폼 (진행/미리보기 중이 아닐 때만 표시) ───────────────────────
+        if _ap_pending is None and _ap_preview is None:
+            ap_camp_label = st.selectbox(
+                "캠페인 *", [c["name"] for c in campaigns], key="ap_camp",
+            )
+            ap_urls_raw = st.text_area(
+                "게시물 URL (한 줄에 하나씩)",
+                placeholder="https://www.tiktok.com/@.../video/...\nhttps://www.instagram.com/p/...",
+                height=140,
+                key="ap_urls_input",
+            )
+            if st.button("🔄 가져오기", key="ap_fetch_btn"):
+                lines = [u.strip() for u in ap_urls_raw.splitlines() if u.strip()]
+                seen, queue = set(), []
+                n_dup = n_unsupported = n_existing = 0
+                for u in lines:
+                    if u in seen:
+                        n_dup += 1
+                        continue
+                    seen.add(u)
+                    plat = detect_platform_from_url(u)
+                    if not plat:
+                        n_unsupported += 1
+                        continue
+                    if post_url_exists(u):
+                        n_existing += 1
+                        continue
+                    queue.append({"url": u, "platform": plat})
+
+                if not queue:
+                    st.warning("가져올 URL이 없습니다. (중복/미지원/이미 등록된 URL은 자동 제외됩니다)")
+                else:
+                    st.session_state["ap_campaign_id"] = campaign_name_to_id[ap_camp_label]
+                    st.session_state["ap_pending"] = queue
+                    st.session_state["ap_offset"] = 0
+                    st.session_state["ap_results"] = []
+                    st.session_state["ap_skip_note"] = (
+                        f"제외됨 — 중복 {n_dup}건 · 미지원 플랫폼 {n_unsupported}건 · 이미 등록됨 {n_existing}건"
+                        if (n_dup or n_unsupported or n_existing) else ""
+                    )
+                    st.rerun()
+
+        # ── 청크 단위 Apify 조회 (rerun마다 1개씩 처리, 타임아웃 방지) ────────
+        if _ap_pending is not None:
+            _AP_CHUNK = 1
+            _ap_offset = st.session_state.get("ap_offset", 0)
+            _ap_total = len(_ap_pending)
+            _ap_chunk = _ap_pending[_ap_offset:_ap_offset + _AP_CHUNK]
+            _ap_done = min(_ap_offset + _AP_CHUNK, _ap_total)
+            st.progress(
+                _ap_done / _ap_total if _ap_total else 1.0,
+                text=f"Apify로 가져오는 중... ({_ap_done}/{_ap_total})",
+            )
+
+            if _ap_chunk:
+                ap_campaign_id = st.session_state["ap_campaign_id"]
+                ap_participants = _load_participants(ap_campaign_id, brand_id)
+                for item in _ap_chunk:
+                    url, plat = item["url"], item["platform"]
+                    metrics = fetch_metrics_from_apify(url, plat)
+                    row = {
+                        "url": url, "platform": plat,
+                        "views": 0, "likes": 0, "comments": 0, "saves": 0, "shares": 0,
+                        "thumbnail_url": None, "upload_date": None,
+                        "influencer_name": "", "participant_id": None, "influencer_id": None,
+                        "matched": False, "status": "ok" if metrics else "failed",
+                    }
+                    if metrics:
+                        row.update({
+                            "views": metrics["views"], "likes": metrics["likes"],
+                            "comments": metrics["comments"], "saves": metrics["saves"],
+                            "shares": metrics["shares"], "thumbnail_url": metrics.get("thumbnail_url"),
+                            "upload_date": metrics.get("upload_date"),
+                        })
+                        uname = metrics.get("username") or ""
+                        if uname:
+                            for p in ap_participants:
+                                acc_l = (p.get("display_name") or "").lower()
+                                if acc_l and uname in acc_l:
+                                    row.update({
+                                        "influencer_name": p.get("display_name") or "",
+                                        "participant_id": p.get("id"),
+                                        "influencer_id": p.get("influencer_id"),
+                                        "matched": True,
+                                    })
+                                    break
+                    st.session_state["ap_results"].append(row)
+
+                st.session_state["ap_offset"] = _ap_offset + _AP_CHUNK
+                st.rerun()
+            else:
+                st.session_state["ap_preview"] = st.session_state.pop("ap_results", [])
+                st.session_state.pop("ap_pending", None)
+                st.session_state.pop("ap_offset", None)
+                st.rerun()
+
+        # ── 미리보기 & 확인 ────────────────────────────────────────────────────
+        if _ap_preview is not None:
+            skip_note = st.session_state.pop("ap_skip_note", "")
+            if skip_note:
+                st.caption(skip_note)
+
+            if not _ap_preview:
+                st.info("가져온 게시물이 없습니다.")
+                if st.button("닫기", key="ap_close_empty"):
+                    for k in ("ap_preview", "ap_campaign_id"):
+                        st.session_state.pop(k, None)
+                    st.rerun()
+            else:
+                n_failed = sum(1 for r in _ap_preview if r["status"] == "failed")
+                n_unmatched = sum(1 for r in _ap_preview if r["status"] == "ok" and not r["matched"])
+                st.caption(
+                    f"총 {len(_ap_preview)}건 · 매칭 실패/실패 항목은 인플루언서명을 직접 입력해야 포함됩니다."
+                    + (f" (조회 실패 {n_failed}건, 미매칭 {n_unmatched}건)" if (n_failed or n_unmatched) else "")
+                )
+
+                for i, row in enumerate(_ap_preview):
+                    pc1, pc2, pc3 = st.columns([1, 3, 2])
+                    with pc1:
+                        if row["thumbnail_url"]:
+                            st.image(row["thumbnail_url"], use_container_width=True)
+                        else:
+                            st.caption("썸네일 없음")
+                    with pc2:
+                        badge = "TT" if row["platform"] == "tiktok" else "IG"
+                        status_txt = "⚠️ 조회 실패 (값 0으로 등록됨)" if row["status"] == "failed" else (
+                            "✅ 매칭됨" if row["matched"] else "⚠️ 매칭 실패 — 이름 직접 입력 필요"
+                        )
+                        st.markdown(f"`{badge}` {status_txt}")
+                        st.caption(row["url"][:70] + ("..." if len(row["url"]) > 70 else ""))
+                        if row["status"] == "ok":
+                            st.caption(
+                                f"조회수 {row['views']:,} · 좋아요 {row['likes']:,} · "
+                                f"댓글 {row['comments']:,} · 공유 {row['shares']:,}"
+                            )
+                    with pc3:
+                        st.text_input(
+                            "인플루언서명", value=row["influencer_name"],
+                            key=f"ap_name_{i}", placeholder="이름 입력",
+                        )
+                        st.checkbox("포함", value=True, key=f"ap_inc_{i}")
+                    st.divider()
+
+                bcol1, bcol2 = st.columns(2)
+                if bcol1.button("✅ 선택한 게시물 캠페인에 추가", key="ap_confirm_btn", use_container_width=True):
+                    ap_campaign_id = st.session_state["ap_campaign_id"]
+                    n_created = 0
+                    n_skipped = 0
+                    for i, row in enumerate(_ap_preview):
+                        included = st.session_state.get(f"ap_inc_{i}", True)
+                        name = (st.session_state.get(f"ap_name_{i}", "") or "").strip()
+                        if not included or not name:
+                            n_skipped += 1
+                            continue
+                        if post_url_exists(row["url"]):
+                            n_skipped += 1
+                            continue
+                        result = create_campaign_post(brand_id, {
+                            "campaign_id": ap_campaign_id,
+                            "participant_id": row["participant_id"],
+                            "influencer_id": row["influencer_id"],
+                            "influencer_name": name,
+                            "platform": row["platform"],
+                            "post_url": row["url"],
+                            "upload_date": row["upload_date"],
+                            "views": row["views"], "likes": row["likes"],
+                            "comments": row["comments"], "saves": row["saves"],
+                            "shares": row["shares"],
+                        })
+                        if result:
+                            n_created += 1
+                            post_id = result.get("id") if isinstance(result, dict) else None
+                            if post_id and row["thumbnail_url"]:
+                                stored = upload_thumbnail(
+                                    row["thumbnail_url"], name, _sanitize_storage_key(post_id),
+                                )
+                                if stored:
+                                    update_campaign_post_thumbnail(post_id, brand_id, stored)
+                        else:
+                            n_skipped += 1
+
+                    st.session_state.pop("ap_preview", None)
+                    st.session_state.pop("ap_campaign_id", None)
+                    for i in range(len(_ap_preview)):
+                        st.session_state.pop(f"ap_name_{i}", None)
+                        st.session_state.pop(f"ap_inc_{i}", None)
+                    _load_all.clear()
+                    st.success(f"{n_created}개 게시물이 추가되었습니다. (제외 {n_skipped}건)")
+                    st.rerun()
+
+                if bcol2.button("❌ 취소", key="ap_cancel_btn", use_container_width=True):
+                    for i in range(len(_ap_preview)):
+                        st.session_state.pop(f"ap_name_{i}", None)
+                        st.session_state.pop(f"ap_inc_{i}", None)
+                    st.session_state.pop("ap_preview", None)
+                    st.session_state.pop("ap_campaign_id", None)
+                    st.rerun()
+
     # ── 기존 게시물 수정 / 삭제 ───────────────────────────────────────────────
 
     with st.expander("✏️ 기존 게시물 수정 / 삭제", expanded=False):
@@ -1363,6 +1583,9 @@ with tab4:
                             "other_saves":    _val(r, "other_saves"),
                             "other_shares":   _val(r, "other_shares"),
                         })
+
+                    # 이름이 빈 행(구분용 공백 행 등)은 발송 인원 집계에서 제외
+                    rows_to_migrate = [r for r in rows_to_migrate if _clean(r.get("name", ""))]
 
                     # ── 업로드율 미리보기 (upload_day 기준) ───────────────
                     uploaded_cnt = sum(
