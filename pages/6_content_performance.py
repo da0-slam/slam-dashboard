@@ -1237,15 +1237,19 @@ with tab4:
                 if bcol1.button("✅ 선택한 게시물 캠페인에 추가", key="ap_confirm_btn", use_container_width=True):
                     ap_campaign_id = st.session_state["ap_campaign_id"]
                     n_created = 0
-                    n_skipped = 0
+                    n_no_name = 0
+                    n_dup = 0
+                    n_failed = 0
                     for i, row in enumerate(_ap_preview):
                         included = st.session_state.get(f"ap_inc_{i}", True)
                         name = (st.session_state.get(f"ap_name_{i}", "") or "").strip()
-                        if not included or not name:
-                            n_skipped += 1
+                        if not included:
+                            continue
+                        if not name:
+                            n_no_name += 1
                             continue
                         if post_url_exists(row["url"]):
-                            n_skipped += 1
+                            n_dup += 1
                             continue
                         result = create_campaign_post(brand_id, {
                             "campaign_id": ap_campaign_id,
@@ -1269,7 +1273,7 @@ with tab4:
                                 if stored:
                                     update_campaign_post_thumbnail(post_id, brand_id, stored)
                         else:
-                            n_skipped += 1
+                            n_failed += 1
 
                     st.session_state.pop("ap_preview", None)
                     st.session_state.pop("ap_campaign_id", None)
@@ -1277,7 +1281,17 @@ with tab4:
                         st.session_state.pop(f"ap_name_{i}", None)
                         st.session_state.pop(f"ap_inc_{i}", None)
                     _load_all.clear()
-                    st.success(f"{n_created}개 게시물이 추가되었습니다. (제외 {n_skipped}건)")
+                    msg = f"{n_created}개 게시물이 추가되었습니다."
+                    detail = []
+                    if n_no_name:
+                        detail.append(f"이름 미입력 {n_no_name}건")
+                    if n_dup:
+                        detail.append(f"이미 등록됨 {n_dup}건")
+                    if n_failed:
+                        detail.append(f"등록 실패 {n_failed}건")
+                    if detail:
+                        msg += " (제외: " + " · ".join(detail) + ")"
+                    st.success(msg)
                     st.rerun()
 
                 if bcol2.button("❌ 취소", key="ap_cancel_btn", use_container_width=True):
@@ -1466,9 +1480,18 @@ with tab4:
                         st.warning(_e)
             if "mi_thumb_camp" in st.session_state:
                 _tc = st.session_state.pop("mi_thumb_camp")
+                _camp_posts = get_campaign_posts(brand_id, _tc)
                 _th_posts = [
-                    p for p in get_campaign_posts(brand_id, _tc)
+                    p for p in _camp_posts
                     if p.get("platform") in ("tiktok", "instagram") and not p.get("thumbnail_url")
+                ]
+                _av_posts = [
+                    p for p in _camp_posts
+                    if p.get("platform") in ("tiktok", "instagram") and p.get("post_url")
+                    and not (
+                        p.get("views") or p.get("likes") or p.get("comments")
+                        or p.get("saves") or p.get("shares")
+                    )
                 ]
                 if _th_posts:
                     st.session_state["mi_thumb_queue"] = [
@@ -1476,6 +1499,16 @@ with tab4:
                         for p in _th_posts
                     ]
                     st.session_state["mi_thumb_off"] = 0
+                if _av_posts:
+                    st.session_state["mi_apify_queue"] = [
+                        {
+                            "id": p["id"], "url": p["post_url"], "platform": p["platform"],
+                            "name": p.get("influencer_name") or "unknown",
+                        }
+                        for p in _av_posts
+                    ]
+                    st.session_state["mi_apify_off"] = 0
+                if _th_posts or _av_posts:
                     st.rerun()
 
         # ── 썸네일 스크랩 단계 (이관 완료 후 자동 실행) ──────────────────────
@@ -1503,6 +1536,45 @@ with tab4:
                 st.session_state.pop("mi_thumb_queue")
                 st.session_state.pop("mi_thumb_off", None)
                 _load_all.clear()
+                st.rerun()
+
+        # ── 값 자동 트래킹 단계 (URL은 있지만 지표가 비어있는 게시물, Apify) ──
+        if (
+            st.session_state.get("mi_apify_queue") is not None
+            and st.session_state.get("mi_thumb_queue") is None
+        ):
+            _av_q = st.session_state["mi_apify_queue"]
+            _av_off = st.session_state.get("mi_apify_off", 0)
+            _AV_N = 1
+            _av_total = len(_av_q)
+            _av_chunk = _av_q[_av_off:_av_off + _AV_N]
+            _av_done = min(_av_off + _AV_N, _av_total)
+            st.progress(_av_done / _av_total, text=f"값 자동 트래킹 중 (Apify)... ({_av_done}/{_av_total})")
+            if _av_chunk:
+                for _aj in _av_chunk:
+                    try:
+                        _m, _ = fetch_metrics_from_apify_debug(_aj["url"], _aj["platform"])
+                        if _m:
+                            update_campaign_post(_aj["id"], brand_id, {
+                                "views": _m["views"], "likes": _m["likes"],
+                                "comments": _m["comments"], "saves": _m["saves"],
+                                "shares": _m["shares"],
+                            })
+                            if _m.get("thumbnail_url"):
+                                _stored = upload_thumbnail(
+                                    _m["thumbnail_url"], _aj["name"], _sanitize_storage_key(_aj["id"]),
+                                )
+                                if _stored:
+                                    update_campaign_post_thumbnail(_aj["id"], brand_id, _stored)
+                    except Exception:
+                        pass
+                st.session_state["mi_apify_off"] = _av_off + _AV_N
+                st.rerun()
+            else:
+                st.session_state.pop("mi_apify_queue")
+                st.session_state.pop("mi_apify_off", None)
+                _load_all.clear()
+                st.success("값 자동 트래킹이 완료되었습니다.")
                 st.rerun()
 
         # ── 공통 처리 로직 ────────────────────────────────────────────────────
