@@ -35,6 +35,11 @@ _MOCK_BRANDS = [
         "ugc_pct": 34,
         "emotions": {"신뢰": 62, "설렘": 18, "놀라움": 12, "불만": 8},
         "regions": {"미국": 38, "한국": 22, "동남아": 18, "중국": 14, "기타": 8},
+        "top_keywords": [("보습력", 128), ("흡수력", 97), ("끈적임 없음", 71), ("향", 45), ("가격", 33)],
+        "top_comment": {"text": "이거 진짜 흡수 미쳤음... 끈적임 하나도 없어서 매일 씀", "author": "@skincare_luv", "likes": 1_204},
+        "creator_tiers": {"나노(1만↓)": 42, "마이크로(1만~10만)": 34, "미드(10만~50만)": 17, "매크로(50만↑)": 7},
+        "platform_mix": {"TikTok": 48, "Instagram": 40, "샤오홍슈": 12},
+        "gender": {"여성": 82, "남성": 18},
     },
     {
         "name": "유이크(UIQ)", "score": 85.6, "prev_rank": 3,
@@ -45,6 +50,11 @@ _MOCK_BRANDS = [
         "ugc_pct": 27,
         "emotions": {"신뢰": 54, "설렘": 22, "놀라움": 14, "불만": 10},
         "regions": {"한국": 40, "중국": 22, "미국": 20, "동남아": 12, "기타": 6},
+        "top_keywords": [("탄력", 104), ("가성비", 88), ("성분", 62), ("트러블", 40), ("포장", 22)],
+        "top_comment": {"text": "가격 대비 성분표가 너무 알짜라 재구매 각", "author": "@uiq_daily", "likes": 892},
+        "creator_tiers": {"나노(1만↓)": 38, "마이크로(1만~10만)": 36, "미드(10만~50만)": 19, "매크로(50만↑)": 7},
+        "platform_mix": {"TikTok": 35, "Instagram": 33, "샤오홍슈": 32},
+        "gender": {"여성": 76, "남성": 24},
     },
     {
         "name": "리쥬올", "score": 76.3, "prev_rank": 2,
@@ -55,6 +65,11 @@ _MOCK_BRANDS = [
         "ugc_pct": 21,
         "emotions": {"신뢰": 47, "설렘": 24, "놀라움": 16, "불만": 13},
         "regions": {"한국": 48, "중국": 25, "동남아": 15, "미국": 8, "기타": 4},
+        "top_keywords": [("리프팅", 96), ("각질", 58), ("효과", 51), ("자극", 29), ("향", 18)],
+        "top_comment": {"text": "일주일 써보니 각질이 확실히 줄었어요, 자극도 없고", "author": "@rejuall_kr", "likes": 615},
+        "creator_tiers": {"나노(1만↓)": 46, "마이크로(1만~10만)": 33, "미드(10만~50만)": 15, "매크로(50만↑)": 6},
+        "platform_mix": {"TikTok": 20, "Instagram": 38, "샤오홍슈": 42},
+        "gender": {"여성": 79, "남성": 21},
     },
     {
         "name": "헤브블루", "score": 65.8, "prev_rank": 4,
@@ -65,6 +80,11 @@ _MOCK_BRANDS = [
         "ugc_pct": 14,
         "emotions": {"신뢰": 38, "설렘": 19, "놀라움": 21, "불만": 22},
         "regions": {"한국": 55, "동남아": 20, "중국": 15, "미국": 6, "기타": 4},
+        "top_keywords": [("향", 61), ("촉감", 47), ("가격", 40), ("트러블", 34), ("배송", 15)],
+        "top_comment": {"text": "향은 진짜 좋은데 가격이 좀 부담스럽긴 해요", "author": "@blue_review", "likes": 348},
+        "creator_tiers": {"나노(1만↓)": 51, "마이크로(1만~10만)": 31, "미드(10만~50만)": 13, "매크로(50만↑)": 5},
+        "platform_mix": {"TikTok": 15, "Instagram": 45, "샤오홍슈": 40},
+        "gender": {"여성": 71, "남성": 29},
     },
 ]
 for i, b in enumerate(_MOCK_BRANDS):
@@ -84,6 +104,15 @@ def _region_bar(regions: dict, height: int = 14) -> str:
         for name, v in regions.items() if v > 0
     )
     return f"<div style='display:flex;width:100%;border-radius:4px;overflow:hidden;'>{bars}</div>"
+
+
+def _keyword_tags(keywords: list[tuple[str, int]]) -> str:
+    return "".join(
+        f"<span style='background:#f3f4f6;border-radius:6px;padding:3px 10px;margin:2px;"
+        f"font-size:12px;font-weight:600;color:#374151;display:inline-block;'>"
+        f"{kw} <span style='color:#6b7280;font-weight:400'>{cnt}</span></span>"
+        for kw, cnt in keywords
+    )
 
 
 def _rank_change_html(prev_rank: int, cur_rank: int) -> str:
@@ -221,6 +250,17 @@ if not open_brand:
         with rc:
             st.markdown(_region_bar(b["regions"]), unsafe_allow_html=True)
 
+    st.divider()
+
+    # ── 브랜드별 핵심 키워드 ─────────────────────────────────────────────
+    st.markdown("##### 🔑 브랜드별 핵심 키워드")
+    st.caption("언급 콘텐츠의 댓글에서 가장 많이 등장한 키워드 (괄호 안은 언급 횟수)")
+    for b in ranked:
+        lc, rc = st.columns([1, 5])
+        lc.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+        with rc:
+            st.markdown(_keyword_tags(b["top_keywords"]), unsafe_allow_html=True)
+
     st.stop()
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -297,6 +337,62 @@ try:
                  color=[b["color"] for b in compare])
 except TypeError:
     st.bar_chart(emo_df, use_container_width=True, height=280)
+
+st.divider()
+
+# ── 댓글 분석 ─────────────────────────────────────────────────────────────
+st.markdown("##### 💬 댓글 분석")
+st.caption("브랜드 언급 콘텐츠의 댓글에서 추출한 주요 키워드와 최다 좋아요 댓글")
+cc = st.columns(len(compare))
+for col, b in zip(cc, compare):
+    with col:
+        st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin:6px 0'>{_keyword_tags(b['top_keywords'])}</div>", unsafe_allow_html=True)
+        tc = b["top_comment"]
+        st.markdown(f"> {tc['text']}")
+        st.caption(f"{tc['author']}  ·  ❤️ {tc['likes']:,}")
+
+st.divider()
+
+# ── 오디언스 분석 ─────────────────────────────────────────────────────────
+st.markdown("##### 👥 오디언스 분석")
+st.caption("언급 콘텐츠를 만든 크리에이터/시청자 구성")
+
+ac1, ac2, ac3 = st.columns(3)
+with ac1:
+    st.markdown("**크리에이터 규모 분포**")
+    tier_labels = list(compare[0]["creator_tiers"].keys()) if compare else []
+    tier_df = pd.DataFrame(
+        {b["name"]: [b["creator_tiers"].get(t, 0) for t in tier_labels] for b in compare},
+        index=tier_labels,
+    )
+    try:
+        st.bar_chart(tier_df, use_container_width=True, height=260,
+                     color=[b["color"] for b in compare])
+    except TypeError:
+        st.bar_chart(tier_df, use_container_width=True, height=260)
+
+with ac2:
+    st.markdown("**플랫폼 비중**")
+    plat_labels = list(compare[0]["platform_mix"].keys()) if compare else []
+    plat_df = pd.DataFrame(
+        {b["name"]: [b["platform_mix"].get(p, 0) for p in plat_labels] for b in compare},
+        index=plat_labels,
+    )
+    try:
+        st.bar_chart(plat_df, use_container_width=True, height=260,
+                     color=[b["color"] for b in compare])
+    except TypeError:
+        st.bar_chart(plat_df, use_container_width=True, height=260)
+
+with ac3:
+    st.markdown("**시청자 성별 비중**")
+    for b in compare:
+        st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+        st.progress(
+            b["gender"].get("여성", 0) / 100,
+            text=f"여성 {b['gender'].get('여성', 0)}%  ·  남성 {b['gender'].get('남성', 0)}%",
+        )
 
 st.divider()
 
