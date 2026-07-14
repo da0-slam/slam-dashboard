@@ -7,13 +7,16 @@
 실제 데이터 연동은 추후 구현 예정. 지금은 _MOCK_BRANDS의 하드코딩된
 값으로 화면 구조만 보여준다.
 
-추천 스코어 공식 (0~100, 코호트 내 상대 정규화):
-    40% Total Reach(조회수 합) + 25% Total Engagement(좋아요+댓글+공유+저장)
-  + 15% Engagement Rate(참여/조회) + 10% Content Volume(게시물 수)
-  + 10% Creator Diversity(고유 인플루언서 수)
-실제 연동 시 campaign_posts/koc_contents를 brand_id 기준으로 집계하면
-새 스크래핑 없이 바로 계산 가능. 감성(Content Emotions/AI 요약)은
-댓글 텍스트에 대한 별도 LLM 분석이 필요해 2차 확장 항목으로 둔다.
+실데이터 설계 (2026-07-14 확정, 아직 미구현 — 목업 구조만 이 설계를 따름):
+    1. 브랜드별로 핵심 상품 2개를 지정 (상품명 기준)
+    2. 각 상품명으로 Apify 키워드 검색 (TikTok/Instagram/샤오홍슈) 실행
+       → 상품별 "개수"(검색된 영상/게시물 수)와 "인게이지먼트"(좋아요+댓글+공유 합) 확보
+    3. 상품 점수 = 개수·인게이지먼트를 정규화해 산출 (product.score)
+    4. 브랜드 점수 = 핵심 상품 2개 점수의 평균
+    5. 브랜드 점수로 전체 랭킹 산출
+데이터는 브랜드별로만 가져온다 — 해시태그/카테고리 전체 스캔이 아니라
+"이 브랜드의 이 상품 이름"으로 검색된 결과만 사용. Apify 비용·검색
+모드 쿠키 요구사항 등은 실구현 전에 별도로 확인 필요.
 """
 import streamlit as st
 import pandas as pd
@@ -30,6 +33,10 @@ _MOCK_BRANDS = [
         "name": "23yearsold", "score": 92.4, "prev_rank": 1,
         "total_views": 18_400_000, "total_engagement": 612_000,
         "mentions": 342, "creators": 58,
+        "products": [
+            {"name": "그린 컨실러", "count": 198, "engagement": 355_000, "score": 95.8},
+            {"name": "선크림 스틱", "count": 144, "engagement": 257_000, "score": 89.0},
+        ],
         "sentiment": {"positive": 71, "neutral": 22, "negative": 7},
         "trend": [8, 9, 9, 10, 11, 12, 13, 14, 15, 16, 17, 17, 18, 18.4],
         "ugc_pct": 34,
@@ -45,6 +52,10 @@ _MOCK_BRANDS = [
         "name": "유이크(UIQ)", "score": 85.6, "prev_rank": 3,
         "total_views": 14_200_000, "total_engagement": 471_000,
         "mentions": 276, "creators": 45,
+        "products": [
+            {"name": "리페어 세럼", "count": 146, "engagement": 250_000, "score": 88.2},
+            {"name": "배리어 크림", "count": 130, "engagement": 221_000, "score": 83.0},
+        ],
         "sentiment": {"positive": 64, "neutral": 27, "negative": 9},
         "trend": [7, 7.4, 7.8, 8.2, 8.7, 9.3, 9.9, 10.4, 11.2, 11.8, 12.5, 13.1, 13.7, 14.2],
         "ugc_pct": 27,
@@ -60,6 +71,10 @@ _MOCK_BRANDS = [
         "name": "리쥬올", "score": 76.3, "prev_rank": 2,
         "total_views": 10_500_000, "total_engagement": 318_000,
         "mentions": 214, "creators": 36,
+        "products": [
+            {"name": "리프팅 앰플", "count": 111, "engagement": 166_000, "score": 79.6},
+            {"name": "아이크림", "count": 103, "engagement": 152_000, "score": 73.0},
+        ],
         "sentiment": {"positive": 59, "neutral": 30, "negative": 11},
         "trend": [5, 5.3, 5.6, 6, 6.4, 6.9, 7.3, 7.8, 8.3, 8.9, 9.4, 9.9, 10.2, 10.5],
         "ugc_pct": 21,
@@ -75,6 +90,10 @@ _MOCK_BRANDS = [
         "name": "헤브블루", "score": 65.8, "prev_rank": 4,
         "total_views": 6_800_000, "total_engagement": 192_000,
         "mentions": 143, "creators": 24,
+        "products": [
+            {"name": "클렌징밤", "count": 76, "engagement": 102_000, "score": 69.4},
+            {"name": "토너패드", "count": 67, "engagement": 90_000, "score": 62.2},
+        ],
         "sentiment": {"positive": 52, "neutral": 33, "negative": 15},
         "trend": [3, 3.2, 3.4, 3.7, 4.0, 4.3, 4.6, 5.0, 5.3, 5.7, 6.0, 6.3, 6.6, 6.8],
         "ugc_pct": 14,
@@ -281,6 +300,24 @@ _ranked_all = sorted(_MOCK_BRANDS, key=lambda x: x["score"], reverse=True)
 _rank_of = {b["name"]: i + 1 for i, b in enumerate(_ranked_all)}
 
 st.title("🏆 브랜드 비교")
+
+# ── 핵심 상품 성과 (브랜드 점수 산출 근거) ────────────────────────────────
+st.markdown("##### 🔎 핵심 상품 성과")
+st.caption("각 브랜드의 핵심 상품 2개를 Apify로 검색해 개수·인게이지먼트로 상품 점수를 산출하고, "
+           "두 상품 점수의 평균을 브랜드 점수로 사용합니다.")
+pc = st.columns(len(compare))
+for col, b in zip(pc, compare):
+    with col:
+        st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+        prod_df = pd.DataFrame([
+            {"상품명": p["name"], "개수": p["count"], "인게이지먼트": _fmt_num(p["engagement"]), "상품 점수": p["score"]}
+            for p in b["products"]
+        ])
+        st.dataframe(prod_df, use_container_width=True, hide_index=True)
+        avg_score = sum(p["score"] for p in b["products"]) / len(b["products"])
+        st.caption(f"→ 브랜드 점수 {avg_score:.1f} (두 상품 평균)")
+
+st.divider()
 
 cols = st.columns(len(compare))
 for col, b in zip(cols, compare):
