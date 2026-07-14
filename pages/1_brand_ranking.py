@@ -12,26 +12,82 @@
 
     샤오홍슈는 검색 모드가 쿠키 없이 불안정하고 계정 정지 리스크가 있어
     이번 1차 파이프라인에서는 제외 (TikTok+Instagram만 사용).
-    브랜드 공식 영문명: 리쥬올 → Dr.Reju-All, 헤브블루 → HeveBlue.
+    브랜드 공식 영문명: 닥터리쥬올 → Dr.Reju-All, 헤브블루 → HeveBlue.
 """
-import json
 import streamlit as st
 import pandas as pd
-from pathlib import Path
+from collections import Counter
+
+from utils.supabase_client import get_brand_ranking_content, get_brand_ranking_names
 
 st.set_page_config(page_title="브랜드 랭킹", page_icon="🏆", layout="wide")
 
-_SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "data" / "brand_ranking_snapshot.json"
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_ranking_content(brand_name: str) -> list[dict]:
+    return get_brand_ranking_content(brand_name)
 
 
-def _load_snapshot() -> dict | None:
-    if not _SNAPSHOT_PATH.exists():
-        return None
-    try:
-        with open(_SNAPSHOT_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+@st.cache_data(ttl=300, show_spinner=False)
+def _ranking_brand_names() -> list[str]:
+    return get_brand_ranking_names()
+
+
+# 핵심 상품 2개 키워드 (scripts/compute_brand_ranking.py와 동일 — 캡션/해시태그 매칭용)
+_PRODUCT_KEYWORDS = {
+    "23yearsold": [
+        ("더마 씬 컨실러", ["derma thin concealer", "concealer"]),
+        ("하트리프 씬 쿠션", ["heartleaf thin cushion", "heartleaf cushion"]),
+    ],
+    "유이크(UIQ)": [
+        ("바이옴 베리어 크림 미스트", ["biome barrier mist", "biome barrier"]),
+        ("콜라겐 퍼밍 클렌징밤", ["collagen firming cleansing balm", "firming cleansing balm"]),
+    ],
+    "닥터리쥬올": [
+        ("PDRN 리쥬버네이팅 크림", ["pdrn rejuvenating cream", "pdrn cream", "pdrn"]),
+        ("레티노-멜라 세럼", ["retino-mela serum", "retino mela serum"]),
+    ],
+    "헤브블루": [
+        ("살몬 케어링 센텔라 토너", ["salmon centella toner", "centella toner"]),
+        ("살몬 케어링 센텔라 크림/앰플", ["salmon centella ampoule", "centella cream", "centella ampoule"]),
+    ],
+}
+
+
+def _match_product(text: str, hashtags: list | None, keyword_list: list[tuple[str, list[str]]]) -> str | None:
+    haystack = (text or "").lower() + " " + " ".join(hashtags or []).lower()
+    for product_name, keywords in keyword_list:
+        if any(kw in haystack for kw in keywords):
+            return product_name
+    return None
+
+
+def _compute_brand_from_content(brand_name: str, rows: list[dict]) -> dict:
+    total_views = sum(r.get("views") or 0 for r in rows)
+    total_engagement = sum((r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0) for r in rows)
+    creators = len({r["channel_username"] for r in rows if r.get("channel_username")})
+
+    keyword_list = _PRODUCT_KEYWORDS.get(brand_name, [])
+    product_stats = {name: {"count": 0, "engagement": 0} for name, _ in keyword_list}
+    for r in rows:
+        matched = _match_product(r.get("title"), r.get("hashtags"), keyword_list)
+        if matched:
+            product_stats[matched]["count"] += 1
+            product_stats[matched]["engagement"] += (r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0)
+
+    region_counter = Counter(r["region_code"] for r in rows if r.get("region_code"))
+    region_total = sum(region_counter.values()) or 1
+    regions = {k: round(v / region_total * 100, 1) for k, v in region_counter.most_common(6)}
+
+    return {
+        "mentions": len(rows),
+        "total_views": total_views,
+        "total_engagement": total_engagement,
+        "creators": creators,
+        "product_stats": product_stats,
+        "regions": regions,
+        "region_sample_size": sum(region_counter.values()),
+    }
 
 # 앱 전체에서 재사용 중인 팔레트(_comment_avatar_color, 6_content_performance.py)와 동일 —
 # 브랜드별 색을 화면 전체에서 고정 배정 (순위가 바뀌어도 색은 브랜드에 고정)
@@ -78,7 +134,7 @@ _MOCK_BRANDS = [
         "gender": {"여성": 76, "남성": 24},
     },
     {
-        "name": "리쥬올", "score": 76.3, "prev_rank": 2,
+        "name": "닥터리쥬올", "score": 76.3, "prev_rank": 2,
         "total_views": 10_500_000, "total_engagement": 318_000,
         "mentions": 214, "creators": 36,
         "products": [
@@ -119,26 +175,56 @@ _MOCK_BRANDS = [
 for i, b in enumerate(_MOCK_BRANDS):
     b["color"] = _PALETTE[i % len(_PALETTE)]
 
-# ── 실데이터 스냅샷 병합 (있으면 score/products/mentions/engagement/views를 실값으로 교체) ──
-_snapshot = _load_snapshot()
-HAS_REAL_DATA = _snapshot is not None
-if _snapshot:
-    _snap_products_by_brand: dict[str, list] = {}
-    for p in _snapshot.get("products", []):
-        _snap_products_by_brand.setdefault(p["brand"], []).append(p)
+# ── 실데이터 병합 (Supabase brand_ranking_content에 데이터가 있으면 실값으로 교체) ──
+# 시트 탭 이름과 화면 표시명이 다를 경우를 위한 별칭 매핑 (현재는 이름 통일로 비어있음)
+_BRAND_NAME_ALIASES: dict[str, str] = {}
 
-    for b in _MOCK_BRANDS:
-        real_products = _snap_products_by_brand.get(b["name"])
-        if not real_products:
-            continue
-        b["products"] = [
-            {"name": p["product_name"], "count": p["count"], "engagement": p["engagement"], "score": p["score"]}
-            for p in real_products
-        ]
-        b["score"] = _snapshot.get("brand_scores", {}).get(b["name"], b["score"])
-        b["mentions"] = sum(p["count"] for p in real_products)
-        b["total_engagement"] = sum(p["engagement"] for p in real_products)
-        b["total_views"] = sum(p.get("views", 0) for p in real_products)
+_real_brand_names = set(_ranking_brand_names())
+HAS_REAL_DATA = bool(_real_brand_names)
+
+_all_product_counts, _all_product_engagements = [], []
+_real_computed: dict[str, dict] = {}
+for b in _MOCK_BRANDS:
+    _lookup_name = _BRAND_NAME_ALIASES.get(b["name"], b["name"])
+    if _lookup_name not in _real_brand_names:
+        continue
+    rows = _load_ranking_content(_lookup_name)
+    if not rows:
+        continue
+    computed = _compute_brand_from_content(b["name"], rows)
+    _real_computed[b["name"]] = computed
+    for stats in computed["product_stats"].values():
+        _all_product_counts.append(stats["count"])
+        _all_product_engagements.append(stats["engagement"])
+
+_max_p_count = max(_all_product_counts, default=0)
+_max_p_engagement = max(_all_product_engagements, default=0)
+
+
+def _product_score(count: int, engagement: int) -> float:
+    count_norm = (count / _max_p_count * 100) if _max_p_count else 0
+    eng_norm = (engagement / _max_p_engagement * 100) if _max_p_engagement else 0
+    return round(count_norm * 0.4 + eng_norm * 0.6, 1)
+
+
+for b in _MOCK_BRANDS:
+    computed = _real_computed.get(b["name"])
+    if not computed:
+        continue
+    products = [
+        {"name": name, "count": stats["count"], "engagement": stats["engagement"],
+         "score": _product_score(stats["count"], stats["engagement"])}
+        for name, stats in computed["product_stats"].items()
+    ]
+    b["products"] = products
+    b["score"] = round(sum(p["score"] for p in products) / len(products), 1) if products else b["score"]
+    b["mentions"] = computed["mentions"]
+    b["total_engagement"] = computed["total_engagement"]
+    b["total_views"] = computed["total_views"]
+    b["creators"] = computed["creators"]
+    if computed["regions"]:
+        b["regions"] = computed["regions"]
+        b["region_sample_size"] = computed["region_sample_size"]
 
 _REGION_COLORS = {
     "한국": "#6366f1", "미국": "#3b82f6", "중국": "#ef4444",
@@ -203,9 +289,16 @@ def _sentiment_bar(sent: dict, height: int = 14) -> str:
 
 
 if HAS_REAL_DATA:
+    _missing = [
+        b["name"] for b in _MOCK_BRANDS
+        if _BRAND_NAME_ALIASES.get(b["name"], b["name"]) not in _real_brand_names
+    ]
     st.caption(
-        "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수는 Apify(TikTok+Instagram) 실검색 결과입니다. "
-        "🚧 감성·지역·오디언스·댓글 키워드 등 나머지는 아직 예시 데이터입니다."
+        "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수·지역은 Supabase에 저장된 실제 TikTok UGC "
+        f"콘텐츠 데이터입니다 ({', '.join(sorted(_real_brand_names))}). "
+        + (f"🚧 {', '.join(_missing)}는 아직 데이터가 없어 예시 값입니다. " if _missing else "")
+        + "🚧 감성·오디언스(크리에이터 규모/플랫폼 비중/성별)·댓글 키워드는 아직 예시 데이터입니다. "
+        "지역 데이터는 위치 태그가 달린 콘텐츠만 반영되어 표본이 작을 수 있습니다."
     )
 else:
     st.caption("🚧 임시 화면입니다.")
@@ -292,19 +385,20 @@ if not open_brand:
 
     # ── 국가·지역별 비중 ─────────────────────────────────────────────────
     st.markdown("##### 🌍 국가·지역별 비중")
-    st.caption("브랜드 언급 콘텐츠의 지역 분포 — '글로벌 영향력' 스코어의 지리적 구성")
-    region_legend = "".join(
-        f"<span style='margin-right:14px;font-size:12px;color:#374151;'>"
-        f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
-        f"background:{c};margin-right:4px;'></span>{name}</span>"
-        for name, c in _REGION_COLORS.items()
+    st.caption(
+        "브랜드 언급 콘텐츠의 지역 분포 — '글로벌 영향력' 스코어의 지리적 구성. "
+        "실데이터 브랜드는 위치 태그가 달린 콘텐츠만 반영된 국가코드(예: US, PH)이며, 표본이 작을 수 있습니다."
     )
-    st.markdown(f"<div style='margin-bottom:8px'>{region_legend}</div>", unsafe_allow_html=True)
     for b in ranked:
         lc, rc = st.columns([1, 5])
         lc.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
         with rc:
             st.markdown(_region_bar(b["regions"]), unsafe_allow_html=True)
+            _region_txt = "  ·  ".join(f"{k} {v}%" for k, v in b["regions"].items())
+            sample = b.get("region_sample_size")
+            if sample:
+                _region_txt += f"  (표본 {sample}건)"
+            st.caption(_region_txt or "데이터 없음")
 
     st.divider()
 

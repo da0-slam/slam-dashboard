@@ -206,6 +206,37 @@ def get_brands() -> list[dict]:
     return res.data or []
 
 
+def get_brand_ranking_content(brand_name: str) -> list[dict]:
+    """브랜드 랭킹용 UGC 콘텐츠 전체 조회 (1000행 페이지네이션 처리)."""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        res = (get_supabase().table("brand_ranking_content")
+               .select("*").eq("brand_name", brand_name)
+               .range(offset, offset + 999).execute())
+        batch = res.data or []
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        offset += 1000
+    return rows
+
+
+def get_brand_ranking_names() -> list[str]:
+    """brand_ranking_content에 데이터가 있는 브랜드명 목록."""
+    names: set[str] = set()
+    offset = 0
+    while True:
+        res = (get_supabase().table("brand_ranking_content")
+               .select("brand_name").range(offset, offset + 999).execute())
+        batch = res.data or []
+        names.update(r["brand_name"] for r in batch)
+        if len(batch) < 1000:
+            break
+        offset += 1000
+    return sorted(names)
+
+
 def get_brand_strategies(brand_id: str) -> list[dict]:
     """브랜드의 모든 가이드 문서 목록 (최근 수정 순)."""
     res = (get_supabase().table("brand_strategy")
