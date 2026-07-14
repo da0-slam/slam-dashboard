@@ -1,27 +1,37 @@
-"""브랜드 랭킹 (UI 목업) — OWM 입점 브랜드 글로벌 영향력 스코어링.
+"""브랜드 랭킹 — OWM 입점 브랜드 글로벌 영향력 스코어링.
 
-로그인 없이 볼 수 있는 공개 페이지 (전략 문서 공개 뷰어 _strategy_view.py와 동일한
-성격 — 우선 로그인 게이트 없이 열어두고, 필요해지면 _strategy_view.py처럼
-토큰 기반 접근 제어를 추가할 수 있다).
+실데이터 파이프라인 (scripts/compute_brand_ranking.py, 2026-07-14 1차 실행 완료):
+    1. 브랜드별 핵심 상품 2개의 "영어" 검색어로 TikTok(자유 텍스트 검색)과
+       Instagram(해시태그 검색)을 조회
+    2. 상품별 "개수"(검색된 영상/게시물 수)와 "인게이지먼트"(좋아요+댓글+공유 합) 집계
+    3. 상품 점수 = 개수·인게이지먼트를 정규화해 산출
+    4. 브랜드 점수 = 핵심 상품 2개 점수의 평균 → 이 값으로 전체 랭킹 산출
+    스코어/상품 성과/조회수/참여수/언급수는 위 파이프라인의 실제 결과
+    (data/brand_ranking_snapshot.json)로 대체됨. 감성·지역·오디언스·댓글
+    키워드 등 나머지 섹션은 아직 별도 파이프라인이 없어 예시 데이터임.
 
-실제 데이터 연동은 추후 구현 예정. 지금은 _MOCK_BRANDS의 하드코딩된
-값으로 화면 구조만 보여준다.
-
-실데이터 설계 (2026-07-14 확정, 아직 미구현 — 목업 구조만 이 설계를 따름):
-    1. 브랜드별로 핵심 상품 2개를 지정 (상품명 기준)
-    2. 각 상품명으로 Apify 키워드 검색 (TikTok/Instagram/샤오홍슈) 실행
-       → 상품별 "개수"(검색된 영상/게시물 수)와 "인게이지먼트"(좋아요+댓글+공유 합) 확보
-    3. 상품 점수 = 개수·인게이지먼트를 정규화해 산출 (product.score)
-    4. 브랜드 점수 = 핵심 상품 2개 점수의 평균
-    5. 브랜드 점수로 전체 랭킹 산출
-데이터는 브랜드별로만 가져온다 — 해시태그/카테고리 전체 스캔이 아니라
-"이 브랜드의 이 상품 이름"으로 검색된 결과만 사용. Apify 비용·검색
-모드 쿠키 요구사항 등은 실구현 전에 별도로 확인 필요.
+    샤오홍슈는 검색 모드가 쿠키 없이 불안정하고 계정 정지 리스크가 있어
+    이번 1차 파이프라인에서는 제외 (TikTok+Instagram만 사용).
+    브랜드 공식 영문명: 리쥬올 → Dr.Reju-All, 헤브블루 → HeveBlue.
 """
+import json
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 
 st.set_page_config(page_title="브랜드 랭킹", page_icon="🏆", layout="wide")
+
+_SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "data" / "brand_ranking_snapshot.json"
+
+
+def _load_snapshot() -> dict | None:
+    if not _SNAPSHOT_PATH.exists():
+        return None
+    try:
+        with open(_SNAPSHOT_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 # 앱 전체에서 재사용 중인 팔레트(_comment_avatar_color, 6_content_performance.py)와 동일 —
 # 브랜드별 색을 화면 전체에서 고정 배정 (순위가 바뀌어도 색은 브랜드에 고정)
@@ -109,6 +119,27 @@ _MOCK_BRANDS = [
 for i, b in enumerate(_MOCK_BRANDS):
     b["color"] = _PALETTE[i % len(_PALETTE)]
 
+# ── 실데이터 스냅샷 병합 (있으면 score/products/mentions/engagement/views를 실값으로 교체) ──
+_snapshot = _load_snapshot()
+HAS_REAL_DATA = _snapshot is not None
+if _snapshot:
+    _snap_products_by_brand: dict[str, list] = {}
+    for p in _snapshot.get("products", []):
+        _snap_products_by_brand.setdefault(p["brand"], []).append(p)
+
+    for b in _MOCK_BRANDS:
+        real_products = _snap_products_by_brand.get(b["name"])
+        if not real_products:
+            continue
+        b["products"] = [
+            {"name": p["product_name"], "count": p["count"], "engagement": p["engagement"], "score": p["score"]}
+            for p in real_products
+        ]
+        b["score"] = _snapshot.get("brand_scores", {}).get(b["name"], b["score"])
+        b["mentions"] = sum(p["count"] for p in real_products)
+        b["total_engagement"] = sum(p["engagement"] for p in real_products)
+        b["total_views"] = sum(p.get("views", 0) for p in real_products)
+
 _REGION_COLORS = {
     "한국": "#6366f1", "미국": "#3b82f6", "중국": "#ef4444",
     "동남아": "#f59e0b", "기타": "#d1d5db",
@@ -171,7 +202,13 @@ def _sentiment_bar(sent: dict, height: int = 14) -> str:
     return f"<div style='display:flex;width:100%;border-radius:4px;overflow:hidden;'>{bars}</div>"
 
 
-st.caption("🚧 임시 화면입니다.")
+if HAS_REAL_DATA:
+    st.caption(
+        "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수는 Apify(TikTok+Instagram) 실검색 결과입니다. "
+        "🚧 감성·지역·오디언스·댓글 키워드 등 나머지는 아직 예시 데이터입니다."
+    )
+else:
+    st.caption("🚧 임시 화면입니다.")
 
 open_brand = st.session_state.get("rank_open_brand")
 
