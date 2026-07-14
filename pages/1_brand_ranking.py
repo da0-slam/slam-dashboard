@@ -27,44 +27,72 @@ _PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444"]
 # ── MOCK 데이터 (추후 campaign_posts/koc_contents 집계로 교체) ──────────────
 _MOCK_BRANDS = [
     {
-        "name": "23yearsold", "score": 92.4,
+        "name": "23yearsold", "score": 92.4, "prev_rank": 1,
         "total_views": 18_400_000, "total_engagement": 612_000,
         "mentions": 342, "creators": 58,
         "sentiment": {"positive": 71, "neutral": 22, "negative": 7},
         "trend": [8, 9, 9, 10, 11, 12, 13, 14, 15, 16, 17, 17, 18, 18.4],
         "ugc_pct": 34,
         "emotions": {"신뢰": 62, "설렘": 18, "놀라움": 12, "불만": 8},
+        "regions": {"미국": 38, "한국": 22, "동남아": 18, "중국": 14, "기타": 8},
     },
     {
-        "name": "유이크(UIQ)", "score": 85.6,
+        "name": "유이크(UIQ)", "score": 85.6, "prev_rank": 3,
         "total_views": 14_200_000, "total_engagement": 471_000,
         "mentions": 276, "creators": 45,
         "sentiment": {"positive": 64, "neutral": 27, "negative": 9},
         "trend": [7, 7.4, 7.8, 8.2, 8.7, 9.3, 9.9, 10.4, 11.2, 11.8, 12.5, 13.1, 13.7, 14.2],
         "ugc_pct": 27,
         "emotions": {"신뢰": 54, "설렘": 22, "놀라움": 14, "불만": 10},
+        "regions": {"한국": 40, "중국": 22, "미국": 20, "동남아": 12, "기타": 6},
     },
     {
-        "name": "리쥬올", "score": 76.3,
+        "name": "리쥬올", "score": 76.3, "prev_rank": 2,
         "total_views": 10_500_000, "total_engagement": 318_000,
         "mentions": 214, "creators": 36,
         "sentiment": {"positive": 59, "neutral": 30, "negative": 11},
         "trend": [5, 5.3, 5.6, 6, 6.4, 6.9, 7.3, 7.8, 8.3, 8.9, 9.4, 9.9, 10.2, 10.5],
         "ugc_pct": 21,
         "emotions": {"신뢰": 47, "설렘": 24, "놀라움": 16, "불만": 13},
+        "regions": {"한국": 48, "중국": 25, "동남아": 15, "미국": 8, "기타": 4},
     },
     {
-        "name": "헤브블루", "score": 65.8,
+        "name": "헤브블루", "score": 65.8, "prev_rank": 4,
         "total_views": 6_800_000, "total_engagement": 192_000,
         "mentions": 143, "creators": 24,
         "sentiment": {"positive": 52, "neutral": 33, "negative": 15},
         "trend": [3, 3.2, 3.4, 3.7, 4.0, 4.3, 4.6, 5.0, 5.3, 5.7, 6.0, 6.3, 6.6, 6.8],
         "ugc_pct": 14,
         "emotions": {"신뢰": 38, "설렘": 19, "놀라움": 21, "불만": 22},
+        "regions": {"한국": 55, "동남아": 20, "중국": 15, "미국": 6, "기타": 4},
     },
 ]
 for i, b in enumerate(_MOCK_BRANDS):
     b["color"] = _PALETTE[i % len(_PALETTE)]
+
+_REGION_COLORS = {
+    "한국": "#6366f1", "미국": "#3b82f6", "중국": "#ef4444",
+    "동남아": "#f59e0b", "기타": "#d1d5db",
+}
+
+
+def _region_bar(regions: dict, height: int = 14) -> str:
+    total = sum(regions.values()) or 1
+    bars = "".join(
+        f"<div title='{name} {v}%' style='width:{v/total*100:.1f}%;"
+        f"background:{_REGION_COLORS.get(name, '#9ca3af')};height:{height}px;'></div>"
+        for name, v in regions.items() if v > 0
+    )
+    return f"<div style='display:flex;width:100%;border-radius:4px;overflow:hidden;'>{bars}</div>"
+
+
+def _rank_change_html(prev_rank: int, cur_rank: int) -> str:
+    delta = prev_rank - cur_rank
+    if delta > 0:
+        return f"<span style='color:#10b981;font-weight:600;'>▲{delta}</span>"
+    if delta < 0:
+        return f"<span style='color:#ef4444;font-weight:600;'>▼{abs(delta)}</span>"
+    return "<span style='color:#9ca3af;'>─</span>"
 
 
 def _fmt_num(n: float) -> str:
@@ -132,21 +160,23 @@ if not open_brand:
     st.divider()
 
     # ── 랭킹 테이블 ──────────────────────────────────────────────────────
-    hc = st.columns([1, 3, 2, 2, 2, 2, 3, 1])
-    for col, label in zip(hc, ["순위", "브랜드", "스코어", "조회수", "참여수", "언급 영상", "감성", ""]):
+    st.caption("변동은 전 기간(직전 집계 주기) 순위 대비입니다.")
+    hc = st.columns([1, 1, 3, 2, 2, 2, 2, 3, 1])
+    for col, label in zip(hc, ["순위", "변동", "브랜드", "스코어", "조회수", "참여수", "언급 영상", "감성", ""]):
         col.markdown(f"**{label}**")
 
     for rank, b in enumerate(ranked, 1):
-        c = st.columns([1, 3, 2, 2, 2, 2, 3, 1])
+        c = st.columns([1, 1, 3, 2, 2, 2, 2, 3, 1])
         c[0].markdown(f"**{rank}**")
-        c[1].markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
-        c[2].markdown(f"**{b['score']:.1f}**")
-        c[3].markdown(_fmt_num(b["total_views"]))
-        c[4].markdown(_fmt_num(b["total_engagement"]))
-        c[5].markdown(f"{b['mentions']:,}건")
-        with c[6]:
+        c[1].markdown(_rank_change_html(b["prev_rank"], rank), unsafe_allow_html=True)
+        c[2].markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+        c[3].markdown(f"**{b['score']:.1f}**")
+        c[4].markdown(_fmt_num(b["total_views"]))
+        c[5].markdown(_fmt_num(b["total_engagement"]))
+        c[6].markdown(f"{b['mentions']:,}건")
+        with c[7]:
             st.markdown(_sentiment_bar(b["sentiment"]), unsafe_allow_html=True)
-        if c[7].button("열기", key=f"rank_open_{b['name']}", use_container_width=True):
+        if c[8].button("열기", key=f"rank_open_{b['name']}", use_container_width=True):
             st.session_state["rank_open_brand"] = b["name"]
             st.rerun()
 
@@ -173,6 +203,24 @@ if not open_brand:
         with rc:
             st.progress(b["ugc_pct"] / 100, text=f"{b['ugc_pct']}%  ·  {b['mentions']}건")
 
+    st.divider()
+
+    # ── 국가·지역별 비중 ─────────────────────────────────────────────────
+    st.markdown("##### 🌍 국가·지역별 비중")
+    st.caption("브랜드 언급 콘텐츠의 지역 분포 — '글로벌 영향력' 스코어의 지리적 구성")
+    region_legend = "".join(
+        f"<span style='margin-right:14px;font-size:12px;color:#374151;'>"
+        f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
+        f"background:{c};margin-right:4px;'></span>{name}</span>"
+        for name, c in _REGION_COLORS.items()
+    )
+    st.markdown(f"<div style='margin-bottom:8px'>{region_legend}</div>", unsafe_allow_html=True)
+    for b in ranked:
+        lc, rc = st.columns([1, 5])
+        lc.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+        with rc:
+            st.markdown(_region_bar(b["regions"]), unsafe_allow_html=True)
+
     st.stop()
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -188,6 +236,10 @@ default_sel = [open_brand] + [n for n in all_names if n != open_brand][:2]
 selected = st.multiselect("비교할 브랜드", all_names, default=default_sel, key="rank_compare_sel")
 compare = [b for b in _MOCK_BRANDS if b["name"] in selected] or _MOCK_BRANDS[:1]
 
+# 비교 중인 브랜드들 사이에서의 순위(변동 계산 기준)
+_ranked_all = sorted(_MOCK_BRANDS, key=lambda x: x["score"], reverse=True)
+_rank_of = {b["name"]: i + 1 for i, b in enumerate(_ranked_all)}
+
 st.title("🏆 브랜드 비교")
 
 cols = st.columns(len(compare))
@@ -198,6 +250,10 @@ for col, b in zip(cols, compare):
             unsafe_allow_html=True,
         )
         st.metric("글로벌 영향력 스코어", f"{b['score']:.1f}")
+        st.markdown(
+            f"전체 {_rank_of[b['name']]}위  ·  전 기간 대비 {_rank_change_html(b['prev_rank'], _rank_of[b['name']])}",
+            unsafe_allow_html=True,
+        )
         st.metric("총 조회수", _fmt_num(b["total_views"]))
         st.metric("총 참여수", _fmt_num(b["total_engagement"]))
         st.metric("언급 영상", f"{b['mentions']:,}건")
@@ -208,6 +264,24 @@ for col, b in zip(cols, compare):
             f"긍정 {b['sentiment']['positive']}%  ·  중립 {b['sentiment']['neutral']}%  ·  "
             f"부정 {b['sentiment']['negative']}%"
         )
+        st.markdown("**지역 비중**")
+        st.markdown(_region_bar(b["regions"], height=18), unsafe_allow_html=True)
+        top_region = max(b["regions"], key=b["regions"].get)
+        st.caption(f"최다 지역: {top_region} ({b['regions'][top_region]}%)")
+
+st.divider()
+
+st.markdown("##### 🌍 국가·지역별 비중 비교")
+region_labels = list(_REGION_COLORS.keys())
+region_df = pd.DataFrame(
+    {b["name"]: [b["regions"].get(r, 0) for r in region_labels] for b in compare},
+    index=region_labels,
+)
+try:
+    st.bar_chart(region_df, use_container_width=True, height=280,
+                 color=[b["color"] for b in compare])
+except TypeError:
+    st.bar_chart(region_df, use_container_width=True, height=280)
 
 st.divider()
 
@@ -230,6 +304,6 @@ with st.expander("🤖 AI 요약 (최다 좋아요 댓글 기반)", expanded=Tru
     st.caption("아래는 예시 텍스트입니다. 실제 연동 시 좋아요 상위 댓글을 모델에 전달해 요약을 생성합니다.")
     st.markdown(
         "> 소비자들은 전반적으로 **보습력과 흡수 속도**를 가장 많이 언급했습니다. "
-        "특히 **글로우랩**과 **더마리페어**는 '끈적임 없음'에 대한 긍정 언급이 두드러졌고, "
-        "**코스메디언**은 향에 대한 호불호가 갈리는 댓글이 상대적으로 많았습니다."
+        "특히 **23yearsold**와 **유이크(UIQ)**는 '끈적임 없음'에 대한 긍정 언급이 두드러졌고, "
+        "**헤브블루**는 향에 대한 호불호가 갈리는 댓글이 상대적으로 많았습니다."
     )
