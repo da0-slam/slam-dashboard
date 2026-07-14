@@ -193,7 +193,10 @@ st.title("🏆 브랜드 비교")
 cols = st.columns(len(compare))
 for col, b in zip(cols, compare):
     with col:
-        st.markdown(f"{_dot(b['color'])}### {b['name']}", unsafe_allow_html=True)
+        st.markdown(
+            f"<h3 style='margin:0 0 8px'>{_dot(b['color'])}{b['name']}</h3>",
+            unsafe_allow_html=True,
+        )
         st.metric("글로벌 영향력 스코어", f"{b['score']:.1f}")
         st.metric("총 조회수", _fmt_num(b["total_views"]))
         st.metric("총 참여수", _fmt_num(b["total_engagement"]))
