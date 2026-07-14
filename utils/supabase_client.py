@@ -1119,6 +1119,7 @@ def get_campaign_participants_info(campaign_id: str, brand_id: str) -> list[dict
 _APIFY_ACTORS = {
     "tiktok": "clockworks~tiktok-scraper",
     "instagram": "apify~instagram-scraper",
+    "xiaohongshu": "zhorex~rednote-xiaohongshu-scraper",
 }
 
 # 액터 1회 실행에 묶어서 보낼 최대 URL 수 (배치가 클수록 실행 횟수↓ → 속도/비용↓,
@@ -1127,20 +1128,26 @@ _APIFY_MAX_BATCH = 8
 
 
 def detect_platform_from_url(url: str) -> str | None:
-    """URL에서 플랫폼을 추론합니다 (tiktok/instagram만 지원)."""
+    """URL에서 플랫폼을 추론합니다 (tiktok/instagram/xiaohongshu 지원)."""
     u = (url or "").lower()
     if "tiktok.com" in u:
         return "tiktok"
     if "instagram.com" in u:
         return "instagram"
+    if "xiaohongshu.com" in u or "xhslink.com" in u:
+        return "xiaohongshu"
     return None
 
 
 def _extract_stable_id(url: str, platform: str) -> str | None:
     """배치 결과 매칭용 ID. URL 자체에 이미 들어있는 경우만 추출 가능
-    (instagram만 사용 — tiktok은 submittedVideoUrl 에코로 매칭하므로 불필요)."""
+    (instagram/xiaohongshu만 사용 — tiktok은 submittedVideoUrl 에코로 매칭하므로 불필요).
+    xhslink.com 단축 URL은 ID를 알 수 없어 None (개별 실행으로 폴백)."""
     if platform == "instagram":
         m = re.search(r"/(?:p|reel|tv)/([^/?#]+)", url or "")
+        return m.group(1) if m else None
+    if platform == "xiaohongshu":
+        m = re.search(r"/(?:discovery/item|explore)/([0-9a-fA-F]+)", url or "")
         return m.group(1) if m else None
     return None
 
@@ -1197,7 +1204,7 @@ def _map_apify_item(item: dict, platform: str) -> dict:
             # 액터가 제출한 URL을 그대로 돌려주는 필드 — 단축 URL이어도 원본과 정확히 매칭 가능
             "_submitted_url": _norm_url(item.get("submittedVideoUrl") or ""),
         }
-    else:  # instagram
+    elif platform == "instagram":
         images = item.get("images") or []
         post_url = ""
         for field in ("videoUrl", "url", "postUrl"):
@@ -1207,7 +1214,7 @@ def _map_apify_item(item: dict, platform: str) -> dict:
                 break
         sc_m = re.search(r"/(?:p|reel|tv)/([^/?#]+)", post_url)
         return {
-            "views":    int(item.get("videoViewCount") or item.get("videoPlayCount") or 0),
+            "views":    int(item.get("videoPlayCount") or item.get("videoViewCount") or 0),
             "likes":    int(item.get("likesCount") or 0),
             "comments": int(item.get("commentsCount") or 0),
             "saves":    int(item.get("savesCount") or 0),
@@ -1217,17 +1224,47 @@ def _map_apify_item(item: dict, platform: str) -> dict:
             "username":      (item.get("ownerUsername") or "").lower(),
             "_id":           sc_m.group(1) if sc_m else None,
         }
+    else:  # xiaohongshu
+        images = item.get("images") or []
+        author = item.get("author") or {}
+        return {
+            "views":    int(item.get("views") or 0),
+            "likes":    int(item.get("likes") or 0),
+            "comments": int(item.get("comments") or 0),
+            "saves":    int(item.get("saves") or 0),
+            "shares":   int(item.get("shares") or 0),
+            "thumbnail_url": images[0] if images else None,
+            "upload_date":   (str(item.get("publishedAt") or ""))[:10] or None,
+            "username":      (author.get("nickname") or item.get("authorName") or "").lower(),
+            "_id":           item.get("postId"),
+        }
 
 
 def _strip_internal(mapped: dict) -> dict:
     return {k: v for k, v in mapped.items() if not k.startswith("_")}
 
 
+def _build_run_input(platform: str, urls: list[str]) -> dict:
+    if platform == "tiktok":
+        return {"postURLs": urls, "shouldDownloadVideos": False, "shouldDownloadCovers": False}
+    if platform == "instagram":
+        return {"directUrls": urls, "resultsType": "posts", "resultsLimit": len(urls)}
+    if platform == "xiaohongshu":
+        run_input = {"mode": "post_details", "postUrls": urls}
+        cookie = os.environ.get("XIAOHONGSHU_COOKIE", "").strip()
+        if cookie:
+            run_input["cookieString"] = cookie
+        return run_input
+    return {}
+
+
 def fetch_metrics_from_apify_debug(post_url: str, platform: str) -> tuple[dict | None, str]:
     """Apify 액터를 동기 실행해 게시물 1건의 성과 지표를 가져옵니다.
 
-    - platform == 'tiktok'    → actor: clockworks/tiktok-scraper
-    - platform == 'instagram' → actor: apify/instagram-scraper
+    - platform == 'tiktok'      → actor: clockworks/tiktok-scraper
+    - platform == 'instagram'   → actor: apify/instagram-scraper
+    - platform == 'xiaohongshu' → actor: zhorex/rednote-xiaohongshu-scraper (쿠키 없이는
+      xsec_token이 URL에 있는 경우만 안정적으로 동작 — 없으면 login_required 에러)
     returns: (metrics_dict_or_None, debug_reason)
       metrics_dict: {views, likes, comments, saves, shares, thumbnail_url, upload_date, username}
     """
@@ -1240,11 +1277,7 @@ def fetch_metrics_from_apify_debug(post_url: str, platform: str) -> tuple[dict |
     if not post_url:
         return None, "URL이 비어있음"
 
-    run_input = (
-        {"postURLs": [post_url], "shouldDownloadVideos": False, "shouldDownloadCovers": False}
-        if platform == "tiktok"
-        else {"directUrls": [post_url], "resultsType": "posts", "resultsLimit": 1}
-    )
+    run_input = _build_run_input(platform, [post_url])
     items, reason = _run_apify_actor(actor, run_input, token)
     if items is None:
         return None, reason
@@ -1324,7 +1357,7 @@ def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tu
                         result[u] = (None, "Apify 결과에서 해당 게시물을 찾지 못함 (삭제/비공개 가능성)")
             continue
 
-        # instagram: shortcode 기반 매칭
+        # instagram/xiaohongshu: URL 자체에서 뽑은 ID로 매칭
         tagged = [(u, _extract_stable_id(u, platform)) for u in urls]
         with_id = [(u, sid) for u, sid in tagged if sid]
         without_id = [u for u, sid in tagged if not sid]
@@ -1332,9 +1365,7 @@ def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tu
         for i in range(0, len(with_id), _APIFY_MAX_BATCH):
             chunk = with_id[i:i + _APIFY_MAX_BATCH]
             chunk_urls = [u for u, _ in chunk]
-            run_input = {
-                "directUrls": chunk_urls, "resultsType": "posts", "resultsLimit": len(chunk_urls),
-            }
+            run_input = _build_run_input(platform, chunk_urls)
             batch_items, reason = _run_apify_actor(actor, run_input, token)
             if batch_items is None:
                 for u, _ in chunk:

@@ -437,6 +437,7 @@ with tab1:
         ig_posts          = int((df["platform"] == "instagram").sum())
         tt_posts          = int((df["platform"] == "tiktok").sum())
         x_posts           = int((df["platform"] == "x").sum())
+        xhs_posts         = int((df["platform"] == "xiaohongshu").sum())
         other_posts       = int((df["platform"] == "other").sum())
         total_views       = int(df["views"].sum())
         total_likes       = int(df["likes"].sum())
@@ -489,7 +490,7 @@ with tab1:
         c2.metric("총 게시물",       f"{total_posts:,}")
         c3.metric("Instagram",      f"{ig_posts:,}")
         c4.metric("TikTok",         f"{tt_posts:,}")
-        c5.metric("X / 기타",       f"{x_posts + other_posts:,}")
+        c5.metric("X / 기타",       f"{x_posts + xhs_posts + other_posts:,}")
 
         c6, c7, c8, c9, c10 = st.columns(5)
         c6.metric("평균 참여율",f"{avg_er:.1f}%")
