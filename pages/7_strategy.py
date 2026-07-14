@@ -1,4 +1,4 @@
-"""전략 페이지 — 브랜드 전용 전략 문서 (브랜드 가이드 / 캠페인 목표 / 경쟁사 레퍼런스)."""
+"""전략 페이지 — 브랜드별 콘텐츠 가이드 문서 (여러 개 생성 가능)."""
 import streamlit as st
 import re
 import os as _os
@@ -8,8 +8,11 @@ from utils.auth import require_auth, sidebar_user_info, get_active_brand_id, blo
 from utils.supabase_client import (
     get_brands,
     get_user_profile,
-    get_brand_strategy,
-    upsert_brand_strategy,
+    get_brand_strategies,
+    get_brand_strategy_by_id,
+    create_brand_strategy,
+    update_brand_strategy,
+    delete_brand_strategy,
     get_strategy_files,
     add_strategy_file,
     delete_strategy_file,
@@ -63,27 +66,129 @@ else:
     except Exception:
         pass
 
+# 브랜드가 바뀌면 열려있던 문서를 닫는다
+if st.session_state.get("strat_brand_ctx") != brand_id:
+    st.session_state["strat_brand_ctx"] = brand_id
+    st.session_state.pop("strat_open_id", None)
+
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 @st.cache_data(ttl=30, show_spinner=False)
-def _load(bid: str) -> dict:
-    return get_brand_strategy(bid)
+def _load_docs(bid: str) -> list[dict]:
+    return get_brand_strategies(bid)
 
 @st.cache_data(ttl=30, show_spinner=False)
-def _load_files(bid: str, section: str) -> list[dict]:
-    return get_strategy_files(bid, section)
+def _load_doc(sid: str) -> dict:
+    return get_brand_strategy_by_id(sid)
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _load_files(sid: str, section: str) -> list[dict]:
+    return get_strategy_files(sid, section)
 
 
 st.title(f"🎯 전략  ·  {brand_name}")
 
-data = _load(brand_id)
+open_id = st.session_state.get("strat_open_id")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 목록 뷰
+# ═══════════════════════════════════════════════════════════════════════════
+
+if not open_id:
+    docs = _load_docs(brand_id)
+
+    if not docs:
+        st.info("아직 생성된 가이드 문서가 없습니다. 아래에서 첫 문서를 만들어보세요.")
+    else:
+        for d in docs:
+            did = d["id"]
+            name = d.get("name") or "(이름 없음)"
+            updated = (d.get("updated_at") or "")[:16].replace("T", " ")
+
+            rename_key = f"strat_rename_{did}"
+            if st.session_state.get(rename_key):
+                rc1, rc2, rc3 = st.columns([5, 1, 1])
+                new_name = rc1.text_input(
+                    "이름", value=name, key=f"strat_rename_input_{did}", label_visibility="collapsed",
+                )
+                if rc2.button("💾", key=f"strat_rename_save_{did}", use_container_width=True):
+                    if new_name.strip():
+                        update_brand_strategy(did, {"name": new_name.strip()})
+                        _load_docs.clear()
+                    st.session_state[rename_key] = False
+                    st.rerun()
+                if rc3.button("취소", key=f"strat_rename_cancel_{did}", use_container_width=True):
+                    st.session_state[rename_key] = False
+                    st.rerun()
+            else:
+                c1, c2, c3, c4 = st.columns([5, 1, 1, 1])
+                c1.markdown(f"**📄 {name}**" + (f"  \n`수정: {updated}`" if updated else ""))
+                if c2.button("열기", key=f"strat_open_{did}", use_container_width=True):
+                    st.session_state["strat_open_id"] = did
+                    st.rerun()
+                if c3.button("✏️", key=f"strat_rename_btn_{did}", use_container_width=True):
+                    st.session_state[rename_key] = True
+                    st.rerun()
+
+                del_key = f"strat_del_confirm_{did}"
+                if st.session_state.get(del_key):
+                    if c4.button("⚠️확인", key=f"strat_del_ok_{did}", use_container_width=True):
+                        delete_brand_strategy(did)
+                        _load_docs.clear()
+                        st.session_state.pop(del_key, None)
+                        st.rerun()
+                else:
+                    if c4.button("🗑️", key=f"strat_del_{did}", use_container_width=True):
+                        st.session_state[del_key] = True
+                        st.rerun()
+            st.divider()
+
+    with st.expander("➕ 새 가이드 만들기", expanded=not docs):
+        new_doc_name = st.text_input(
+            "문서 이름", placeholder="예: NAD+ 가이드, 아젤리산성 가이드", key="strat_new_name",
+        )
+        if st.button("만들기", key="strat_new_create", type="primary"):
+            if not new_doc_name.strip():
+                st.error("문서 이름을 입력해주세요.")
+            else:
+                created = create_brand_strategy(brand_id, new_doc_name.strip())
+                if created:
+                    _load_docs.clear()
+                    st.session_state["strat_open_id"] = created["id"]
+                    st.rerun()
+                else:
+                    st.error("생성에 실패했습니다.")
+
+    st.stop()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 상세 뷰 (open_id가 설정된 상태)
+# ═══════════════════════════════════════════════════════════════════════════
+
+strategy_id = open_id
+data = _load_doc(strategy_id)
+
+if not data:
+    st.error("문서를 찾을 수 없습니다.")
+    if st.button("← 목록으로"):
+        st.session_state.pop("strat_open_id", None)
+        st.rerun()
+    st.stop()
+
+doc_name = data.get("name") or "(이름 없음)"
+
+top1, top2 = st.columns([1, 5])
+if top1.button("← 목록으로", use_container_width=True):
+    st.session_state.pop("strat_open_id", None)
+    st.rerun()
+top2.markdown(f"### 📄 {doc_name}")
 
 # ── 파일 업로드/뷰어 공통 렌더러 ─────────────────────────────────────────────
 def _render_files(section: str):
     st.divider()
     st.markdown("##### 📎 첨부파일")
 
-    files = _load_files(brand_id, section)
-    viewing_key = f"strat_viewing_{brand_id}_{section}"
+    files = _load_files(strategy_id, section)
+    viewing_key = f"strat_viewing_{strategy_id}_{section}"
 
     # 파일 목록
     if files:
@@ -133,7 +238,7 @@ def _render_files(section: str):
         uploaded = st.file_uploader(
             "PDF, 이미지, 문서",
             type=["pdf", "png", "jpg", "jpeg", "gif", "webp", "pptx", "docx", "xlsx"],
-            key=f"strat_uploader_{brand_id}_{section}",
+            key=f"strat_uploader_{strategy_id}_{section}",
             label_visibility="collapsed",
         )
         if uploaded is not None:
@@ -145,7 +250,7 @@ def _render_files(section: str):
                     )
                     if file_url:
                         add_strategy_file(
-                            brand_id, uploaded.name, file_url,
+                            strategy_id, brand_id, uploaded.name, file_url,
                             uploaded.type, len(file_bytes), section=section,
                         )
                         _load_files.clear()
@@ -241,7 +346,7 @@ def _render_with_videos(content: str):
 
 def _render_section(field: str):
     meta = SECTION_META[field]
-    edit_key = f"strat_edit_{field}_{brand_id}"
+    edit_key = f"strat_edit_{field}_{strategy_id}"
     content: str = data.get(field) or ""
 
     if st.session_state.get(edit_key):
@@ -250,21 +355,22 @@ def _render_section(field: str):
             value=content,
             height=380,
             placeholder=meta["placeholder"],
-            key=f"strat_input_{field}_{brand_id}",
+            key=f"strat_input_{field}_{strategy_id}",
             label_visibility="collapsed",
         )
         st.caption("💡 TikTok 또는 Instagram 링크를 붙여넣으면 저장 후 영상이 자동으로 임베드됩니다.")
         col_s, col_c, _ = st.columns([1, 1, 6])
-        if col_s.button("💾 저장", key=f"save_{field}_{brand_id}", type="primary", use_container_width=True):
-            upsert_brand_strategy(brand_id, {field: new_val})
-            _load.clear()
+        if col_s.button("💾 저장", key=f"save_{field}_{strategy_id}", type="primary", use_container_width=True):
+            update_brand_strategy(strategy_id, {field: new_val})
+            _load_docs.clear()
+            _load_doc.clear()
             st.session_state[edit_key] = False
             st.rerun()
-        if col_c.button("취소", key=f"cancel_{field}_{brand_id}", use_container_width=True):
+        if col_c.button("취소", key=f"cancel_{field}_{strategy_id}", use_container_width=True):
             st.session_state[edit_key] = False
             st.rerun()
     else:
-        if st.button("✏️ 편집", key=f"editbtn_{field}_{brand_id}"):
+        if st.button("✏️ 편집", key=f"editbtn_{field}_{strategy_id}"):
             st.session_state[edit_key] = True
             st.rerun()
         if content.strip():
@@ -300,7 +406,9 @@ with tab_export:
     campaign_goals  = data.get("campaign_goals") or ""
     competitor_refs = data.get("competitor_refs") or ""
 
-    md_content = f"""# 🎯 {brand_name} 전략 문서
+    export_title = f"{brand_name} · {doc_name}"
+
+    md_content = f"""# 🎯 {export_title}
 
 ---
 
@@ -324,7 +432,7 @@ with tab_export:
     st.download_button(
         label="⬇️ Markdown (.md) 다운로드",
         data=md_content.encode("utf-8"),
-        file_name=f"{brand_name}_전략.md",
+        file_name=f"{brand_name}_{doc_name}.md",
         mime="text/markdown",
         use_container_width=True,
     )
@@ -348,7 +456,7 @@ with tab_export:
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>{brand_name} 전략 문서</title>
+  <title>{export_title}</title>
   <style>
     body {{ font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
             max-width: 860px; margin: 40px auto; padding: 0 24px;
@@ -377,7 +485,7 @@ with tab_export:
     st.download_button(
         label="⬇️ HTML 다운로드 (브라우저에서 PDF 인쇄 가능)",
         data=html_full.encode("utf-8"),
-        file_name=f"{brand_name}_전략.html",
+        file_name=f"{brand_name}_{doc_name}.html",
         mime="text/html",
         use_container_width=True,
     )
@@ -389,12 +497,12 @@ with tab_export:
     st.caption("로그인 없이 열람 가능합니다. 링크 생성 후 콘텐츠를 수정해도 같은 링크에서 항상 최신 내용을 볼 수 있습니다.")
 
     _site = (_os.environ.get("SITE_URL") or "").rstrip("/")
-    _token_key = f"share_token_{brand_id}"
+    _token_key = f"share_token_{strategy_id}"
 
     _col_btn, _col_del = st.columns([3, 1])
     if _col_btn.button("🔗 공유 링크 생성 (새 링크)", key="share_gen", type="primary", use_container_width=True):
         with st.spinner("링크 생성 중..."):
-            _tok = create_strategy_token(brand_id)
+            _tok = create_strategy_token(brand_id, strategy_id)
         if _tok:
             st.session_state[_token_key] = _tok
         else:

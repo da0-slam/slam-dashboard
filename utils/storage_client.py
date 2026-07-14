@@ -646,10 +646,10 @@ def ensure_strategy_bucket() -> None:
         pass
 
 
-def create_strategy_token(brand_id: str) -> str | None:
+def create_strategy_token(brand_id: str, strategy_id: str) -> str | None:
     """랜덤 UUID 토큰을 JSON 파일로 Storage에 저장하고 토큰 문자열을 반환.
-    tokens/{token}.json → {"brand_id": "..."}
-    같은 brand_id라도 호출할 때마다 새 토큰 생성 (이전 토큰은 유지).
+    tokens/{token}.json → {"brand_id": "...", "strategy_id": "..."}
+    같은 문서라도 호출할 때마다 새 토큰 생성 (이전 토큰은 유지).
     """
     import uuid as _uuid, json as _json
     token = str(_uuid.uuid4())
@@ -659,7 +659,7 @@ def create_strategy_token(brand_id: str) -> str | None:
         resp = requests.post(
             f"{_sb_storage_url()}/object/{_STRATEGY_BUCKET}/{path}",
             headers={**_headers(), "Content-Type": "application/json", "x-upsert": "true"},
-            data=_json.dumps({"brand_id": brand_id}).encode("utf-8"),
+            data=_json.dumps({"brand_id": brand_id, "strategy_id": strategy_id}).encode("utf-8"),
             timeout=15,
         )
         if resp.status_code in (200, 201):
@@ -683,14 +683,16 @@ def revoke_strategy_token(token: str) -> bool:
         return False
 
 
-def resolve_strategy_token(token: str) -> str | None:
-    """토큰으로 brand_id 조회. 유효하지 않으면 None 반환."""
-    import json as _json
+def resolve_strategy_token(token: str) -> dict | None:
+    """토큰으로 {"brand_id", "strategy_id"} 조회. 유효하지 않으면 None 반환.
+    구버전 토큰(strategy_id 없이 brand_id만 저장됨)은 strategy_id가 없는 dict로 반환됨."""
     url = get_public_url(_STRATEGY_BUCKET, f"tokens/{token}.json")
     try:
         resp = requests.get(url, timeout=8)
         if resp.status_code == 200:
-            return resp.json().get("brand_id")
+            data = resp.json()
+            if data.get("brand_id"):
+                return {"brand_id": data["brand_id"], "strategy_id": data.get("strategy_id")}
     except Exception:
         pass
     return None

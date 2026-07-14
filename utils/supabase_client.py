@@ -206,39 +206,54 @@ def get_brands() -> list[dict]:
     return res.data or []
 
 
-def get_brand_strategy(brand_id: str) -> dict:
+def get_brand_strategies(brand_id: str) -> list[dict]:
+    """브랜드의 모든 가이드 문서 목록 (최근 수정 순)."""
     res = (get_supabase().table("brand_strategy")
-           .select("brand_guide,campaign_goals,competitor_refs,updated_at")
-           .eq("brand_id", brand_id).limit(1).execute())
+           .select("id,name,brand_guide,campaign_goals,competitor_refs,created_at,updated_at")
+           .eq("brand_id", brand_id).order("updated_at", desc=True).execute())
+    return res.data or []
+
+
+def get_brand_strategy_by_id(strategy_id: str) -> dict:
+    res = (get_supabase().table("brand_strategy").select("*")
+           .eq("id", strategy_id).limit(1).execute())
     return res.data[0] if res.data else {}
 
 
-def upsert_brand_strategy(brand_id: str, updates: dict) -> bool:
-    sb = get_supabase()
-    existing = sb.table("brand_strategy").select("id").eq("brand_id", brand_id).limit(1).execute()
-    if existing.data:
-        res = (sb.table("brand_strategy")
-               .update({**updates, "updated_at": "now()"})
-               .eq("brand_id", brand_id).execute())
-    else:
-        res = sb.table("brand_strategy").insert({"brand_id": brand_id, **updates}).execute()
+def create_brand_strategy(brand_id: str, name: str) -> dict | None:
+    res = (get_supabase().table("brand_strategy").insert({
+        "brand_id": brand_id, "name": name,
+        "brand_guide": "", "campaign_goals": "", "competitor_refs": "",
+    }).execute())
+    return res.data[0] if res.data else None
+
+
+def update_brand_strategy(strategy_id: str, updates: dict) -> bool:
+    res = (get_supabase().table("brand_strategy")
+           .update({**updates, "updated_at": "now()"})
+           .eq("id", strategy_id).execute())
     return bool(res.data)
 
 
-def get_strategy_files(brand_id: str, section: str | None = None) -> list[dict]:
+def delete_brand_strategy(strategy_id: str) -> bool:
+    get_supabase().table("brand_strategy").delete().eq("id", strategy_id).execute()
+    return True
+
+
+def get_strategy_files(strategy_id: str, section: str | None = None) -> list[dict]:
     q = (get_supabase().table("brand_strategy_files")
-         .select("*").eq("brand_id", brand_id))
+         .select("*").eq("strategy_id", strategy_id))
     if section:
         q = q.eq("section", section)
     res = q.order("uploaded_at", desc=True).execute()
     return res.data or []
 
 
-def add_strategy_file(brand_id: str, file_name: str, file_url: str,
+def add_strategy_file(strategy_id: str, brand_id: str, file_name: str, file_url: str,
                        file_type: str, file_size: int | None = None,
                        section: str = "general") -> dict | None:
     res = (get_supabase().table("brand_strategy_files")
-           .insert({"brand_id": brand_id, "file_name": file_name,
+           .insert({"strategy_id": strategy_id, "brand_id": brand_id, "file_name": file_name,
                     "file_url": file_url, "file_type": file_type,
                     "file_size": file_size, "section": section}).execute())
     return res.data[0] if res.data else None

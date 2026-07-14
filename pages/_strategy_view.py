@@ -4,7 +4,7 @@ import re
 st.set_page_config(page_title="전략 문서", page_icon="📋", layout="wide")
 
 from utils.storage_client import resolve_strategy_token   # noqa: E402
-from utils.supabase_client import get_brand_strategy, get_brands  # noqa: E402
+from utils.supabase_client import get_brand_strategy_by_id, get_brand_strategies, get_brands  # noqa: E402
 
 # ── 토큰 검증 ─────────────────────────────────────────────────────────────────
 token = st.query_params.get("token", "")
@@ -13,11 +13,14 @@ if not token:
     st.stop()
 
 with st.spinner("불러오는 중..."):
-    brand_id = resolve_strategy_token(token)
+    resolved = resolve_strategy_token(token)
 
-if not brand_id:
+if not resolved:
     st.error("링크가 만료되었거나 유효하지 않습니다.")
     st.stop()
+
+brand_id = resolved["brand_id"]
+strategy_id = resolved.get("strategy_id")
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60, show_spinner=False)
@@ -28,11 +31,24 @@ def _brand_name(bid: str) -> str:
         return bid
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _strategy(bid: str) -> dict:
-    return get_brand_strategy(bid) or {}
+def _strategy_by_id(sid: str) -> dict:
+    return get_brand_strategy_by_id(sid) or {}
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _oldest_strategy(bid: str) -> dict:
+    """구버전 토큰(strategy_id 없이 brand_id만 저장된 링크) 폴백 —
+    당시 브랜드에 유일했던 문서를 가리키도록 가장 오래 전에 만들어진 문서를 사용."""
+    docs = get_brand_strategies(bid)
+    return docs[-1] if docs else {}
 
 brand_name = _brand_name(brand_id)
-data = _strategy(brand_id)
+data = _strategy_by_id(strategy_id) if strategy_id else _oldest_strategy(brand_id)
+
+if not data:
+    st.error("문서를 찾을 수 없습니다. 링크가 삭제된 문서를 가리키고 있을 수 있습니다.")
+    st.stop()
+
+doc_name = data.get("name") or ""
 
 # ── 영상 임베드 렌더러 ────────────────────────────────────────────────────────
 _TT_RE = re.compile(r'https?://(?:www\.)?tiktok\.com/@[\w.]+/video/(\d+)')
@@ -97,7 +113,7 @@ st.markdown(
     "<p style='color:#aaa;font-size:0.75em;margin-bottom:4px'>SLAM — 공유된 전략 문서</p>",
     unsafe_allow_html=True,
 )
-st.title(f"📋 {brand_name} 전략 문서")
+st.title(f"📋 {brand_name}" + (f" · {doc_name}" if doc_name else " 전략 문서"))
 st.divider()
 
 brand_guide     = data.get("brand_guide") or ""
