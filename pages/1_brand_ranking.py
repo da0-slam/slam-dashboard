@@ -15,13 +15,15 @@
          comments-scraper 형식: 댓글별 user_region/user_language — 콘텐츠
          위치태그보다 표본이 훨씬 크고 커버리지가 좋음, 예: 헤브블루 855개
          댓글 전부 지역 데이터 있음)
-    3. 상품 점수 = 캡션/해시태그로 핵심 상품 2개에 매칭된 콘텐츠의 개수·
-       인게이지먼트를 정규화해 산출 (개수 40% + 인게이지먼트 60%)
-    4. 브랜드 점수 = 핵심 상품 2개 점수의 평균 → 이 값으로 전체 랭킹 산출
-    5. 지역 분포는 댓글 기반(brand_ranking_comments)을 우선 사용, 없으면
+    3. 브랜드 랭킹 스코어 = 브랜드 전체 지표(조회수 40% + 참여수 25% + 참여율 15%
+       + 언급수 10% + 고유 크리에이터수 10%)를 실데이터 브랜드 코호트 내에서
+       정규화해 산출. ※ 애초 설계는 "핵심 상품 2개 점수의 평균"이었으나, 실데이터로
+       확인해보니 상품명이 캡션에 잘 안 적히는 브랜드(예: 헤브블루 223건 중 9~11건만
+       매칭)가 부당하게 저평가되는 문제가 있어 2026-07-15에 브랜드 전체 지표 기반으로
+       전환함. 상품별 매칭 결과는 "핵심 상품 성과" 섹션에 참고용으로만 남김.
+    4. 지역 분포는 댓글 기반(brand_ranking_comments)을 우선 사용, 없으면
        콘텐츠 위치태그로 폴백
-
-    6. 핵심 키워드 = 콘텐츠 해시태그 빈도 top-N (fyp/viral 등 범용 태그는 제외)
+    5. 핵심 키워드 = 콘텐츠 해시태그 빈도 top-N (fyp/viral 등 범용 태그는 제외)
 
     저장된 데이터가 있는 브랜드만 실값으로 표시되고, 나머지는 예시 데이터.
     감성·크리에이터 규모/플랫폼 비중/성별은 아직 별도 파이프라인이 없어
@@ -132,6 +134,7 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows:
         "mentions": len(rows),
         "total_views": total_views,
         "total_engagement": total_engagement,
+        "engagement_rate": (total_engagement / total_views * 100) if total_views else 0,
         "creators": creators,
         "product_stats": product_stats,
         "regions": regions,
@@ -234,7 +237,6 @@ _BRAND_NAME_ALIASES: dict[str, str] = {}
 _real_brand_names = set(_ranking_brand_names())
 HAS_REAL_DATA = bool(_real_brand_names)
 
-_all_product_counts, _all_product_engagements = [], []
 _real_computed: dict[str, dict] = {}
 for b in _MOCK_BRANDS:
     _lookup_name = _BRAND_NAME_ALIASES.get(b["name"], b["name"])
@@ -246,10 +248,13 @@ for b in _MOCK_BRANDS:
     comment_rows = _load_ranking_comments(_lookup_name)
     computed = _compute_brand_from_content(b["name"], rows, comment_rows)
     _real_computed[b["name"]] = computed
-    for stats in computed["product_stats"].values():
-        _all_product_counts.append(stats["count"])
-        _all_product_engagements.append(stats["engagement"])
 
+# 상품별 성과표(참고용)에 쓰는 점수 — 개수/인게이지먼트를 상품 코호트 내에서 정규화.
+# ⚠️ 랭킹 스코어에는 더 이상 쓰지 않음: 상품명 키워드 매칭은 브랜드마다 커버리지
+# 편차가 커서(예: 헤브블루는 223건 중 9~11건만 매칭, 닥터리쥬올은 479건 중 360건)
+# 이걸로 전체 점수를 매기면 실제 성과와 무관하게 왜곡됨 (2026-07-15 실데이터로 확인).
+_all_product_counts = [s["count"] for c in _real_computed.values() for s in c["product_stats"].values()]
+_all_product_engagements = [s["engagement"] for c in _real_computed.values() for s in c["product_stats"].values()]
 _max_p_count = max(_all_product_counts, default=0)
 _max_p_engagement = max(_all_product_engagements, default=0)
 
@@ -258,6 +263,24 @@ def _product_score(count: int, engagement: int) -> float:
     count_norm = (count / _max_p_count * 100) if _max_p_count else 0
     eng_norm = (engagement / _max_p_engagement * 100) if _max_p_engagement else 0
     return round(count_norm * 0.4 + eng_norm * 0.6, 1)
+
+
+# 브랜드 랭킹 스코어 — 브랜드 전체 지표(조회수/참여수/참여율/언급수/크리에이터 수)를
+# 실데이터 브랜드 코호트 내에서 정규화해 산출. 상품 키워드 매칭에 좌우되지 않음.
+_max_views = max((c["total_views"] for c in _real_computed.values()), default=0)
+_max_engagement = max((c["total_engagement"] for c in _real_computed.values()), default=0)
+_max_rate = max((c["engagement_rate"] for c in _real_computed.values()), default=0)
+_max_mentions = max((c["mentions"] for c in _real_computed.values()), default=0)
+_max_creators = max((c["creators"] for c in _real_computed.values()), default=0)
+
+
+def _brand_score(c: dict) -> float:
+    v = (c["total_views"] / _max_views * 100) if _max_views else 0
+    e = (c["total_engagement"] / _max_engagement * 100) if _max_engagement else 0
+    r = (c["engagement_rate"] / _max_rate * 100) if _max_rate else 0
+    m = (c["mentions"] / _max_mentions * 100) if _max_mentions else 0
+    cr = (c["creators"] / _max_creators * 100) if _max_creators else 0
+    return round(v * 0.40 + e * 0.25 + r * 0.15 + m * 0.10 + cr * 0.10, 1)
 
 
 for b in _MOCK_BRANDS:
@@ -270,7 +293,7 @@ for b in _MOCK_BRANDS:
         for name, stats in computed["product_stats"].items()
     ]
     b["products"] = products
-    b["score"] = round(sum(p["score"] for p in products) / len(products), 1) if products else b["score"]
+    b["score"] = _brand_score(computed)
     b["mentions"] = computed["mentions"]
     b["total_engagement"] = computed["total_engagement"]
     b["total_views"] = computed["total_views"]
@@ -284,9 +307,22 @@ for b in _MOCK_BRANDS:
     if computed["top_keywords"]:
         b["top_keywords"] = computed["top_keywords"]
 
-_REGION_COLORS = {
-    "한국": "#6366f1", "미국": "#3b82f6", "중국": "#ef4444",
-    "동남아": "#f59e0b", "기타": "#d1d5db",
+# 지역 색상 — 목업(한국/미국/...)과 실데이터(US/PH/... ISO 코드)가 섞여 있으므로,
+# 병합이 끝난 뒤 실제로 등장하는 모든 지역 키에 카테고리 팔레트를 순서대로 배정
+# (고정 딕셔너리로 두면 ISO 코드가 전부 매칭 안 돼 회색 하나로 뭉쳐 보이는 문제가 있었음).
+_REGION_PALETTE = [
+    "#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444",
+    "#8b5cf6", "#14b8a6", "#f97316", "#06b6d4", "#84cc16", "#e11d48",
+]
+_all_region_keys = sorted({k for b in _MOCK_BRANDS for k in b.get("regions", {}).keys()})
+_REGION_COLORS = {k: _REGION_PALETTE[i % len(_REGION_PALETTE)] for i, k in enumerate(_all_region_keys)}
+
+# 언어도 지역과 같은 방식으로 실제 등장하는 언어 코드에 팔레트를 순서대로 배정
+# (지역과 겹치지 않게 팔레트 뒤에서부터 배정해 인접 색이 덜 겹치도록 함)
+_all_lang_keys = sorted({k for b in _MOCK_BRANDS for k in b.get("languages", {}).keys()})
+_LANG_COLORS = {
+    k: _REGION_PALETTE[(len(_REGION_PALETTE) - 1 - i) % len(_REGION_PALETTE)]
+    for i, k in enumerate(_all_lang_keys)
 }
 
 
@@ -296,6 +332,16 @@ def _region_bar(regions: dict, height: int = 14) -> str:
         f"<div title='{name} {v}%' style='width:{v/total*100:.1f}%;"
         f"background:{_REGION_COLORS.get(name, '#9ca3af')};height:{height}px;'></div>"
         for name, v in regions.items() if v > 0
+    )
+    return f"<div style='display:flex;width:100%;border-radius:4px;overflow:hidden;'>{bars}</div>"
+
+
+def _lang_bar(languages: dict, height: int = 14) -> str:
+    total = sum(languages.values()) or 1
+    bars = "".join(
+        f"<div title='{name} {v}%' style='width:{v/total*100:.1f}%;"
+        f"background:{_LANG_COLORS.get(name, '#9ca3af')};height:{height}px;'></div>"
+        for name, v in languages.items() if v > 0
     )
     return f"<div style='display:flex;width:100%;border-radius:4px;overflow:hidden;'>{bars}</div>"
 
@@ -459,6 +505,7 @@ if not open_brand:
                 _region_txt += f"  ({source or '표본'} {sample}건)"
             st.caption(_region_txt or "데이터 없음")
             if b.get("languages"):
+                st.markdown(_lang_bar(b["languages"]), unsafe_allow_html=True)
                 lang_txt = "  ·  ".join(f"{k} {v}%" for k, v in b["languages"].items())
                 st.caption(f"🗣 댓글 언어: {lang_txt}")
 
@@ -494,21 +541,23 @@ _rank_of = {b["name"]: i + 1 for i, b in enumerate(_ranked_all)}
 
 st.title("🏆 브랜드 비교")
 
-# ── 핵심 상품 성과 (브랜드 점수 산출 근거) ────────────────────────────────
+# ── 핵심 상품 성과 (참고용 — 랭킹 스코어에는 반영되지 않음) ─────────────────
 st.markdown("##### 🔎 핵심 상품 성과")
-st.caption("각 브랜드의 핵심 상품 2개를 Apify로 검색해 개수·인게이지먼트로 상품 점수를 산출하고, "
-           "두 상품 점수의 평균을 브랜드 점수로 사용합니다.")
+st.caption(
+    "핵심 상품 2개의 이름이 캡션·해시태그에 언급된 콘텐츠만 집계한 참고용 지표입니다. "
+    "⚠️ 브랜드 랭킹 스코어에는 반영되지 않습니다 — 실제 콘텐츠에서 상품명을 캡션에 "
+    "잘 안 적는 브랜드는 매칭 건수가 적게 잡혀 저평가될 수 있어(예: 헤브블루는 223건 중 "
+    "9~11건만 매칭) 상품 단위 비교보다는 브랜드 전체 지표를 신뢰하는 게 안전합니다."
+)
 pc = st.columns(len(compare))
 for col, b in zip(pc, compare):
     with col:
         st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
         prod_df = pd.DataFrame([
-            {"상품명": p["name"], "개수": p["count"], "인게이지먼트": _fmt_num(p["engagement"]), "상품 점수": p["score"]}
+            {"상품명": p["name"], "개수": p["count"], "인게이지먼트": _fmt_num(p["engagement"]), "매칭 점수": p["score"]}
             for p in b["products"]
         ])
         st.dataframe(prod_df, use_container_width=True, hide_index=True)
-        avg_score = sum(p["score"] for p in b["products"]) / len(b["products"])
-        st.caption(f"→ 브랜드 점수 {avg_score:.1f} (두 상품 평균)")
 
 st.divider()
 
@@ -541,6 +590,11 @@ for col, b in zip(cols, compare):
             st.caption(f"최다 지역: {top_region} ({b['regions'][top_region]}%)")
         else:
             st.caption("데이터 없음")
+        if b.get("languages"):
+            st.markdown("**댓글 언어**")
+            st.markdown(_lang_bar(b["languages"], height=18), unsafe_allow_html=True)
+            top_lang = max(b["languages"], key=b["languages"].get)
+            st.caption(f"최다 언어: {top_lang} ({b['languages'][top_lang]}%)")
 
 st.divider()
 
