@@ -364,6 +364,17 @@ def _lang_bar(languages: dict, height: int = 14) -> str:
     return f"<div style='display:flex;width:100%;border-radius:4px;overflow:hidden;'>{bars}</div>"
 
 
+def _colored_labels(dist: dict, color_map: dict) -> str:
+    """막대 세그먼트 색상과 매칭되는 색점 + 라벨 목록 (막대 밑에 바로 이어붙여 표시)."""
+    items = "".join(
+        f"<span style='margin-right:14px;font-size:12px;color:#374151;white-space:nowrap;'>"
+        f"<span style='display:inline-block;width:8px;height:8px;border-radius:50%;"
+        f"background:{color_map.get(name, '#9ca3af')};margin-right:4px;'></span>{name} {v}%</span>"
+        for name, v in dist.items()
+    )
+    return f"<div style='margin-top:4px;line-height:1.8;'>{items}</div>"
+
+
 def _keyword_tags(keywords: list[tuple[str, int]]) -> str:
     return "".join(
         f"<span style='background:#f3f4f6;border-radius:6px;padding:3px 10px;margin:2px;"
@@ -528,17 +539,20 @@ if not open_brand:
         lc, rc = st.columns([1, 5])
         lc.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
         with rc:
-            st.markdown(_region_bar(b["regions"]), unsafe_allow_html=True)
-            _region_txt = "  ·  ".join(f"{k} {v}%" for k, v in b["regions"].items())
-            sample = b.get("region_sample_size")
-            source = b.get("region_source")
-            if sample:
-                _region_txt += f"  ({source or '표본'} {sample}건)"
-            st.caption(_region_txt or "데이터 없음")
+            if b["regions"]:
+                st.markdown(_region_bar(b["regions"]), unsafe_allow_html=True)
+                st.markdown(_colored_labels(b["regions"], _REGION_COLORS), unsafe_allow_html=True)
+                sample = b.get("region_sample_size")
+                source = b.get("region_source")
+                if sample:
+                    st.caption(f"{source or '표본'} {sample}건 기준")
+            else:
+                st.caption("데이터 없음")
             if b.get("languages"):
+                st.markdown("🗣 **댓글 언어**", unsafe_allow_html=False)
                 st.markdown(_lang_bar(b["languages"]), unsafe_allow_html=True)
-                lang_txt = "  ·  ".join(f"{k} {v}%" for k, v in b["languages"].items())
-                st.caption(f"🗣 댓글 언어: {lang_txt}")
+                st.markdown(_colored_labels(b["languages"], _LANG_COLORS), unsafe_allow_html=True)
+        st.markdown("<div style='margin-bottom:10px'></div>", unsafe_allow_html=True)
 
     st.divider()
 
@@ -620,17 +634,15 @@ for col, b in zip(cols, compare):
             f"부정 {b['sentiment']['negative']}%"
         )
         st.markdown("**오디언스 지역**")
-        st.markdown(_region_bar(b["regions"], height=18), unsafe_allow_html=True)
         if b["regions"]:
-            top_region = max(b["regions"], key=b["regions"].get)
-            st.caption(f"최다 지역: {top_region} ({b['regions'][top_region]}%)")
+            st.markdown(_region_bar(b["regions"], height=18), unsafe_allow_html=True)
+            st.markdown(_colored_labels(b["regions"], _REGION_COLORS), unsafe_allow_html=True)
         else:
             st.caption("데이터 없음")
         if b.get("languages"):
             st.markdown("**댓글 언어**")
             st.markdown(_lang_bar(b["languages"], height=18), unsafe_allow_html=True)
-            top_lang = max(b["languages"], key=b["languages"].get)
-            st.caption(f"최다 언어: {top_lang} ({b['languages'][top_lang]}%)")
+            st.markdown(_colored_labels(b["languages"], _LANG_COLORS), unsafe_allow_html=True)
 
 st.divider()
 
