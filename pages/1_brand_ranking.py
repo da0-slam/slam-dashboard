@@ -29,6 +29,7 @@
     감성·크리에이터 규모/플랫폼 비중/성별은 아직 별도 파이프라인이 없어
     예시 데이터임.
 """
+import re
 import streamlit as st
 import pandas as pd
 from collections import Counter
@@ -97,6 +98,34 @@ def _top_hashtags(rows: list[dict], n: int = 8) -> list[tuple[str, int]]:
     return counter.most_common(n)
 
 
+_TT_VIDEO_ID_RE = re.compile(r"/video/(\d+)")
+
+
+def _top_videos(rows: list[dict], n: int = 4) -> list[dict]:
+    """조회수+참여수가 높은 순으로 대표 콘텐츠 top-N (TikTok 임베드용 video_id 포함)."""
+    candidates = []
+    for r in rows:
+        post_url = r.get("post_url") or ""
+        m = _TT_VIDEO_ID_RE.search(post_url)
+        if not m:
+            continue
+        views = r.get("views") or 0
+        engagement = (r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0)
+        candidates.append({
+            "video_id": m.group(1),
+            "post_url": post_url,
+            "title": r.get("title") or "",
+            "channel_username": r.get("channel_username") or "",
+            "views": views,
+            "likes": r.get("likes") or 0,
+            "comments": r.get("comments") or 0,
+            "shares": r.get("shares") or 0,
+            "_rank_score": views + engagement,
+        })
+    candidates.sort(key=lambda c: c["_rank_score"], reverse=True)
+    return candidates[:n]
+
+
 def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows: list[dict]) -> dict:
     total_views = sum(r.get("views") or 0 for r in rows)
     total_engagement = sum((r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0) for r in rows)
@@ -138,6 +167,7 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows:
         "region_source": region_source,
         "languages": languages,
         "top_keywords": _top_hashtags(rows),
+        "top_videos": _top_videos(rows),
     }
 
 # 앱 전체에서 재사용 중인 팔레트(_comment_avatar_color, 6_content_performance.py)와 동일 —
@@ -301,6 +331,8 @@ for b in _MOCK_BRANDS:
         b["languages"] = computed["languages"]
     if computed["top_keywords"]:
         b["top_keywords"] = computed["top_keywords"]
+    if computed["top_videos"]:
+        b["top_videos"] = computed["top_videos"]
 
 # 지역 색상 — 목업(한국/미국/...)과 실데이터(US/PH/... ISO 코드)가 섞여 있으므로,
 # 병합이 끝난 뒤 실제로 등장하는 모든 지역 키에 카테고리 팔레트를 순서대로 배정
@@ -553,15 +585,18 @@ if st.button("← 랭킹으로"):
     st.rerun()
 
 all_names = [b["name"] for b in _MOCK_BRANDS]
-default_sel = [open_brand] + [n for n in all_names if n != open_brand][:2]
-selected = st.multiselect("비교할 브랜드", all_names, default=default_sel, key="rank_compare_sel")
+with st.expander("➕ 다른 브랜드와 비교하기 (선택사항)", expanded=False):
+    added = st.multiselect(
+        "비교에 추가할 브랜드", [n for n in all_names if n != open_brand], key="rank_compare_sel",
+    )
+selected = [open_brand] + added
 compare = [b for b in _MOCK_BRANDS if b["name"] in selected] or _MOCK_BRANDS[:1]
 
 # 비교 중인 브랜드들 사이에서의 순위(변동 계산 기준)
 _ranked_all = sorted(_MOCK_BRANDS, key=lambda x: x["score"], reverse=True)
 _rank_of = {b["name"]: i + 1 for i, b in enumerate(_ranked_all)}
 
-st.title("🏆 브랜드 비교")
+st.title(f"🏆 {open_brand}" if len(compare) == 1 else "🏆 브랜드 비교")
 
 with st.expander("📐 스코어 산정 기준", expanded=False):
     for name, weight, desc in _SCORE_WEIGHTS:
@@ -620,6 +655,26 @@ for col, b in zip(cols, compare):
             st.markdown("**댓글 언어**")
             st.markdown(_lang_bar(b["languages"], height=18), unsafe_allow_html=True)
             st.markdown(_colored_labels(b["languages"], _LANG_COLORS), unsafe_allow_html=True)
+
+# ── 대표 콘텐츠 (조회수+참여수 상위 영상 임베드) ────────────────────────────
+for b in compare:
+    videos = b.get("top_videos") or []
+    if not videos:
+        continue
+    st.markdown(f"##### 🎬 {b['name']} 대표 콘텐츠")
+    st.caption("조회수·참여수 합산 기준 상위 영상입니다.")
+    vcols = st.columns(len(videos))
+    for col, v in zip(vcols, videos):
+        with col:
+            st.markdown(
+                f'<iframe src="https://www.tiktok.com/embed/v2/{v["video_id"]}" '
+                f'style="width:100%;height:560px;border:none;" allowfullscreen></iframe>',
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"@{v['channel_username']}  ·  👁 {_fmt_num(v['views'])}  ❤️ {_fmt_num(v['likes'])}  "
+                f"💬 {_fmt_num(v['comments'])}  🔁 {_fmt_num(v['shares'])}"
+            )
 
 st.divider()
 
