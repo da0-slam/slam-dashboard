@@ -274,13 +274,31 @@ _max_mentions = max((c["mentions"] for c in _real_computed.values()), default=0)
 _max_creators = max((c["creators"] for c in _real_computed.values()), default=0)
 
 
+# 스코어 산정 기준 — 화면의 "📐 스코어 산정 기준" 설명 박스와 반드시 같이 수정할 것
+_SCORE_WEIGHTS = [
+    ("조회수 (Reach)", 0.40, "총 조회수 — 콘텐츠가 얼마나 많은 사람에게 도달했는지"),
+    ("참여수 (Engagement)", 0.25, "좋아요+댓글+공유 합 — 실제 반응의 절대량"),
+    ("참여율 (Engagement Rate)", 0.15, "참여수 ÷ 조회수 — 도달 대비 반응 품질"),
+    ("언급 콘텐츠 수 (Volume)", 0.10, "브랜드가 언급된 콘텐츠 건수 — 확산 폭"),
+    ("고유 크리에이터 수 (Creator Diversity)", 0.10, "브랜드를 언급한 서로 다른 계정 수 — 특정 계정 의존도가 낮을수록 유리"),
+]
+
+
 def _brand_score(c: dict) -> float:
     v = (c["total_views"] / _max_views * 100) if _max_views else 0
     e = (c["total_engagement"] / _max_engagement * 100) if _max_engagement else 0
     r = (c["engagement_rate"] / _max_rate * 100) if _max_rate else 0
     m = (c["mentions"] / _max_mentions * 100) if _max_mentions else 0
     cr = (c["creators"] / _max_creators * 100) if _max_creators else 0
-    return round(v * 0.40 + e * 0.25 + r * 0.15 + m * 0.10 + cr * 0.10, 1)
+    weights = {name: w for name, w, _ in _SCORE_WEIGHTS}
+    return round(
+        v * weights["조회수 (Reach)"]
+        + e * weights["참여수 (Engagement)"]
+        + r * weights["참여율 (Engagement Rate)"]
+        + m * weights["언급 콘텐츠 수 (Volume)"]
+        + cr * weights["고유 크리에이터 수 (Creator Diversity)"],
+        1,
+    )
 
 
 for b in _MOCK_BRANDS:
@@ -416,6 +434,19 @@ if not open_brand:
     st.title("🏆 브랜드 랭킹")
     st.caption("OWM(오프라인 매장) 입점 브랜드의 글로벌 영향력을 스코어링해 비교합니다.")
 
+    with st.expander("📐 스코어 산정 기준", expanded=False):
+        st.markdown(
+            "브랜드 스코어(0~100)는 아래 5개 지표를 **현재 추적 중인 브랜드들 사이에서 상대적으로 정규화**"
+            "(최고값=100 기준)한 뒤 가중합해 산출합니다. 브랜드가 추가/제외되면 다른 브랜드의 점수도 "
+            "함께 바뀔 수 있습니다 (절대 점수가 아니라 상대 비교 지표)."
+        )
+        for name, weight, desc in _SCORE_WEIGHTS:
+            st.markdown(f"- **{name} {weight*100:.0f}%** — {desc}")
+        st.caption(
+            "데이터 출처: TikTok 공식 해시태그/UGC 콘텐츠 + 댓글(Apify 수집, Supabase 저장). "
+            "핵심 상품 2개 단위 매칭은 참고용으로만 별도 표시하며 이 스코어 산정에는 포함되지 않습니다."
+        )
+
     ranked = sorted(_MOCK_BRANDS, key=lambda b: b["score"], reverse=True)
 
     # ── Share of Voice ────────────────────────────────────────────────────
@@ -540,6 +571,11 @@ _ranked_all = sorted(_MOCK_BRANDS, key=lambda x: x["score"], reverse=True)
 _rank_of = {b["name"]: i + 1 for i, b in enumerate(_ranked_all)}
 
 st.title("🏆 브랜드 비교")
+
+with st.expander("📐 스코어 산정 기준", expanded=False):
+    for name, weight, desc in _SCORE_WEIGHTS:
+        st.markdown(f"- **{name} {weight*100:.0f}%** — {desc}")
+    st.caption("현재 추적 중인 브랜드들 사이의 상대 비교 지표이며, 상품 매칭 결과는 반영되지 않습니다.")
 
 # ── 핵심 상품 성과 (참고용 — 랭킹 스코어에는 반영되지 않음) ─────────────────
 st.markdown("##### 🔎 핵심 상품 성과")
