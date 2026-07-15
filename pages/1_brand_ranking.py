@@ -233,6 +233,24 @@ _MOCK_BRANDS = [
         "platform_mix": {"TikTok": 15, "Instagram": 45, "샤오홍슈": 40},
         "gender": {"여성": 71, "남성": 29},
     },
+    {
+        # 핵심 상품 2개가 아직 확정되지 않아 products는 비워둠 (스코어에는 영향 없음 —
+        # 스코어는 브랜드 전체 지표 기반이라 상품 매칭과 무관).
+        "name": "닥터리앤장", "score": 50.0, "prev_rank": 4,
+        "total_views": 0, "total_engagement": 0,
+        "mentions": 0, "creators": 0,
+        "products": [],
+        "sentiment": {"positive": 55, "neutral": 32, "negative": 13},
+        "trend": [4, 4.2, 4.3, 4.5, 4.7, 4.9, 5.0, 5.2, 5.4, 5.6, 5.8, 6.0, 6.2, 6.4],
+        "ugc_pct": 18,
+        "emotions": {"신뢰": 45, "설렘": 20, "놀라움": 18, "불만": 17},
+        "regions": {},
+        "top_keywords": [],
+        "top_comment": {"text": "예시 댓글 (실데이터 미반영)", "author": "@example", "likes": 0},
+        "creator_tiers": {"나노(1만↓)": 45, "마이크로(1만~10만)": 32, "미드(10만~50만)": 16, "매크로(50만↑)": 7},
+        "platform_mix": {"TikTok": 50, "Instagram": 35, "샤오홍슈": 15},
+        "gender": {"여성": 74, "남성": 26},
+    },
 ]
 for i, b in enumerate(_MOCK_BRANDS):
     b["color"] = _PALETTE[i % len(_PALETTE)]

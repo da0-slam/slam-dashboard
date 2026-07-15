@@ -5,19 +5,26 @@
 평탄화된(flatten) 컬럼으로 담고 있다 (사용자가 Apify 콘솔에서 직접
 수집해 Google Sheet로 export한 데이터).
 
-탭 이름이 "{브랜드명}-코멘트"로 끝나면 댓글 탭으로 인식해
-brand_ranking_comments 테이블(apidojo/tiktok-comments-scraper 형식:
+탭 이름이 "{브랜드명}-코멘트" 또는 "{브랜드명}-댓글"로 끝나면 댓글 탭으로
+인식해 brand_ranking_comments 테이블(apidojo/tiktok-comments-scraper 형식:
 "user/region", "user/language" 등)에 저장한다. 그 외 탭은 콘텐츠 탭으로
 인식해 brand_ranking_content 테이블에 저장한다.
 
 사용법:
     python scripts/import_brand_ranking_sheet.py <SHEET_ID>
     python scripts/import_brand_ranking_sheet.py <SHEET_ID> --dry-run   # 저장 없이 미리보기만
+    python scripts/import_brand_ranking_sheet.py <SHEET_ID> --exclude-keywords "plastic surgery,phẫu thuật thẩm mỹ"
+        # 콘텐츠 탭에서 캡션/해시태그에 이 키워드가 하나라도 포함되면 제외 (콘텐츠 탭에만 적용)
 """
 import argparse
 import io
 import os
 import sys
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except AttributeError:
+    pass
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -122,7 +129,19 @@ def map_comment_row(row: dict, brand_name: str) -> dict | None:
     }
 
 
-_COMMENT_TAB_SUFFIX = "-코멘트"
+_COMMENT_TAB_SUFFIXES = ("-코멘트", "-댓글")
+
+
+def _strip_comment_suffix(tab_name: str) -> tuple[str, bool]:
+    for suffix in _COMMENT_TAB_SUFFIXES:
+        if tab_name.endswith(suffix):
+            return tab_name[: -len(suffix)], True
+    return tab_name, False
+
+
+def _matches_excluded(row: dict, keywords: list[str]) -> bool:
+    haystack = (row.get("title") or "").lower() + " " + " ".join(row.get("hashtags") or []).lower()
+    return any(kw.lower() in haystack for kw in keywords)
 
 
 def main():
@@ -130,7 +149,10 @@ def main():
     parser.add_argument("sheet_id", help="Google Sheet ID")
     parser.add_argument("--dry-run", action="store_true", help="저장 없이 미리보기만")
     parser.add_argument("--only", help="쉼표로 구분한 탭 이름만 처리 (예: '헤브블루,헤브블루-코멘트')")
+    parser.add_argument("--exclude-keywords", help="쉼표로 구분한 제외 키워드 (콘텐츠 탭의 캡션/해시태그 대상)")
     args = parser.parse_args()
+
+    exclude_keywords = [k.strip() for k in args.exclude_keywords.split(",")] if args.exclude_keywords else []
 
     url = f"https://docs.google.com/spreadsheets/d/{args.sheet_id}/export?format=xlsx"
     print(f"시트 다운로드 중: {url}")
@@ -141,18 +163,26 @@ def main():
     only_tabs = {t.strip() for t in args.only.split(",")} if args.only else None
     tab_names = [t for t in xls.sheet_names if not only_tabs or t in only_tabs]
     print(f"탭 목록: {xls.sheet_names}")
-    print(f"처리할 탭: {tab_names}\n")
+    print(f"처리할 탭: {tab_names}")
+    if exclude_keywords:
+        print(f"제외 키워드(콘텐츠 탭만): {exclude_keywords}")
+    print()
 
     total_saved = 0
     for tab_name in tab_names:
-        is_comment_tab = tab_name.endswith(_COMMENT_TAB_SUFFIX)
-        brand_name = tab_name[: -len(_COMMENT_TAB_SUFFIX)] if is_comment_tab else tab_name
+        brand_name, is_comment_tab = _strip_comment_suffix(tab_name)
         table_name = "brand_ranking_comments" if is_comment_tab else "brand_ranking_content"
         mapper = map_comment_row if is_comment_tab else map_row
 
         df = xls.parse(tab_name)
         rows = [mapper(r.to_dict(), brand_name) for _, r in df.iterrows()]
         rows = [r for r in rows if r]
+
+        n_excluded = 0
+        if exclude_keywords and not is_comment_tab:
+            before = len(rows)
+            rows = [r for r in rows if not _matches_excluded(r, exclude_keywords)]
+            n_excluded = before - len(rows)
 
         # 같은 id가 여러 검색어(inputSource)로 중복 수집된 경우 dedup (마지막 값 유지)
         dedup: dict[str, dict] = {}
@@ -162,7 +192,8 @@ def main():
         rows = list(dedup.values())
 
         kind = "댓글" if is_comment_tab else "콘텐츠"
-        print(f"[{tab_name}] ({kind}, brand={brand_name}) {len(rows)}개 유효 행 (원본 {len(df)}행, 중복 제거 {n_dupes}건)")
+        print(f"[{tab_name}] ({kind}, brand={brand_name}) {len(rows)}개 유효 행 (원본 {len(df)}행, "
+              f"중복 제거 {n_dupes}건, 키워드 제외 {n_excluded}건)")
 
         if args.dry_run:
             if rows:
