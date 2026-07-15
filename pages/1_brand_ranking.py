@@ -57,10 +57,6 @@ def _ranking_brand_names() -> list[str]:
 
 # 핵심 상품 2개 키워드 (scripts/compute_brand_ranking.py와 동일 — 캡션/해시태그 매칭용)
 _PRODUCT_KEYWORDS = {
-    "23yearsold": [
-        ("더마 씬 컨실러", ["derma thin concealer", "concealer"]),
-        ("하트리프 씬 쿠션", ["heartleaf thin cushion", "heartleaf cushion"]),
-    ],
     "유이크(UIQ)": [
         ("바이옴 베리어 크림 미스트", ["biome barrier mist", "biome barrier"]),
         ("콜라겐 퍼밍 클렌징밤", ["collagen firming cleansing balm", "firming cleansing balm"]),
@@ -148,27 +144,8 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows:
 # 브랜드별 색을 화면 전체에서 고정 배정 (순위가 바뀌어도 색은 브랜드에 고정)
 _PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444"]
 
-# ── MOCK 데이터 (추후 campaign_posts/koc_contents 집계로 교체) ──────────────
+# ── MOCK 데이터 (실데이터 없는 브랜드만 예시로 유지 — 실데이터 확보되면 제거) ──
 _MOCK_BRANDS = [
-    {
-        "name": "23yearsold", "score": 92.4, "prev_rank": 1,
-        "total_views": 18_400_000, "total_engagement": 612_000,
-        "mentions": 342, "creators": 58,
-        "products": [
-            {"name": "그린 컨실러", "count": 198, "engagement": 355_000, "score": 95.8},
-            {"name": "선크림 스틱", "count": 144, "engagement": 257_000, "score": 89.0},
-        ],
-        "sentiment": {"positive": 71, "neutral": 22, "negative": 7},
-        "trend": [8, 9, 9, 10, 11, 12, 13, 14, 15, 16, 17, 17, 18, 18.4],
-        "ugc_pct": 34,
-        "emotions": {"신뢰": 62, "설렘": 18, "놀라움": 12, "불만": 8},
-        "regions": {"미국": 38, "한국": 22, "동남아": 18, "중국": 14, "기타": 8},
-        "top_keywords": [("보습력", 128), ("흡수력", 97), ("끈적임 없음", 71), ("향", 45), ("가격", 33)],
-        "top_comment": {"text": "이거 진짜 흡수 미쳤음... 끈적임 하나도 없어서 매일 씀", "author": "@skincare_luv", "likes": 1_204},
-        "creator_tiers": {"나노(1만↓)": 42, "마이크로(1만~10만)": 34, "미드(10만~50만)": 17, "매크로(50만↑)": 7},
-        "platform_mix": {"TikTok": 48, "Instagram": 40, "샤오홍슈": 12},
-        "gender": {"여성": 82, "남성": 18},
-    },
     {
         "name": "유이크(UIQ)", "score": 85.6, "prev_rank": 3,
         "total_views": 14_200_000, "total_engagement": 471_000,
@@ -738,6 +715,6 @@ with st.expander("🤖 AI 요약 (최다 좋아요 댓글 기반)", expanded=Tru
     st.caption("아래는 예시 텍스트입니다. 실제 연동 시 좋아요 상위 댓글을 모델에 전달해 요약을 생성합니다.")
     st.markdown(
         "> 소비자들은 전반적으로 **보습력과 흡수 속도**를 가장 많이 언급했습니다. "
-        "특히 **23yearsold**와 **유이크(UIQ)**는 '끈적임 없음'에 대한 긍정 언급이 두드러졌고, "
+        "특히 **닥터리쥬올**과 **유이크(UIQ)**는 '끈적임 없음'에 대한 긍정 언급이 두드러졌고, "
         "**헤브블루**는 향에 대한 호불호가 갈리는 댓글이 상대적으로 많았습니다."
     )
