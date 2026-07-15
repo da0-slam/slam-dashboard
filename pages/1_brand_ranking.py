@@ -21,9 +21,11 @@
     5. 지역 분포는 댓글 기반(brand_ranking_comments)을 우선 사용, 없으면
        콘텐츠 위치태그로 폴백
 
+    6. 핵심 키워드 = 콘텐츠 해시태그 빈도 top-N (fyp/viral 등 범용 태그는 제외)
+
     저장된 데이터가 있는 브랜드만 실값으로 표시되고, 나머지는 예시 데이터.
-    감성·오디언스(크리에이터 규모/플랫폼 비중/성별)·댓글 키워드는 아직 별도
-    파이프라인이 없어 예시 데이터임.
+    감성·크리에이터 규모/플랫폼 비중/성별은 아직 별도 파이프라인이 없어
+    예시 데이터임.
 """
 import streamlit as st
 import pandas as pd
@@ -80,6 +82,23 @@ def _match_product(text: str, hashtags: list | None, keyword_list: list[tuple[st
     return None
 
 
+_GENERIC_HASHTAG_STOPWORDS = {
+    "fyp", "fypage", "foryou", "foryoupage", "viral", "viralvideo", "viraltiktok",
+    "tiktokmademebuyit", "creatorsearchinsights", "dealsforyoudays", "trending",
+}
+
+
+def _top_hashtags(rows: list[dict], n: int = 8) -> list[tuple[str, int]]:
+    """콘텐츠 해시태그 빈도 top-N (fyp/viral 같은 범용 태그는 제외)."""
+    counter = Counter()
+    for r in rows:
+        for h in (r.get("hashtags") or []):
+            h_l = h.lower()
+            if h_l not in _GENERIC_HASHTAG_STOPWORDS:
+                counter[f"#{h_l}"] += 1
+    return counter.most_common(n)
+
+
 def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows: list[dict]) -> dict:
     total_views = sum(r.get("views") or 0 for r in rows)
     total_engagement = sum((r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0) for r in rows)
@@ -119,6 +138,7 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows:
         "region_sample_size": sum(region_counter.values()),
         "region_source": region_source,
         "languages": languages,
+        "top_keywords": _top_hashtags(rows),
     }
 
 # 앱 전체에서 재사용 중인 팔레트(_comment_avatar_color, 6_content_performance.py)와 동일 —
@@ -261,6 +281,8 @@ for b in _MOCK_BRANDS:
         b["region_source"] = computed["region_source"]
     if computed["languages"]:
         b["languages"] = computed["languages"]
+    if computed["top_keywords"]:
+        b["top_keywords"] = computed["top_keywords"]
 
 _REGION_COLORS = {
     "한국": "#6366f1", "미국": "#3b82f6", "중국": "#ef4444",
@@ -330,11 +352,10 @@ if HAS_REAL_DATA:
         if _BRAND_NAME_ALIASES.get(b["name"], b["name"]) not in _real_brand_names
     ]
     st.caption(
-        "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수·지역은 Supabase에 저장된 실제 TikTok UGC "
-        f"콘텐츠 데이터입니다 ({', '.join(sorted(_real_brand_names))}). "
+        "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수·지역·오디언스 국가·핵심 키워드는 Supabase에 저장된 "
+        f"실제 TikTok UGC/댓글 데이터입니다 ({', '.join(sorted(_real_brand_names))}). "
         + (f"🚧 {', '.join(_missing)}는 아직 데이터가 없어 예시 값입니다. " if _missing else "")
-        + "🚧 감성·오디언스(크리에이터 규모/플랫폼 비중/성별)·댓글 키워드는 아직 예시 데이터입니다. "
-        "지역 데이터는 위치 태그가 달린 콘텐츠만 반영되어 표본이 작을 수 있습니다."
+        + "🚧 감성·크리에이터 규모/플랫폼 비중/성별은 아직 예시 데이터입니다."
     )
 else:
     st.caption("🚧 임시 화면입니다.")
@@ -419,11 +440,12 @@ if not open_brand:
 
     st.divider()
 
-    # ── 국가·지역별 비중 ─────────────────────────────────────────────────
-    st.markdown("##### 🌍 국가·지역별 비중")
+    # ── 국가별 오디언스 분포 ─────────────────────────────────────────────
+    st.markdown("##### 🌍 국가별 오디언스 분포")
     st.caption(
-        "브랜드 언급 콘텐츠의 지역 분포 — '글로벌 영향력' 스코어의 지리적 구성. "
-        "실데이터 브랜드는 댓글 작성자 지역(있으면) 또는 콘텐츠 위치태그 기준 국가코드(예: US, PH)입니다."
+        "이 브랜드 콘텐츠에 실제로 댓글을 남긴 오디언스가 어느 국가에 있는지 보여줍니다 "
+        "(위치 태그가 있는 경우 콘텐츠 자체 위치로 보완). "
+        "광고 없이 이미 여러 국가에서 유기적으로 반응이 일어나고 있다는 근거로 볼 수 있습니다."
     )
     for b in ranked:
         lc, rc = st.columns([1, 5])
@@ -512,7 +534,7 @@ for col, b in zip(cols, compare):
             f"긍정 {b['sentiment']['positive']}%  ·  중립 {b['sentiment']['neutral']}%  ·  "
             f"부정 {b['sentiment']['negative']}%"
         )
-        st.markdown("**지역 비중**")
+        st.markdown("**오디언스 지역**")
         st.markdown(_region_bar(b["regions"], height=18), unsafe_allow_html=True)
         if b["regions"]:
             top_region = max(b["regions"], key=b["regions"].get)
@@ -522,7 +544,8 @@ for col, b in zip(cols, compare):
 
 st.divider()
 
-st.markdown("##### 🌍 국가·지역별 비중 비교")
+st.markdown("##### 🌍 국가별 오디언스 분포 비교")
+st.caption("브랜드별로 댓글을 남긴 오디언스가 어느 국가에 분포하는지 비교합니다.")
 # 비교 대상 브랜드들이 실제로 갖고 있는 지역 코드 전체를 합집합으로 (고정 목록이면
 # 실데이터 브랜드의 ISO 국가코드가 다 0으로 잡히는 문제가 있어 동적으로 구성)
 region_labels = sorted({r for b in compare for r in b["regions"].keys()})
