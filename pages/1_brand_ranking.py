@@ -26,8 +26,6 @@
     5. 핵심 키워드 = 콘텐츠 해시태그 빈도 top-N (fyp/viral 등 범용 태그는 제외)
 
     저장된 데이터가 있는 브랜드만 실값으로 표시되고, 나머지는 예시 데이터.
-    감성·크리에이터 규모/플랫폼 비중/성별은 아직 별도 파이프라인이 없어
-    예시 데이터임.
 """
 import re
 import streamlit as st
@@ -184,16 +182,8 @@ _MOCK_BRANDS = [
             {"name": "리페어 세럼", "count": 146, "engagement": 250_000, "score": 88.2},
             {"name": "배리어 크림", "count": 130, "engagement": 221_000, "score": 83.0},
         ],
-        "sentiment": {"positive": 64, "neutral": 27, "negative": 9},
-        "trend": [7, 7.4, 7.8, 8.2, 8.7, 9.3, 9.9, 10.4, 11.2, 11.8, 12.5, 13.1, 13.7, 14.2],
-        "ugc_pct": 27,
-        "emotions": {"신뢰": 54, "설렘": 22, "놀라움": 14, "불만": 10},
         "regions": {"한국": 40, "중국": 22, "미국": 20, "동남아": 12, "기타": 6},
         "top_keywords": [("탄력", 104), ("가성비", 88), ("성분", 62), ("트러블", 40), ("포장", 22)],
-        "top_comment": {"text": "가격 대비 성분표가 너무 알짜라 재구매 각", "author": "@uiq_daily", "likes": 892},
-        "creator_tiers": {"나노(1만↓)": 38, "마이크로(1만~10만)": 36, "미드(10만~50만)": 19, "매크로(50만↑)": 7},
-        "platform_mix": {"TikTok": 35, "Instagram": 33, "샤오홍슈": 32},
-        "gender": {"여성": 76, "남성": 24},
     },
     {
         "name": "닥터리쥬올", "score": 76.3, "prev_rank": 2,
@@ -203,16 +193,8 @@ _MOCK_BRANDS = [
             {"name": "리프팅 앰플", "count": 111, "engagement": 166_000, "score": 79.6},
             {"name": "아이크림", "count": 103, "engagement": 152_000, "score": 73.0},
         ],
-        "sentiment": {"positive": 59, "neutral": 30, "negative": 11},
-        "trend": [5, 5.3, 5.6, 6, 6.4, 6.9, 7.3, 7.8, 8.3, 8.9, 9.4, 9.9, 10.2, 10.5],
-        "ugc_pct": 21,
-        "emotions": {"신뢰": 47, "설렘": 24, "놀라움": 16, "불만": 13},
         "regions": {"한국": 48, "중국": 25, "동남아": 15, "미국": 8, "기타": 4},
         "top_keywords": [("리프팅", 96), ("각질", 58), ("효과", 51), ("자극", 29), ("향", 18)],
-        "top_comment": {"text": "일주일 써보니 각질이 확실히 줄었어요, 자극도 없고", "author": "@rejuall_kr", "likes": 615},
-        "creator_tiers": {"나노(1만↓)": 46, "마이크로(1만~10만)": 33, "미드(10만~50만)": 15, "매크로(50만↑)": 6},
-        "platform_mix": {"TikTok": 20, "Instagram": 38, "샤오홍슈": 42},
-        "gender": {"여성": 79, "남성": 21},
     },
     {
         "name": "헤브블루", "score": 65.8, "prev_rank": 4,
@@ -222,16 +204,8 @@ _MOCK_BRANDS = [
             {"name": "클렌징밤", "count": 76, "engagement": 102_000, "score": 69.4},
             {"name": "토너패드", "count": 67, "engagement": 90_000, "score": 62.2},
         ],
-        "sentiment": {"positive": 52, "neutral": 33, "negative": 15},
-        "trend": [3, 3.2, 3.4, 3.7, 4.0, 4.3, 4.6, 5.0, 5.3, 5.7, 6.0, 6.3, 6.6, 6.8],
-        "ugc_pct": 14,
-        "emotions": {"신뢰": 38, "설렘": 19, "놀라움": 21, "불만": 22},
         "regions": {"한국": 55, "동남아": 20, "중국": 15, "미국": 6, "기타": 4},
         "top_keywords": [("향", 61), ("촉감", 47), ("가격", 40), ("트러블", 34), ("배송", 15)],
-        "top_comment": {"text": "향은 진짜 좋은데 가격이 좀 부담스럽긴 해요", "author": "@blue_review", "likes": 348},
-        "creator_tiers": {"나노(1만↓)": 51, "마이크로(1만~10만)": 31, "미드(10만~50만)": 13, "매크로(50만↑)": 5},
-        "platform_mix": {"TikTok": 15, "Instagram": 45, "샤오홍슈": 40},
-        "gender": {"여성": 71, "남성": 29},
     },
     {
         # 핵심 상품 2개가 아직 확정되지 않아 products는 비워둠 (스코어에는 영향 없음 —
@@ -240,16 +214,8 @@ _MOCK_BRANDS = [
         "total_views": 0, "total_engagement": 0,
         "mentions": 0, "creators": 0,
         "products": [],
-        "sentiment": {"positive": 55, "neutral": 32, "negative": 13},
-        "trend": [4, 4.2, 4.3, 4.5, 4.7, 4.9, 5.0, 5.2, 5.4, 5.6, 5.8, 6.0, 6.2, 6.4],
-        "ugc_pct": 18,
-        "emotions": {"신뢰": 45, "설렘": 20, "놀라움": 18, "불만": 17},
         "regions": {},
         "top_keywords": [],
-        "top_comment": {"text": "예시 댓글 (실데이터 미반영)", "author": "@example", "likes": 0},
-        "creator_tiers": {"나노(1만↓)": 45, "마이크로(1만~10만)": 32, "미드(10만~50만)": 16, "매크로(50만↑)": 7},
-        "platform_mix": {"TikTok": 50, "Instagram": 35, "샤오홍슈": 15},
-        "gender": {"여성": 74, "남성": 26},
     },
 ]
 for i, b in enumerate(_MOCK_BRANDS):
@@ -434,20 +400,6 @@ def _dot(color: str) -> str:
     return f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:{color};margin-right:6px;'></span>"
 
 
-def _sentiment_bar(sent: dict, height: int = 14) -> str:
-    total = sum(sent.values()) or 1
-    segs = [
-        (sent.get("positive", 0), "#10b981"),
-        (sent.get("neutral", 0), "#d1d5db"),
-        (sent.get("negative", 0), "#ef4444"),
-    ]
-    bars = "".join(
-        f"<div style='width:{v/total*100:.1f}%;background:{c};height:{height}px;'></div>"
-        for v, c in segs if v > 0
-    )
-    return f"<div style='display:flex;width:100%;border-radius:4px;overflow:hidden;'>{bars}</div>"
-
-
 if HAS_REAL_DATA:
     _missing = [
         b["name"] for b in _MOCK_BRANDS
@@ -457,7 +409,6 @@ if HAS_REAL_DATA:
         "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수·지역·오디언스 국가·핵심 키워드는 Supabase에 저장된 "
         f"실제 TikTok UGC/댓글 데이터입니다 ({', '.join(sorted(_real_brand_names))}). "
         + (f"🚧 {', '.join(_missing)}는 아직 데이터가 없어 예시 값입니다. " if _missing else "")
-        + "🚧 감성·크리에이터 규모/플랫폼 비중/성별은 아직 예시 데이터입니다."
     )
 else:
     st.caption("🚧 임시 화면입니다.")
@@ -511,12 +462,12 @@ if not open_brand:
 
     # ── 랭킹 테이블 ──────────────────────────────────────────────────────
     st.caption("변동은 전 기간(직전 집계 주기) 순위 대비입니다.")
-    hc = st.columns([1, 1, 3, 2, 2, 2, 2, 3, 1])
-    for col, label in zip(hc, ["순위", "변동", "브랜드", "스코어", "조회수", "참여수", "언급 영상", "감성", ""]):
+    hc = st.columns([1, 1, 3, 2, 2, 2, 2, 1])
+    for col, label in zip(hc, ["순위", "변동", "브랜드", "스코어", "조회수", "참여수", "언급 영상", ""]):
         col.markdown(f"**{label}**")
 
     for rank, b in enumerate(ranked, 1):
-        c = st.columns([1, 1, 3, 2, 2, 2, 2, 3, 1])
+        c = st.columns([1, 1, 3, 2, 2, 2, 2, 1])
         c[0].markdown(f"**{rank}**")
         c[1].markdown(_rank_change_html(b["prev_rank"], rank), unsafe_allow_html=True)
         c[2].markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
@@ -524,34 +475,9 @@ if not open_brand:
         c[4].markdown(_fmt_num(b["total_views"]))
         c[5].markdown(_fmt_num(b["total_engagement"]))
         c[6].markdown(f"{b['mentions']:,}건")
-        with c[7]:
-            st.markdown(_sentiment_bar(b["sentiment"]), unsafe_allow_html=True)
-        if c[8].button("열기", key=f"rank_open_{b['name']}", use_container_width=True):
+        if c[7].button("열기", key=f"rank_open_{b['name']}", use_container_width=True):
             st.session_state["rank_open_brand"] = b["name"]
             st.rerun()
-
-    st.divider()
-
-    # ── 조회수 추이 (브랜드별) ───────────────────────────────────────────
-    st.markdown("##### 📈 브랜드별 조회수 추이 (최근 14일)")
-    days = [f"D-{13-i}" for i in range(14)]
-    trend_df = pd.DataFrame({b["name"]: b["trend"] for b in ranked}, index=days)
-    try:
-        st.line_chart(trend_df, use_container_width=True, height=300,
-                       color=[b["color"] for b in ranked])
-    except TypeError:
-        st.line_chart(trend_df, use_container_width=True, height=300)
-
-    st.divider()
-
-    # ── UGC 영상 언급 비중 ───────────────────────────────────────────────
-    st.markdown("##### 🎬 UGC 영상 언급 비중")
-    st.caption("전체 뷰티/헬스 카테고리 영상 중 해당 브랜드가 언급된 비율")
-    for b in ranked:
-        lc, rc = st.columns([1, 5])
-        lc.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
-        with rc:
-            st.progress(b["ugc_pct"] / 100, text=f"{b['ugc_pct']}%  ·  {b['mentions']}건")
 
     st.divider()
 
@@ -657,12 +583,6 @@ for col, b in zip(cols, compare):
         st.metric("총 참여수", _fmt_num(b["total_engagement"]))
         st.metric("언급 영상", f"{b['mentions']:,}건")
         st.metric("고유 크리에이터", f"{b['creators']:,}명")
-        st.markdown("**감성**")
-        st.markdown(_sentiment_bar(b["sentiment"], height=18), unsafe_allow_html=True)
-        st.caption(
-            f"긍정 {b['sentiment']['positive']}%  ·  중립 {b['sentiment']['neutral']}%  ·  "
-            f"부정 {b['sentiment']['negative']}%"
-        )
         st.markdown("**오디언스 지역**")
         if b["regions"]:
             st.markdown(_region_bar(b["regions"], height=18), unsafe_allow_html=True)
@@ -713,81 +633,11 @@ except TypeError:
 
 st.divider()
 
-st.markdown("##### 🧠 Content Emotions")
-st.caption("영상/댓글에서 감지된 감정 비중 (브랜드별)")
-emotion_labels = list(compare[0]["emotions"].keys()) if compare else []
-emo_df = pd.DataFrame(
-    {b["name"]: [b["emotions"].get(e, 0) for e in emotion_labels] for b in compare},
-    index=emotion_labels,
-)
-try:
-    st.bar_chart(emo_df, use_container_width=True, height=280,
-                 color=[b["color"] for b in compare])
-except TypeError:
-    st.bar_chart(emo_df, use_container_width=True, height=280)
-
-st.divider()
-
 # ── 댓글 분석 ─────────────────────────────────────────────────────────────
 st.markdown("##### 💬 댓글 분석")
-st.caption("브랜드 언급 콘텐츠의 댓글에서 추출한 주요 키워드와 최다 좋아요 댓글")
+st.caption("브랜드 언급 콘텐츠의 댓글에서 추출한 주요 키워드")
 cc = st.columns(len(compare))
 for col, b in zip(cc, compare):
     with col:
         st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
         st.markdown(f"<div style='margin:6px 0'>{_keyword_tags(b['top_keywords'])}</div>", unsafe_allow_html=True)
-        tc = b["top_comment"]
-        st.markdown(f"> {tc['text']}")
-        st.caption(f"{tc['author']}  ·  ❤️ {tc['likes']:,}")
-
-st.divider()
-
-# ── 오디언스 분석 ─────────────────────────────────────────────────────────
-st.markdown("##### 👥 오디언스 분석")
-st.caption("언급 콘텐츠를 만든 크리에이터/시청자 구성")
-
-ac1, ac2, ac3 = st.columns(3)
-with ac1:
-    st.markdown("**크리에이터 규모 분포**")
-    tier_labels = list(compare[0]["creator_tiers"].keys()) if compare else []
-    tier_df = pd.DataFrame(
-        {b["name"]: [b["creator_tiers"].get(t, 0) for t in tier_labels] for b in compare},
-        index=tier_labels,
-    )
-    try:
-        st.bar_chart(tier_df, use_container_width=True, height=260,
-                     color=[b["color"] for b in compare])
-    except TypeError:
-        st.bar_chart(tier_df, use_container_width=True, height=260)
-
-with ac2:
-    st.markdown("**플랫폼 비중**")
-    plat_labels = list(compare[0]["platform_mix"].keys()) if compare else []
-    plat_df = pd.DataFrame(
-        {b["name"]: [b["platform_mix"].get(p, 0) for p in plat_labels] for b in compare},
-        index=plat_labels,
-    )
-    try:
-        st.bar_chart(plat_df, use_container_width=True, height=260,
-                     color=[b["color"] for b in compare])
-    except TypeError:
-        st.bar_chart(plat_df, use_container_width=True, height=260)
-
-with ac3:
-    st.markdown("**시청자 성별 비중**")
-    for b in compare:
-        st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
-        st.progress(
-            b["gender"].get("여성", 0) / 100,
-            text=f"여성 {b['gender'].get('여성', 0)}%  ·  남성 {b['gender'].get('남성', 0)}%",
-        )
-
-st.divider()
-
-with st.expander("🤖 AI 요약 (최다 좋아요 댓글 기반)", expanded=True):
-    st.caption("아래는 예시 텍스트입니다. 실제 연동 시 좋아요 상위 댓글을 모델에 전달해 요약을 생성합니다.")
-    st.markdown(
-        "> 소비자들은 전반적으로 **보습력과 흡수 속도**를 가장 많이 언급했습니다. "
-        "특히 **닥터리쥬올**과 **유이크(UIQ)**는 '끈적임 없음'에 대한 긍정 언급이 두드러졌고, "
-        "**헤브블루**는 향에 대한 호불호가 갈리는 댓글이 상대적으로 많았습니다."
-    )
