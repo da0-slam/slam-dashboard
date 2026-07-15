@@ -25,7 +25,8 @@
        콘텐츠 위치태그로 폴백
     5. 핵심 키워드 = 콘텐츠 해시태그 빈도 top-N (fyp/viral 등 범용 태그는 제외)
 
-    저장된 데이터가 있는 브랜드만 실값으로 표시되고, 나머지는 예시 데이터.
+    데이터가 없는 브랜드는 랭킹 화면에 아예 표시되지 않습니다 (가짜 수치로
+    대체하지 않음).
 """
 import re
 import streamlit as st
@@ -178,73 +179,24 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows:
 # 브랜드별 색을 화면 전체에서 고정 배정 (순위가 바뀌어도 색은 브랜드에 고정)
 _PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444"]
 
-# ── MOCK 데이터 (실데이터 없는 브랜드만 예시로 유지 — 실데이터 확보되면 제거) ──
-_MOCK_BRANDS = [
-    {
-        "name": "유이크(UIQ)", "score": 85.6, "prev_rank": 3,
-        "total_views": 14_200_000, "total_engagement": 471_000,
-        "mentions": 276, "creators": 45,
-        "products": [
-            {"name": "리페어 세럼", "count": 146, "engagement": 250_000, "score": 88.2},
-            {"name": "배리어 크림", "count": 130, "engagement": 221_000, "score": 83.0},
-        ],
-        "regions": {"한국": 40, "중국": 22, "미국": 20, "동남아": 12, "기타": 6},
-        "top_keywords": [("탄력", 104), ("가성비", 88), ("성분", 62), ("트러블", 40), ("포장", 22)],
-    },
-    {
-        "name": "닥터리쥬올", "score": 76.3, "prev_rank": 2,
-        "total_views": 10_500_000, "total_engagement": 318_000,
-        "mentions": 214, "creators": 36,
-        "products": [
-            {"name": "리프팅 앰플", "count": 111, "engagement": 166_000, "score": 79.6},
-            {"name": "아이크림", "count": 103, "engagement": 152_000, "score": 73.0},
-        ],
-        "regions": {"한국": 48, "중국": 25, "동남아": 15, "미국": 8, "기타": 4},
-        "top_keywords": [("리프팅", 96), ("각질", 58), ("효과", 51), ("자극", 29), ("향", 18)],
-    },
-    {
-        "name": "헤브블루", "score": 65.8, "prev_rank": 4,
-        "total_views": 6_800_000, "total_engagement": 192_000,
-        "mentions": 143, "creators": 24,
-        "products": [
-            {"name": "클렌징밤", "count": 76, "engagement": 102_000, "score": 69.4},
-            {"name": "토너패드", "count": 67, "engagement": 90_000, "score": 62.2},
-        ],
-        "regions": {"한국": 55, "동남아": 20, "중국": 15, "미국": 6, "기타": 4},
-        "top_keywords": [("향", 61), ("촉감", 47), ("가격", 40), ("트러블", 34), ("배송", 15)],
-    },
-    {
-        # 핵심 상품 2개가 아직 확정되지 않아 products는 비워둠 (스코어에는 영향 없음 —
-        # 스코어는 브랜드 전체 지표 기반이라 상품 매칭과 무관).
-        "name": "닥터리앤장", "score": 50.0, "prev_rank": 4,
-        "total_views": 0, "total_engagement": 0,
-        "mentions": 0, "creators": 0,
-        "products": [],
-        "regions": {},
-        "top_keywords": [],
-    },
-]
-for i, b in enumerate(_MOCK_BRANDS):
-    b["color"] = _PALETTE[i % len(_PALETTE)]
+# ── 브랜드 랭킹에 추적 중인 브랜드 목록 (실데이터가 없으면 랭킹에 표시되지 않음) ──
+_TRACKED_BRANDS = ["유이크(UIQ)", "닥터리쥬올", "헤브블루", "닥터리앤장"]
 
-# ── 실데이터 병합 (Supabase brand_ranking_content에 데이터가 있으면 실값으로 교체) ──
 # 시트 탭 이름과 화면 표시명이 다를 경우를 위한 별칭 매핑 (현재는 이름 통일로 비어있음)
 _BRAND_NAME_ALIASES: dict[str, str] = {}
 
 _real_brand_names = set(_ranking_brand_names())
-HAS_REAL_DATA = bool(_real_brand_names)
 
 _real_computed: dict[str, dict] = {}
-for b in _MOCK_BRANDS:
-    _lookup_name = _BRAND_NAME_ALIASES.get(b["name"], b["name"])
+for _name in _TRACKED_BRANDS:
+    _lookup_name = _BRAND_NAME_ALIASES.get(_name, _name)
     if _lookup_name not in _real_brand_names:
         continue
     rows = _load_ranking_content(_lookup_name)
     if not rows:
         continue
     comment_rows = _load_ranking_comments(_lookup_name)
-    computed = _compute_brand_from_content(b["name"], rows, comment_rows)
-    _real_computed[b["name"]] = computed
+    _real_computed[_name] = _compute_brand_from_content(_name, rows, comment_rows)
 
 # 상품별 성과표(참고용)에 쓰는 점수 — 개수/인게이지먼트를 상품 코호트 내에서 정규화.
 # ⚠️ 랭킹 스코어에는 더 이상 쓰지 않음: 상품명 키워드 매칭은 브랜드마다 커버리지
@@ -298,45 +250,43 @@ def _brand_score(c: dict) -> float:
     )
 
 
-for b in _MOCK_BRANDS:
-    computed = _real_computed.get(b["name"])
-    if not computed:
-        continue
+# ── 실데이터가 있는 브랜드만 최종 목록에 포함 (없는 브랜드는 가짜 수치 없이 그냥 제외) ──
+_BRANDS = []
+for _i, _name in enumerate(n for n in _TRACKED_BRANDS if n in _real_computed):
+    computed = _real_computed[_name]
     products = [
-        {"name": name, "count": stats["count"], "engagement": stats["engagement"],
+        {"name": p_name, "count": stats["count"], "engagement": stats["engagement"],
          "score": _product_score(stats["count"], stats["engagement"])}
-        for name, stats in computed["product_stats"].items()
+        for p_name, stats in computed["product_stats"].items()
     ]
-    b["products"] = products
-    b["score"] = _brand_score(computed)
-    b["mentions"] = computed["mentions"]
-    b["total_engagement"] = computed["total_engagement"]
-    b["total_views"] = computed["total_views"]
-    b["creators"] = computed["creators"]
-    if computed["regions"]:
-        b["regions"] = computed["regions"]
-        b["region_sample_size"] = computed["region_sample_size"]
-        b["region_source"] = computed["region_source"]
-    if computed["languages"]:
-        b["languages"] = computed["languages"]
-    if computed["top_keywords"]:
-        b["top_keywords"] = computed["top_keywords"]
-    if computed["top_videos"]:
-        b["top_videos"] = computed["top_videos"]
+    _BRANDS.append({
+        "name": _name,
+        "color": _PALETTE[_i % len(_PALETTE)],
+        "products": products,
+        "score": _brand_score(computed),
+        "mentions": computed["mentions"],
+        "total_engagement": computed["total_engagement"],
+        "total_views": computed["total_views"],
+        "creators": computed["creators"],
+        "regions": computed["regions"],
+        "region_sample_size": computed["region_sample_size"],
+        "region_source": computed["region_source"],
+        "languages": computed["languages"],
+        "top_keywords": computed["top_keywords"],
+        "top_videos": computed["top_videos"],
+    })
 
-# 지역 색상 — 목업(한국/미국/...)과 실데이터(US/PH/... ISO 코드)가 섞여 있으므로,
-# 병합이 끝난 뒤 실제로 등장하는 모든 지역 키에 카테고리 팔레트를 순서대로 배정
-# (고정 딕셔너리로 두면 ISO 코드가 전부 매칭 안 돼 회색 하나로 뭉쳐 보이는 문제가 있었음).
+# 지역 색상 — 실데이터의 ISO 국가 코드(US/PH/...)에 카테고리 팔레트를 순서대로 배정
 _REGION_PALETTE = [
     "#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444",
     "#8b5cf6", "#14b8a6", "#f97316", "#06b6d4", "#84cc16", "#e11d48",
 ]
-_all_region_keys = sorted({k for b in _MOCK_BRANDS for k in b.get("regions", {}).keys()})
+_all_region_keys = sorted({k for b in _BRANDS for k in b.get("regions", {}).keys()})
 _REGION_COLORS = {k: _REGION_PALETTE[i % len(_REGION_PALETTE)] for i, k in enumerate(_all_region_keys)}
 
 # 언어도 지역과 같은 방식으로 실제 등장하는 언어 코드에 팔레트를 순서대로 배정
 # (지역과 겹치지 않게 팔레트 뒤에서부터 배정해 인접 색이 덜 겹치도록 함)
-_all_lang_keys = sorted({k for b in _MOCK_BRANDS for k in b.get("languages", {}).keys()})
+_all_lang_keys = sorted({k for b in _BRANDS for k in b.get("languages", {}).keys()})
 _LANG_COLORS = {
     k: _REGION_PALETTE[(len(_REGION_PALETTE) - 1 - i) % len(_REGION_PALETTE)]
     for i, k in enumerate(_all_lang_keys)
@@ -408,15 +358,6 @@ def _render_coverage_table(brand_names: list[str]) -> None:
     st.dataframe(pd.DataFrame(stat_rows), use_container_width=True, hide_index=True)
 
 
-def _rank_change_html(prev_rank: int, cur_rank: int) -> str:
-    delta = prev_rank - cur_rank
-    if delta > 0:
-        return f"<span style='color:#10b981;font-weight:600;'>▲{delta}</span>"
-    if delta < 0:
-        return f"<span style='color:#ef4444;font-weight:600;'>▼{abs(delta)}</span>"
-    return "<span style='color:#9ca3af;'>─</span>"
-
-
 def _fmt_num(n: float) -> str:
     if n >= 1_000_000_000:
         return f"{n/1_000_000_000:.1f}B"
@@ -431,18 +372,16 @@ def _dot(color: str) -> str:
     return f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:{color};margin-right:6px;'></span>"
 
 
-if HAS_REAL_DATA:
-    _missing = [
-        b["name"] for b in _MOCK_BRANDS
-        if _BRAND_NAME_ALIASES.get(b["name"], b["name"]) not in _real_brand_names
-    ]
-    st.caption(
-        "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수·지역·오디언스 국가·핵심 키워드는 Supabase에 저장된 "
-        f"실제 TikTok UGC/댓글 데이터입니다 ({', '.join(sorted(_real_brand_names))}). "
-        + (f"🚧 {', '.join(_missing)}는 아직 데이터가 없어 예시 값입니다. " if _missing else "")
-    )
-else:
-    st.caption("🚧 임시 화면입니다.")
+_missing = [name for name in _TRACKED_BRANDS if name not in _real_computed]
+st.caption(
+    "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수·지역·오디언스 국가·핵심 키워드는 Supabase에 저장된 "
+    f"실제 TikTok UGC/댓글 데이터입니다 ({', '.join(b['name'] for b in _BRANDS)}). "
+    + (f"🚧 {', '.join(_missing)}는 아직 데이터가 없어 랭킹에 표시되지 않습니다. " if _missing else "")
+)
+
+if not _BRANDS:
+    st.info("아직 랭킹에 표시할 실데이터가 없습니다.")
+    st.stop()
 
 open_brand = st.session_state.get("rank_open_brand")
 
@@ -466,9 +405,9 @@ if not open_brand:
             "데이터 출처: TikTok 공식 해시태그/UGC 콘텐츠 + 댓글(Apify 수집, Supabase 저장). "
             "핵심 상품 2개 단위 매칭은 참고용으로만 별도 표시하며 이 스코어 산정에는 포함되지 않습니다."
         )
-        _render_coverage_table([b["name"] for b in _MOCK_BRANDS])
+        _render_coverage_table([b["name"] for b in _BRANDS])
 
-    ranked = sorted(_MOCK_BRANDS, key=lambda b: b["score"], reverse=True)
+    ranked = sorted(_BRANDS, key=lambda b: b["score"], reverse=True)
 
     # ── Share of Voice ────────────────────────────────────────────────────
     st.markdown("##### 📣 Share of Voice")
@@ -493,21 +432,19 @@ if not open_brand:
     st.divider()
 
     # ── 랭킹 테이블 ──────────────────────────────────────────────────────
-    st.caption("변동은 전 기간(직전 집계 주기) 순위 대비입니다.")
-    hc = st.columns([1, 1, 3, 2, 2, 2, 2, 1])
-    for col, label in zip(hc, ["순위", "변동", "브랜드", "스코어", "조회수", "참여수", "언급 영상", ""]):
+    hc = st.columns([1, 3, 2, 2, 2, 2, 1])
+    for col, label in zip(hc, ["순위", "브랜드", "스코어", "조회수", "참여수", "언급 영상", ""]):
         col.markdown(f"**{label}**")
 
     for rank, b in enumerate(ranked, 1):
-        c = st.columns([1, 1, 3, 2, 2, 2, 2, 1])
+        c = st.columns([1, 3, 2, 2, 2, 2, 1])
         c[0].markdown(f"**{rank}**")
-        c[1].markdown(_rank_change_html(b["prev_rank"], rank), unsafe_allow_html=True)
-        c[2].markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
-        c[3].markdown(f"**{b['score']:.1f}**")
-        c[4].markdown(_fmt_num(b["total_views"]))
-        c[5].markdown(_fmt_num(b["total_engagement"]))
-        c[6].markdown(f"{b['mentions']:,}건")
-        if c[7].button("열기", key=f"rank_open_{b['name']}", use_container_width=True):
+        c[1].markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+        c[2].markdown(f"**{b['score']:.1f}**")
+        c[3].markdown(_fmt_num(b["total_views"]))
+        c[4].markdown(_fmt_num(b["total_engagement"]))
+        c[5].markdown(f"{b['mentions']:,}건")
+        if c[6].button("열기", key=f"rank_open_{b['name']}", use_container_width=True):
             st.session_state["rank_open_brand"] = b["name"]
             st.rerun()
 
@@ -560,16 +497,16 @@ if st.button("← 랭킹으로"):
     st.session_state.pop("rank_open_brand", None)
     st.rerun()
 
-all_names = [b["name"] for b in _MOCK_BRANDS]
+all_names = [b["name"] for b in _BRANDS]
 with st.expander("➕ 다른 브랜드와 비교하기 (선택사항)", expanded=False):
     added = st.multiselect(
         "비교에 추가할 브랜드", [n for n in all_names if n != open_brand], key="rank_compare_sel",
     )
 selected = [open_brand] + added
-compare = [b for b in _MOCK_BRANDS if b["name"] in selected] or _MOCK_BRANDS[:1]
+compare = [b for b in _BRANDS if b["name"] in selected] or _BRANDS[:1]
 
-# 비교 중인 브랜드들 사이에서의 순위(변동 계산 기준)
-_ranked_all = sorted(_MOCK_BRANDS, key=lambda x: x["score"], reverse=True)
+# 비교 중인 브랜드들 사이에서의 순위
+_ranked_all = sorted(_BRANDS, key=lambda x: x["score"], reverse=True)
 _rank_of = {b["name"]: i + 1 for i, b in enumerate(_ranked_all)}
 
 st.title(f"🏆 {open_brand}" if len(compare) == 1 else "🏆 브랜드 비교")
@@ -608,10 +545,7 @@ for col, b in zip(cols, compare):
             unsafe_allow_html=True,
         )
         st.metric("글로벌 영향력 스코어", f"{b['score']:.1f}")
-        st.markdown(
-            f"전체 {_rank_of[b['name']]}위  ·  전 기간 대비 {_rank_change_html(b['prev_rank'], _rank_of[b['name']])}",
-            unsafe_allow_html=True,
-        )
+        st.caption(f"전체 {_rank_of[b['name']]}위")
         st.metric("총 조회수", _fmt_num(b["total_views"]))
         st.metric("총 참여수", _fmt_num(b["total_engagement"]))
         st.metric("언급 영상", f"{b['mentions']:,}건")
