@@ -34,6 +34,7 @@ from collections import Counter
 
 from utils.supabase_client import (
     get_brand_ranking_content, get_brand_ranking_comments, get_brand_ranking_names,
+    get_brand_ranking_import_stats,
 )
 
 st.set_page_config(page_title="브랜드 랭킹", page_icon="🏆", layout="wide")
@@ -52,6 +53,11 @@ def _load_ranking_comments(brand_name: str) -> list[dict]:
 @st.cache_data(ttl=300, show_spinner=False)
 def _ranking_brand_names() -> list[str]:
     return get_brand_ranking_names()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _ranking_import_stats() -> dict[str, dict]:
+    return get_brand_ranking_import_stats()
 
 
 # 핵심 상품 2개 키워드 (scripts/compute_brand_ranking.py와 동일 — 캡션/해시태그 매칭용)
@@ -377,6 +383,31 @@ def _keyword_tags(keywords: list[tuple[str, int]]) -> str:
     )
 
 
+_import_stats = _ranking_import_stats()
+
+
+def _render_coverage_table(brand_names: list[str]) -> None:
+    """원본 수집 건수 대비 필터링 후 유효 건수(커버리지)를 표로 노출."""
+    stat_rows = [
+        {
+            "브랜드": name,
+            "원본 수집": s["raw_count"],
+            "유효(랭킹 반영)": s["kept_count"],
+            "커버리지": f"{s['kept_count'] / s['raw_count'] * 100:.0f}%" if s["raw_count"] else "-",
+        }
+        for name in brand_names
+        if (s := _import_stats.get(name))
+    ]
+    if not stat_rows:
+        return
+    st.caption(
+        "📊 데이터 커버리지 — 해시태그/브랜드명 충돌로 무관한 콘텐츠가 섞이는 걸 막기 위해 "
+        "캡션·해시태그에 브랜드 키워드가 정확히 있는 콘텐츠만 남긴 결과입니다. 커버리지가 낮을수록 "
+        "원본 수집 검색어가 넓어 무관 콘텐츠가 많이 섞여 있었다는 뜻입니다."
+    )
+    st.dataframe(pd.DataFrame(stat_rows), use_container_width=True, hide_index=True)
+
+
 def _rank_change_html(prev_rank: int, cur_rank: int) -> str:
     delta = prev_rank - cur_rank
     if delta > 0:
@@ -435,6 +466,7 @@ if not open_brand:
             "데이터 출처: TikTok 공식 해시태그/UGC 콘텐츠 + 댓글(Apify 수집, Supabase 저장). "
             "핵심 상품 2개 단위 매칭은 참고용으로만 별도 표시하며 이 스코어 산정에는 포함되지 않습니다."
         )
+        _render_coverage_table([b["name"] for b in _MOCK_BRANDS])
 
     ranked = sorted(_MOCK_BRANDS, key=lambda b: b["score"], reverse=True)
 
@@ -546,6 +578,7 @@ with st.expander("📐 스코어 산정 기준", expanded=False):
     for name, weight, desc in _SCORE_WEIGHTS:
         st.markdown(f"- **{name} {weight*100:.0f}%** — {desc}")
     st.caption("현재 추적 중인 브랜드들 사이의 상대 비교 지표이며, 상품 매칭 결과는 반영되지 않습니다.")
+    _render_coverage_table([b["name"] for b in compare])
 
 # ── 핵심 상품 성과 (참고용 — 랭킹 스코어에는 반영되지 않음) ─────────────────
 st.markdown("##### 🔎 핵심 상품 성과")
@@ -618,9 +651,12 @@ st.divider()
 
 st.markdown("##### 🌍 국가별 오디언스 분포 비교")
 st.caption("브랜드별로 댓글을 남긴 오디언스가 어느 국가에 분포하는지 비교합니다.")
-# 비교 대상 브랜드들이 실제로 갖고 있는 지역 코드 전체를 합집합으로 (고정 목록이면
-# 실데이터 브랜드의 ISO 국가코드가 다 0으로 잡히는 문제가 있어 동적으로 구성)
-region_labels = sorted({r for b in compare for r in b["regions"].keys()})
+# 비교 대상 브랜드들이 실제로 갖고 있는 지역 코드 전체를 합집합으로, 비중 합이
+# 높은 국가부터 정렬 (고정/알파벳 순이면 어느 국가가 실제로 비중이 큰지 한눈에 안 보임)
+_region_keys = {r for b in compare for r in b["regions"].keys()}
+region_labels = sorted(
+    _region_keys, key=lambda r: sum(b["regions"].get(r, 0) for b in compare), reverse=True,
+)
 region_df = pd.DataFrame(
     {b["name"]: [b["regions"].get(r, 0) for r in region_labels] for b in compare},
     index=region_labels,

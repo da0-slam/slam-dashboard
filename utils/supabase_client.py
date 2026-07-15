@@ -253,6 +253,31 @@ def get_brand_ranking_names() -> list[str]:
     return sorted(names)
 
 
+def upsert_brand_ranking_import_stats(
+    brand_name: str, raw_count: int, kept_count: int,
+    excluded_dupes: int = 0, excluded_required_keyword: int = 0, excluded_keyword: int = 0,
+) -> None:
+    """브랜드 랭킹 임포트 시점의 원본/유효 건수를 기록 (화면 커버리지 표시용)."""
+    get_supabase().table("brand_ranking_import_stats").upsert({
+        "brand_name": brand_name,
+        "raw_count": raw_count,
+        "kept_count": kept_count,
+        "excluded_dupes": excluded_dupes,
+        "excluded_required_keyword": excluded_required_keyword,
+        "excluded_keyword": excluded_keyword,
+        "imported_at": "now()",
+    }, on_conflict="brand_name").execute()
+
+
+def get_brand_ranking_import_stats() -> dict[str, dict]:
+    """브랜드명 → 임포트 커버리지 통계 dict. 마이그레이션 021 미적용 시 빈 dict."""
+    try:
+        res = get_supabase().table("brand_ranking_import_stats").select("*").execute()
+    except Exception:
+        return {}
+    return {r["brand_name"]: r for r in (res.data or [])}
+
+
 def get_brand_strategies(brand_id: str) -> list[dict]:
     """브랜드의 모든 가이드 문서 목록 (최근 수정 순)."""
     res = (get_supabase().table("brand_strategy")

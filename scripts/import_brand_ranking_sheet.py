@@ -15,6 +15,10 @@
     python scripts/import_brand_ranking_sheet.py <SHEET_ID> --dry-run   # 저장 없이 미리보기만
     python scripts/import_brand_ranking_sheet.py <SHEET_ID> --exclude-keywords "plastic surgery,phẫu thuật thẩm mỹ"
         # 콘텐츠 탭에서 캡션/해시태그에 이 키워드가 하나라도 포함되면 제외 (콘텐츠 탭에만 적용)
+    python scripts/import_brand_ranking_sheet.py <SHEET_ID> --require-keywords "헤브블루:heveblue,닥터리쥬올:rejuall|pdrn"
+        # 브랜드별 필수 키워드. 캡션/해시태그에 이 중 하나도 없으면 제외 (콘텐츠 탭에만 적용).
+        # 브랜드명은 콜론(:), 브랜드 내 여러 키워드는 파이프(|), 브랜드끼리는 콤마(,)로 구분.
+        # 해시태그 충돌(예: 브랜드명이 일반 단어와 겹침)로 무관 콘텐츠가 섞이는 걸 막는 용도.
 """
 import argparse
 import io
@@ -144,15 +148,38 @@ def _matches_excluded(row: dict, keywords: list[str]) -> bool:
     return any(kw.lower() in haystack for kw in keywords)
 
 
+def _matches_required(row: dict, keywords: list[str]) -> bool:
+    haystack = (row.get("title") or "").lower() + " " + " ".join(row.get("hashtags") or []).lower()
+    return any(kw.lower() in haystack for kw in keywords)
+
+
+def _parse_require_keywords(spec: str) -> dict[str, list[str]]:
+    """"브랜드:키워드1|키워드2,브랜드2:키워드3" 형식 파싱."""
+    result: dict[str, list[str]] = {}
+    for part in spec.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        brand, kws = part.split(":", 1)
+        keywords = [k.strip() for k in kws.split("|") if k.strip()]
+        if brand.strip() and keywords:
+            result[brand.strip()] = keywords
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("sheet_id", help="Google Sheet ID")
     parser.add_argument("--dry-run", action="store_true", help="저장 없이 미리보기만")
     parser.add_argument("--only", help="쉼표로 구분한 탭 이름만 처리 (예: '헤브블루,헤브블루-코멘트')")
     parser.add_argument("--exclude-keywords", help="쉼표로 구분한 제외 키워드 (콘텐츠 탭의 캡션/해시태그 대상)")
+    parser.add_argument("--require-keywords",
+                         help='브랜드별 필수 키워드. "브랜드:키워드1|키워드2,브랜드2:키워드3" 형식 '
+                              "(콘텐츠 탭에서 캡션/해시태그에 하나도 없으면 제외)")
     args = parser.parse_args()
 
     exclude_keywords = [k.strip() for k in args.exclude_keywords.split(",")] if args.exclude_keywords else []
+    require_keywords = _parse_require_keywords(args.require_keywords) if args.require_keywords else {}
 
     url = f"https://docs.google.com/spreadsheets/d/{args.sheet_id}/export?format=xlsx"
     print(f"시트 다운로드 중: {url}")
@@ -166,6 +193,8 @@ def main():
     print(f"처리할 탭: {tab_names}")
     if exclude_keywords:
         print(f"제외 키워드(콘텐츠 탭만): {exclude_keywords}")
+    if require_keywords:
+        print(f"필수 키워드(콘텐츠 탭만, 브랜드별): {require_keywords}")
     print()
 
     total_saved = 0
@@ -175,6 +204,7 @@ def main():
         mapper = map_comment_row if is_comment_tab else map_row
 
         df = xls.parse(tab_name)
+        raw_count = len(df)
         rows = [mapper(r.to_dict(), brand_name) for _, r in df.iterrows()]
         rows = [r for r in rows if r]
 
@@ -183,6 +213,13 @@ def main():
             before = len(rows)
             rows = [r for r in rows if not _matches_excluded(r, exclude_keywords)]
             n_excluded = before - len(rows)
+
+        n_required_excluded = 0
+        req_kws = require_keywords.get(brand_name)
+        if req_kws and not is_comment_tab:
+            before = len(rows)
+            rows = [r for r in rows if _matches_required(r, req_kws)]
+            n_required_excluded = before - len(rows)
 
         # 같은 id가 여러 검색어(inputSource)로 중복 수집된 경우 dedup (마지막 값 유지)
         dedup: dict[str, dict] = {}
@@ -193,7 +230,7 @@ def main():
 
         kind = "댓글" if is_comment_tab else "콘텐츠"
         print(f"[{tab_name}] ({kind}, brand={brand_name}) {len(rows)}개 유효 행 (원본 {len(df)}행, "
-              f"중복 제거 {n_dupes}건, 키워드 제외 {n_excluded}건)")
+              f"중복 제거 {n_dupes}건, 키워드 제외 {n_excluded}건, 필수 키워드 미포함 제외 {n_required_excluded}건)")
 
         if args.dry_run:
             if rows:
@@ -205,6 +242,17 @@ def main():
                     print(f"  샘플: {sample['channel_username']} | likes={sample['likes']} "
                           f"views={sample['views']} hashtags={sample['hashtags'][:3] if sample['hashtags'] else []}")
             continue
+
+        if not is_comment_tab:
+            sb.table("brand_ranking_import_stats").upsert({
+                "brand_name": brand_name,
+                "raw_count": raw_count,
+                "kept_count": len(rows),
+                "excluded_dupes": n_dupes,
+                "excluded_required_keyword": n_required_excluded,
+                "excluded_keyword": n_excluded,
+                "imported_at": "now()",
+            }, on_conflict="brand_name").execute()
 
         CHUNK = 500
         saved = 0
