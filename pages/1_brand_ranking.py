@@ -1,24 +1,37 @@
 """브랜드 랭킹 — OWM 입점 브랜드 글로벌 영향력 스코어링.
 
-실데이터 파이프라인 (scripts/compute_brand_ranking.py, 2026-07-14 1차 실행 완료):
-    1. 브랜드별 핵심 상품 2개의 "영어" 검색어로 TikTok(자유 텍스트 검색)과
-       Instagram(해시태그 검색)을 조회
-    2. 상품별 "개수"(검색된 영상/게시물 수)와 "인게이지먼트"(좋아요+댓글+공유 합) 집계
-    3. 상품 점수 = 개수·인게이지먼트를 정규화해 산출
-    4. 브랜드 점수 = 핵심 상품 2개 점수의 평균 → 이 값으로 전체 랭킹 산출
-    스코어/상품 성과/조회수/참여수/언급수는 위 파이프라인의 실제 결과
-    (data/brand_ranking_snapshot.json)로 대체됨. 감성·지역·오디언스·댓글
-    키워드 등 나머지 섹션은 아직 별도 파이프라인이 없어 예시 데이터임.
+실데이터 파이프라인 (2026-07-15 확정):
+    라이브 Apify 검색(scripts/compute_brand_ranking.py)은 (1) 브랜드 공식
+    계정을 스크랩하면 브랜드 자체 게시물만 나와 "제3자 UGC 영향력" 취지에
+    안 맞고, (2) 해시태그가 브랜드명과 겹치는 일반 단어일 때(예: "23yearsold")
+    무관한 콘텐츠가 섞이는 문제가 있어 보류. 대신:
 
-    샤오홍슈는 검색 모드가 쿠키 없이 불안정하고 계정 정지 리스크가 있어
-    이번 1차 파이프라인에서는 제외 (TikTok+Instagram만 사용).
-    브랜드 공식 영문명: 닥터리쥬올 → Dr.Reju-All, 헤브블루 → HeveBlue.
+    1. 사용자가 Apify 콘솔에서 직접 수집한 TikTok UGC 콘텐츠/댓글 데이터를
+       Google Sheet(브랜드당 탭)로 export
+    2. scripts/import_brand_ranking_sheet.py로 Supabase에 이관
+       - "{브랜드}" 탭 → brand_ranking_content (콘텐츠: 조회수/좋아요/댓글/
+         공유/해시태그/위치태그 등)
+       - "{브랜드}-코멘트" 탭 → brand_ranking_comments (apidojo/tiktok-
+         comments-scraper 형식: 댓글별 user_region/user_language — 콘텐츠
+         위치태그보다 표본이 훨씬 크고 커버리지가 좋음, 예: 헤브블루 855개
+         댓글 전부 지역 데이터 있음)
+    3. 상품 점수 = 캡션/해시태그로 핵심 상품 2개에 매칭된 콘텐츠의 개수·
+       인게이지먼트를 정규화해 산출 (개수 40% + 인게이지먼트 60%)
+    4. 브랜드 점수 = 핵심 상품 2개 점수의 평균 → 이 값으로 전체 랭킹 산출
+    5. 지역 분포는 댓글 기반(brand_ranking_comments)을 우선 사용, 없으면
+       콘텐츠 위치태그로 폴백
+
+    저장된 데이터가 있는 브랜드만 실값으로 표시되고, 나머지는 예시 데이터.
+    감성·오디언스(크리에이터 규모/플랫폼 비중/성별)·댓글 키워드는 아직 별도
+    파이프라인이 없어 예시 데이터임.
 """
 import streamlit as st
 import pandas as pd
 from collections import Counter
 
-from utils.supabase_client import get_brand_ranking_content, get_brand_ranking_names
+from utils.supabase_client import (
+    get_brand_ranking_content, get_brand_ranking_comments, get_brand_ranking_names,
+)
 
 st.set_page_config(page_title="브랜드 랭킹", page_icon="🏆", layout="wide")
 
@@ -26,6 +39,11 @@ st.set_page_config(page_title="브랜드 랭킹", page_icon="🏆", layout="wide
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_ranking_content(brand_name: str) -> list[dict]:
     return get_brand_ranking_content(brand_name)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_ranking_comments(brand_name: str) -> list[dict]:
+    return get_brand_ranking_comments(brand_name)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -62,7 +80,7 @@ def _match_product(text: str, hashtags: list | None, keyword_list: list[tuple[st
     return None
 
 
-def _compute_brand_from_content(brand_name: str, rows: list[dict]) -> dict:
+def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows: list[dict]) -> dict:
     total_views = sum(r.get("views") or 0 for r in rows)
     total_engagement = sum((r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0) for r in rows)
     creators = len({r["channel_username"] for r in rows if r.get("channel_username")})
@@ -75,9 +93,21 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict]) -> dict:
             product_stats[matched]["count"] += 1
             product_stats[matched]["engagement"] += (r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0)
 
-    region_counter = Counter(r["region_code"] for r in rows if r.get("region_code"))
+    # 지역/언어: 댓글 기반(표본이 훨씬 크고 커버리지가 좋음)을 우선 사용,
+    # 댓글 데이터가 없으면 콘텐츠 위치태그로 폴백
+    if comment_rows:
+        region_counter = Counter(c["user_region"] for c in comment_rows if c.get("user_region"))
+        lang_counter = Counter(c["user_language"] for c in comment_rows if c.get("user_language"))
+        region_source = "댓글 작성자"
+    else:
+        region_counter = Counter(r["region_code"] for r in rows if r.get("region_code"))
+        lang_counter = Counter()
+        region_source = "콘텐츠 위치태그"
+
     region_total = sum(region_counter.values()) or 1
     regions = {k: round(v / region_total * 100, 1) for k, v in region_counter.most_common(6)}
+    lang_total = sum(lang_counter.values()) or 1
+    languages = {k: round(v / lang_total * 100, 1) for k, v in lang_counter.most_common(6)}
 
     return {
         "mentions": len(rows),
@@ -87,6 +117,8 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict]) -> dict:
         "product_stats": product_stats,
         "regions": regions,
         "region_sample_size": sum(region_counter.values()),
+        "region_source": region_source,
+        "languages": languages,
     }
 
 # 앱 전체에서 재사용 중인 팔레트(_comment_avatar_color, 6_content_performance.py)와 동일 —
@@ -191,7 +223,8 @@ for b in _MOCK_BRANDS:
     rows = _load_ranking_content(_lookup_name)
     if not rows:
         continue
-    computed = _compute_brand_from_content(b["name"], rows)
+    comment_rows = _load_ranking_comments(_lookup_name)
+    computed = _compute_brand_from_content(b["name"], rows, comment_rows)
     _real_computed[b["name"]] = computed
     for stats in computed["product_stats"].values():
         _all_product_counts.append(stats["count"])
@@ -225,6 +258,9 @@ for b in _MOCK_BRANDS:
     if computed["regions"]:
         b["regions"] = computed["regions"]
         b["region_sample_size"] = computed["region_sample_size"]
+        b["region_source"] = computed["region_source"]
+    if computed["languages"]:
+        b["languages"] = computed["languages"]
 
 _REGION_COLORS = {
     "한국": "#6366f1", "미국": "#3b82f6", "중국": "#ef4444",
@@ -387,7 +423,7 @@ if not open_brand:
     st.markdown("##### 🌍 국가·지역별 비중")
     st.caption(
         "브랜드 언급 콘텐츠의 지역 분포 — '글로벌 영향력' 스코어의 지리적 구성. "
-        "실데이터 브랜드는 위치 태그가 달린 콘텐츠만 반영된 국가코드(예: US, PH)이며, 표본이 작을 수 있습니다."
+        "실데이터 브랜드는 댓글 작성자 지역(있으면) 또는 콘텐츠 위치태그 기준 국가코드(예: US, PH)입니다."
     )
     for b in ranked:
         lc, rc = st.columns([1, 5])
@@ -396,9 +432,13 @@ if not open_brand:
             st.markdown(_region_bar(b["regions"]), unsafe_allow_html=True)
             _region_txt = "  ·  ".join(f"{k} {v}%" for k, v in b["regions"].items())
             sample = b.get("region_sample_size")
+            source = b.get("region_source")
             if sample:
-                _region_txt += f"  (표본 {sample}건)"
+                _region_txt += f"  ({source or '표본'} {sample}건)"
             st.caption(_region_txt or "데이터 없음")
+            if b.get("languages"):
+                lang_txt = "  ·  ".join(f"{k} {v}%" for k, v in b["languages"].items())
+                st.caption(f"🗣 댓글 언어: {lang_txt}")
 
     st.divider()
 
@@ -474,13 +514,18 @@ for col, b in zip(cols, compare):
         )
         st.markdown("**지역 비중**")
         st.markdown(_region_bar(b["regions"], height=18), unsafe_allow_html=True)
-        top_region = max(b["regions"], key=b["regions"].get)
-        st.caption(f"최다 지역: {top_region} ({b['regions'][top_region]}%)")
+        if b["regions"]:
+            top_region = max(b["regions"], key=b["regions"].get)
+            st.caption(f"최다 지역: {top_region} ({b['regions'][top_region]}%)")
+        else:
+            st.caption("데이터 없음")
 
 st.divider()
 
 st.markdown("##### 🌍 국가·지역별 비중 비교")
-region_labels = list(_REGION_COLORS.keys())
+# 비교 대상 브랜드들이 실제로 갖고 있는 지역 코드 전체를 합집합으로 (고정 목록이면
+# 실데이터 브랜드의 ISO 국가코드가 다 0으로 잡히는 문제가 있어 동적으로 구성)
+region_labels = sorted({r for b in compare for r in b["regions"].keys()})
 region_df = pd.DataFrame(
     {b["name"]: [b["regions"].get(r, 0) for r in region_labels] for b in compare},
     index=region_labels,

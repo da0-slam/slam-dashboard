@@ -222,6 +222,22 @@ def get_brand_ranking_content(brand_name: str) -> list[dict]:
     return rows
 
 
+def get_brand_ranking_comments(brand_name: str) -> list[dict]:
+    """브랜드 랭킹용 댓글 전체 조회 (지역/언어 분석용, 1000행 페이지네이션 처리)."""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        res = (get_supabase().table("brand_ranking_comments")
+               .select("*").eq("brand_name", brand_name)
+               .range(offset, offset + 999).execute())
+        batch = res.data or []
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        offset += 1000
+    return rows
+
+
 def get_brand_ranking_names() -> list[str]:
     """brand_ranking_content에 데이터가 있는 브랜드명 목록."""
     names: set[str] = set()
