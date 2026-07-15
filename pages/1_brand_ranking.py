@@ -198,20 +198,6 @@ for _name in _TRACKED_BRANDS:
     comment_rows = _load_ranking_comments(_lookup_name)
     _real_computed[_name] = _compute_brand_from_content(_name, rows, comment_rows)
 
-# 상품별 성과표(참고용)에 쓰는 점수 — 개수/인게이지먼트를 상품 코호트 내에서 정규화.
-# ⚠️ 랭킹 스코어에는 더 이상 쓰지 않음: 상품명 키워드 매칭은 브랜드마다 커버리지
-# 편차가 커서(예: 헤브블루는 223건 중 9~11건만 매칭, 닥터리쥬올은 479건 중 360건)
-# 이걸로 전체 점수를 매기면 실제 성과와 무관하게 왜곡됨 (2026-07-15 실데이터로 확인).
-_all_product_counts = [s["count"] for c in _real_computed.values() for s in c["product_stats"].values()]
-_all_product_engagements = [s["engagement"] for c in _real_computed.values() for s in c["product_stats"].values()]
-_max_p_count = max(_all_product_counts, default=0)
-_max_p_engagement = max(_all_product_engagements, default=0)
-
-
-def _product_score(count: int, engagement: int) -> float:
-    count_norm = (count / _max_p_count * 100) if _max_p_count else 0
-    eng_norm = (engagement / _max_p_engagement * 100) if _max_p_engagement else 0
-    return round(count_norm * 0.4 + eng_norm * 0.6, 1)
 
 
 # 브랜드 랭킹 스코어 — 브랜드 전체 지표(조회수/참여수/참여율/언급수/크리에이터 수)를
@@ -255,8 +241,7 @@ _BRANDS = []
 for _i, _name in enumerate(n for n in _TRACKED_BRANDS if n in _real_computed):
     computed = _real_computed[_name]
     products = [
-        {"name": p_name, "count": stats["count"], "engagement": stats["engagement"],
-         "score": _product_score(stats["count"], stats["engagement"])}
+        {"name": p_name, "count": stats["count"], "engagement": stats["engagement"]}
         for p_name, stats in computed["product_stats"].items()
     ]
     _BRANDS.append({
@@ -522,15 +507,15 @@ st.markdown("##### 🔎 핵심 상품 성과")
 st.caption(
     "핵심 상품 2개의 이름이 캡션·해시태그에 언급된 콘텐츠만 집계한 참고용 지표입니다. "
     "⚠️ 브랜드 랭킹 스코어에는 반영되지 않습니다 — 실제 콘텐츠에서 상품명을 캡션에 "
-    "잘 안 적는 브랜드는 매칭 건수가 적게 잡혀 저평가될 수 있어(예: 헤브블루는 223건 중 "
-    "9~11건만 매칭) 상품 단위 비교보다는 브랜드 전체 지표를 신뢰하는 게 안전합니다."
+    "잘 안 적는 상품은 매칭 건수가 적게 잡힐 뿐 실제로 덜 팔리거나 인기가 낮다는 뜻이 "
+    "아니므로, 상품 간 개수·인게이지먼트를 직접 비교하지 마세요."
 )
 pc = st.columns(len(compare))
 for col, b in zip(pc, compare):
     with col:
         st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
         prod_df = pd.DataFrame([
-            {"상품명": p["name"], "개수": p["count"], "인게이지먼트": _fmt_num(p["engagement"]), "매칭 점수": p["score"]}
+            {"상품명": p["name"], "개수": p["count"], "인게이지먼트": _fmt_num(p["engagement"])}
             for p in b["products"]
         ])
         st.dataframe(prod_df, use_container_width=True, hide_index=True)
