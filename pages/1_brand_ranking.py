@@ -104,21 +104,32 @@ def _top_hashtags(rows: list[dict], n: int = 8) -> list[tuple[str, int]]:
 
 
 _TT_VIDEO_ID_RE = re.compile(r"/video/(\d+)")
+_IG_SHORTCODE_RE = re.compile(r"instagram\.com/(?:p|reel)/([^/?]+)")
+
+
+def _embed_url(post_url: str, platform: str) -> str | None:
+    if platform == "instagram":
+        m = _IG_SHORTCODE_RE.search(post_url)
+        return f"https://www.instagram.com/p/{m.group(1)}/embed" if m else None
+    m = _TT_VIDEO_ID_RE.search(post_url)
+    return f"https://www.tiktok.com/embed/v2/{m.group(1)}" if m else None
 
 
 def _top_videos(rows: list[dict], n: int = 4) -> list[dict]:
-    """조회수+참여수가 높은 순으로 대표 콘텐츠 top-N (TikTok 임베드용 video_id 포함)."""
+    """조회수+참여수가 높은 순으로 대표 콘텐츠 top-N (TikTok/Instagram 임베드 URL 포함)."""
     candidates = []
     for r in rows:
         post_url = r.get("post_url") or ""
-        m = _TT_VIDEO_ID_RE.search(post_url)
-        if not m:
+        platform = r.get("platform") or "tiktok"
+        embed_url = _embed_url(post_url, platform)
+        if not embed_url:
             continue
         views = r.get("views") or 0
         engagement = (r.get("likes") or 0) + (r.get("comments") or 0) + (r.get("shares") or 0)
         candidates.append({
-            "video_id": m.group(1),
+            "embed_url": embed_url,
             "post_url": post_url,
+            "platform": platform,
             "title": r.get("title") or "",
             "channel_username": r.get("channel_username") or "",
             "views": views,
@@ -556,9 +567,10 @@ for b in compare:
     vcols = st.columns(len(videos))
     for col, v in zip(vcols, videos):
         with col:
+            height = 620 if v["platform"] == "instagram" else 560
             st.markdown(
-                f'<iframe src="https://www.tiktok.com/embed/v2/{v["video_id"]}" '
-                f'style="width:100%;height:560px;border:none;" allowfullscreen></iframe>',
+                f'<iframe src="{v["embed_url"]}" '
+                f'style="width:100%;height:{height}px;border:none;" allowfullscreen></iframe>',
                 unsafe_allow_html=True,
             )
             st.caption(

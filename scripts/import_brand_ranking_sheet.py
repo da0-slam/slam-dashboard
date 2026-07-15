@@ -23,6 +23,7 @@
 import argparse
 import io
 import os
+import re
 import sys
 
 try:
@@ -109,6 +110,52 @@ def map_row(row: dict, brand_name: str) -> dict | None:
     }
 
 
+_IG_SHORTCODE_RE = re.compile(r"instagram\.com/(?:p|reel)/([^/?]+)")
+
+
+def map_instagram_row(row: dict, brand_name: str) -> dict | None:
+    """apify/instagram-scraper 형식 (caption/likesCount/ownerUsername/videoViewCount 등)."""
+    # id 컬럼은 Excel/pandas가 큰 정수를 float64로 읽으면서 정밀도가 깨짐(예: 1.234e+18) —
+    # url의 숏코드(문자열이라 정밀도 손실 없음)를 우선 PK로 사용하고, 없을 때만 id로 폴백.
+    post_url = _clean(row.get("url")) or ""
+    m = _IG_SHORTCODE_RE.search(post_url)
+    raw_id = m.group(1) if m else _clean(row.get("id"))
+    if not raw_id:
+        return None
+    cid = f"ig_{raw_id}"  # brand_ranking_content.id는 플랫폼 공용 PK라 TikTok id와 충돌 방지
+
+    hashtags = []
+    i = 0
+    while f"hashtags/{i}" in row:
+        h = _clean(row.get(f"hashtags/{i}"))
+        if h:
+            hashtags.append(h)
+        i += 1
+
+    views = _int(row.get("videoViewCount")) or _int(row.get("videoPlayCount"))
+
+    return {
+        "id": cid,
+        "brand_name": brand_name,
+        "platform": "instagram",
+        "post_url": post_url or None,
+        "video_url": _clean(row.get("videoUrl")),
+        "title": _clean(row.get("caption")),
+        "channel_username": _clean(row.get("ownerUsername")) or _clean(row.get("username")),
+        "channel_followers": 0,
+        "channel_verified": False,
+        "likes": _int(row.get("likesCount")),
+        "comments": _int(row.get("commentsCount")),
+        "shares": 0,
+        "views": views,
+        "hashtags": hashtags or None,
+        "region_code": None,
+        "city_name": _clean(row.get("locationName")),
+        "input_source": _clean(row.get("inputUrl")),
+        "uploaded_at": _clean(row.get("timestamp")),
+    }
+
+
 def map_comment_row(row: dict, brand_name: str) -> dict | None:
     cid = _clean(row.get("id"))
     if not cid:
@@ -134,13 +181,18 @@ def map_comment_row(row: dict, brand_name: str) -> dict | None:
 
 
 _COMMENT_TAB_SUFFIXES = ("-코멘트", "-댓글")
+_INSTAGRAM_TAB_SUFFIXES = ("-인스타", "-instagram")
 
 
-def _strip_comment_suffix(tab_name: str) -> tuple[str, bool]:
+def _detect_tab_kind(tab_name: str) -> tuple[str, str]:
+    """탭 이름에서 브랜드명과 종류("comment"/"instagram"/"tiktok")를 분리."""
     for suffix in _COMMENT_TAB_SUFFIXES:
         if tab_name.endswith(suffix):
-            return tab_name[: -len(suffix)], True
-    return tab_name, False
+            return tab_name[: -len(suffix)], "comment"
+    for suffix in _INSTAGRAM_TAB_SUFFIXES:
+        if tab_name.endswith(suffix):
+            return tab_name[: -len(suffix)], "instagram"
+    return tab_name, "tiktok"
 
 
 def _matches_excluded(row: dict, keywords: list[str]) -> bool:
@@ -199,9 +251,10 @@ def main():
 
     total_saved = 0
     for tab_name in tab_names:
-        brand_name, is_comment_tab = _strip_comment_suffix(tab_name)
+        brand_name, tab_kind = _detect_tab_kind(tab_name)
+        is_comment_tab = tab_kind == "comment"
         table_name = "brand_ranking_comments" if is_comment_tab else "brand_ranking_content"
-        mapper = map_comment_row if is_comment_tab else map_row
+        mapper = {"comment": map_comment_row, "instagram": map_instagram_row, "tiktok": map_row}[tab_kind]
 
         df = xls.parse(tab_name)
         raw_count = len(df)
@@ -243,17 +296,6 @@ def main():
                           f"views={sample['views']} hashtags={sample['hashtags'][:3] if sample['hashtags'] else []}")
             continue
 
-        if not is_comment_tab:
-            sb.table("brand_ranking_import_stats").upsert({
-                "brand_name": brand_name,
-                "raw_count": raw_count,
-                "kept_count": len(rows),
-                "excluded_dupes": n_dupes,
-                "excluded_required_keyword": n_required_excluded,
-                "excluded_keyword": n_excluded,
-                "imported_at": "now()",
-            }, on_conflict="brand_name").execute()
-
         CHUNK = 500
         saved = 0
         for i in range(0, len(rows), CHUNK):
@@ -262,6 +304,35 @@ def main():
             saved += len(chunk)
         total_saved += saved
         print(f"  저장 완료: {saved}개")
+
+        if not is_comment_tab:
+            # 한 브랜드가 여러 플랫폼 탭(TikTok+Instagram)으로 나뉠 수 있으므로,
+            # raw_count는 누적하고 kept_count는 항상 실제 DB 건수(모든 플랫폼 합, 방금 저장분 포함)로 재집계
+            # (재실행해도 kept_count는 항상 정확 — raw_count만 근사치로 누적됨).
+            existing = (sb.table("brand_ranking_import_stats")
+                        .select("raw_count").eq("brand_name", brand_name).limit(1).execute())
+            prev_raw = existing.data[0]["raw_count"] if existing.data else 0
+
+            live_kept = 0
+            _offset = 0
+            while True:
+                page = (sb.table("brand_ranking_content").select("id")
+                        .eq("brand_name", brand_name).range(_offset, _offset + 999).execute())
+                n = len(page.data or [])
+                live_kept += n
+                if n < 1000:
+                    break
+                _offset += 1000
+
+            sb.table("brand_ranking_import_stats").upsert({
+                "brand_name": brand_name,
+                "raw_count": prev_raw + raw_count,
+                "kept_count": live_kept,
+                "excluded_dupes": n_dupes,
+                "excluded_required_keyword": n_required_excluded,
+                "excluded_keyword": n_excluded,
+                "imported_at": "now()",
+            }, on_conflict="brand_name").execute()
 
     if args.dry_run:
         print("\n[dry-run] 저장하지 않았습니다. --dry-run 없이 다시 실행하면 저장됩니다.")
