@@ -195,13 +195,24 @@ def _detect_tab_kind(tab_name: str) -> tuple[str, str]:
     return tab_name, "tiktok"
 
 
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def _build_haystack(row: dict) -> str:
+    """캡션/해시태그에서 URL을 제거한 뒤 매칭용 텍스트로 합침 —
+    단축 URL(bit.ly 등)의 무작위 문자열이 짧은 키워드(예: "uiq")와 우연히
+    겹쳐 무관 콘텐츠가 포함되는 걸 방지."""
+    title = _URL_RE.sub("", row.get("title") or "")
+    return title.lower() + " " + " ".join(row.get("hashtags") or []).lower()
+
+
 def _matches_excluded(row: dict, keywords: list[str]) -> bool:
-    haystack = (row.get("title") or "").lower() + " " + " ".join(row.get("hashtags") or []).lower()
+    haystack = _build_haystack(row)
     return any(kw.lower() in haystack for kw in keywords)
 
 
 def _matches_required(row: dict, keywords: list[str]) -> bool:
-    haystack = (row.get("title") or "").lower() + " " + " ".join(row.get("hashtags") or []).lower()
+    haystack = _build_haystack(row)
     return any(kw.lower() in haystack for kw in keywords)
 
 
