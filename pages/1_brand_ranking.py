@@ -1,31 +1,25 @@
-"""브랜드 랭킹 — OWM 입점 브랜드 글로벌 영향력 스코어링.
+"""브랜드 UGC 현황 — OWM 입점 브랜드의 TikTok·Instagram UGC 데이터 대시보드.
 
-실데이터 파이프라인 (2026-07-15 확정):
-    라이브 Apify 검색(scripts/compute_brand_ranking.py)은 (1) 브랜드 공식
-    계정을 스크랩하면 브랜드 자체 게시물만 나와 "제3자 UGC 영향력" 취지에
-    안 맞고, (2) 해시태그가 브랜드명과 겹치는 일반 단어일 때(예: "23yearsold")
-    무관한 콘텐츠가 섞이는 문제가 있어 보류. 대신:
+2026-07-16 개편: 브랜드 스코어(0~100)로 순위를 매기던 방식을 제거했다.
+    표본 크기가 브랜드마다 크게 달라(수백~수천 건) 조회수·참여수 등 합계
+    기반 지표가 실제 영향력이 아니라 "얼마나 많이 수집했는가"에 좌우되는
+    문제가 있었고, 정규화 방식 자체도 상대적(코호트 구성이 바뀌면 점수도
+    바뀜)이라 "1위/2위" 같은 확정적 순위로 제시하기에는 데이터 상태가
+    부족하다고 판단함. 대신 브랜드별 실측 지표(총량 + 건당 평균)를 순위
+    없이 나란히 보여주는 대시보드로 전환.
 
-    1. 사용자가 Apify 콘솔에서 직접 수집한 TikTok UGC 콘텐츠/댓글 데이터를
-       Google Sheet(브랜드당 탭)로 export
+실데이터 파이프라인:
+    1. 사용자가 Apify 콘솔에서 직접 수집한 TikTok/Instagram UGC 콘텐츠·댓글
+       데이터를 Google Sheet(브랜드당 탭)로 export
     2. scripts/import_brand_ranking_sheet.py로 Supabase에 이관
-       - "{브랜드}" 탭 → brand_ranking_content (콘텐츠: 조회수/좋아요/댓글/
-         공유/해시태그/위치태그 등)
-       - "{브랜드}-코멘트" 탭 → brand_ranking_comments (apidojo/tiktok-
-         comments-scraper 형식: 댓글별 user_region/user_language — 콘텐츠
-         위치태그보다 표본이 훨씬 크고 커버리지가 좋음, 예: 헤브블루 855개
-         댓글 전부 지역 데이터 있음)
-    3. 브랜드 랭킹 스코어 = 브랜드 전체 지표(조회수 40% + 참여수 25% + 참여율 15%
-       + 언급수 10% + 고유 크리에이터수 10%)를 실데이터 브랜드 코호트 내에서
-       정규화해 산출. ※ 애초 설계는 "핵심 상품 2개 점수의 평균"이었으나, 실데이터로
-       확인해보니 상품명이 캡션에 잘 안 적히는 브랜드(예: 헤브블루 223건 중 9~11건만
-       매칭)가 부당하게 저평가되는 문제가 있어 2026-07-15에 브랜드 전체 지표 기반으로
-       전환함. 상품별 매칭 결과는 "핵심 상품 성과" 섹션에 참고용으로만 남김.
-    4. 지역 분포는 댓글 기반(brand_ranking_comments)을 우선 사용, 없으면
+       - "{브랜드}" 탭 → brand_ranking_content (TikTok 콘텐츠)
+       - "{브랜드}-인스타"/"-instagram" 탭 → brand_ranking_content (Instagram)
+       - "{브랜드}-코멘트"/"-댓글" 탭 → brand_ranking_comments
+    3. 지역 분포는 댓글 기반(brand_ranking_comments)을 우선 사용, 없으면
        콘텐츠 위치태그로 폴백
-    5. 핵심 키워드 = 콘텐츠 해시태그 빈도 top-N (fyp/viral 등 범용 태그는 제외)
+    4. 핵심 키워드 = 콘텐츠 해시태그 빈도 top-N (fyp/viral 등 범용 태그는 제외)
 
-    데이터가 없는 브랜드는 랭킹 화면에 아예 표시되지 않습니다 (가짜 수치로
+    데이터가 없는 브랜드는 화면에 아예 표시되지 않습니다 (가짜 수치로
     대체하지 않음).
 """
 import re
@@ -38,7 +32,7 @@ from utils.supabase_client import (
     get_brand_ranking_import_stats,
 )
 
-st.set_page_config(page_title="브랜드 랭킹", page_icon="🏆", layout="wide")
+st.set_page_config(page_title="브랜드 UGC", page_icon="📊", layout="wide")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -171,10 +165,15 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows:
     lang_total = sum(lang_counter.values()) or 1
     languages = {k: round(v / lang_total * 100, 1) for k, v in lang_counter.most_common(6)}
 
+    mentions = len(rows)
+    imported_dates = [r["imported_at"] for r in rows if r.get("imported_at")]
+
     return {
-        "mentions": len(rows),
+        "mentions": mentions,
         "total_views": total_views,
         "total_engagement": total_engagement,
+        "avg_views": (total_views / mentions) if mentions else 0,
+        "avg_engagement": (total_engagement / mentions) if mentions else 0,
         "engagement_rate": (total_engagement / total_views * 100) if total_views else 0,
         "creators": creators,
         "product_stats": product_stats,
@@ -184,13 +183,14 @@ def _compute_brand_from_content(brand_name: str, rows: list[dict], comment_rows:
         "languages": languages,
         "top_keywords": _top_hashtags(rows),
         "top_videos": _top_videos(rows),
+        "last_collected": max(imported_dates) if imported_dates else None,
     }
 
 # 앱 전체에서 재사용 중인 팔레트(_comment_avatar_color, 6_content_performance.py)와 동일 —
 # 브랜드별 색을 화면 전체에서 고정 배정 (순위가 바뀌어도 색은 브랜드에 고정)
 _PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444"]
 
-# ── 브랜드 랭킹에 추적 중인 브랜드 목록 (실데이터가 없으면 랭킹에 표시되지 않음) ──
+# ── 추적 중인 브랜드 목록 (실데이터가 없으면 화면에 표시되지 않음) ──
 _TRACKED_BRANDS = ["유이크(UIQ)", "닥터리쥬올", "헤브블루", "닥터리앤장"]
 
 # 시트 탭 이름과 화면 표시명이 다를 경우를 위한 별칭 매핑 (현재는 이름 통일로 비어있음)
@@ -211,42 +211,6 @@ for _name in _TRACKED_BRANDS:
 
 
 
-# 브랜드 랭킹 스코어 — 브랜드 전체 지표(조회수/참여수/참여율/언급수/크리에이터 수)를
-# 실데이터 브랜드 코호트 내에서 정규화해 산출. 상품 키워드 매칭에 좌우되지 않음.
-_max_views = max((c["total_views"] for c in _real_computed.values()), default=0)
-_max_engagement = max((c["total_engagement"] for c in _real_computed.values()), default=0)
-_max_rate = max((c["engagement_rate"] for c in _real_computed.values()), default=0)
-_max_mentions = max((c["mentions"] for c in _real_computed.values()), default=0)
-_max_creators = max((c["creators"] for c in _real_computed.values()), default=0)
-
-
-# 스코어 산정 기준 — 화면의 "📐 스코어 산정 기준" 설명 박스와 반드시 같이 수정할 것
-_SCORE_WEIGHTS = [
-    ("조회수 (Reach)", 0.40, "총 조회수 — 콘텐츠가 얼마나 많은 사람에게 도달했는지"),
-    ("참여수 (Engagement)", 0.25, "좋아요+댓글+공유 합 — 실제 반응의 절대량"),
-    ("참여율 (Engagement Rate)", 0.15, "참여수 ÷ 조회수 — 도달 대비 반응 품질"),
-    ("언급 콘텐츠 수 (Volume)", 0.10, "브랜드가 언급된 콘텐츠 건수 — 확산 폭"),
-    ("고유 크리에이터 수 (Creator Diversity)", 0.10, "브랜드를 언급한 서로 다른 계정 수 — 특정 계정 의존도가 낮을수록 유리"),
-]
-
-
-def _brand_score(c: dict) -> float:
-    v = (c["total_views"] / _max_views * 100) if _max_views else 0
-    e = (c["total_engagement"] / _max_engagement * 100) if _max_engagement else 0
-    r = (c["engagement_rate"] / _max_rate * 100) if _max_rate else 0
-    m = (c["mentions"] / _max_mentions * 100) if _max_mentions else 0
-    cr = (c["creators"] / _max_creators * 100) if _max_creators else 0
-    weights = {name: w for name, w, _ in _SCORE_WEIGHTS}
-    return round(
-        v * weights["조회수 (Reach)"]
-        + e * weights["참여수 (Engagement)"]
-        + r * weights["참여율 (Engagement Rate)"]
-        + m * weights["언급 콘텐츠 수 (Volume)"]
-        + cr * weights["고유 크리에이터 수 (Creator Diversity)"],
-        1,
-    )
-
-
 # ── 실데이터가 있는 브랜드만 최종 목록에 포함 (없는 브랜드는 가짜 수치 없이 그냥 제외) ──
 _BRANDS = []
 for _i, _name in enumerate(n for n in _TRACKED_BRANDS if n in _real_computed):
@@ -259,10 +223,12 @@ for _i, _name in enumerate(n for n in _TRACKED_BRANDS if n in _real_computed):
         "name": _name,
         "color": _PALETTE[_i % len(_PALETTE)],
         "products": products,
-        "score": _brand_score(computed),
         "mentions": computed["mentions"],
         "total_engagement": computed["total_engagement"],
         "total_views": computed["total_views"],
+        "avg_views": computed["avg_views"],
+        "avg_engagement": computed["avg_engagement"],
+        "engagement_rate": computed["engagement_rate"],
         "creators": computed["creators"],
         "regions": computed["regions"],
         "region_sample_size": computed["region_sample_size"],
@@ -270,6 +236,7 @@ for _i, _name in enumerate(n for n in _TRACKED_BRANDS if n in _real_computed):
         "languages": computed["languages"],
         "top_keywords": computed["top_keywords"],
         "top_videos": computed["top_videos"],
+        "last_collected": computed["last_collected"],
     })
 
 # 지역 색상 — 실데이터의 ISO 국가 코드(US/PH/...)에 카테고리 팔레트를 순서대로 배정
@@ -338,7 +305,7 @@ def _render_coverage_table(brand_names: list[str]) -> None:
         {
             "브랜드": name,
             "원본 수집": s["raw_count"],
-            "유효(랭킹 반영)": s["kept_count"],
+            "유효(화면 반영)": s["kept_count"],
             "커버리지": f"{s['kept_count'] / s['raw_count'] * 100:.0f}%" if s["raw_count"] else "-",
         }
         for name in brand_names
@@ -370,50 +337,60 @@ def _dot(color: str) -> str:
 
 _missing = [name for name in _TRACKED_BRANDS if name not in _real_computed]
 st.caption(
-    "✅ 스코어·핵심 상품 성과·조회수·참여수·언급수·지역·오디언스 국가·핵심 키워드는 Supabase에 저장된 "
-    f"실제 TikTok UGC/댓글 데이터입니다 ({', '.join(b['name'] for b in _BRANDS)}). "
-    + (f"🚧 {', '.join(_missing)}는 아직 데이터가 없어 랭킹에 표시되지 않습니다. " if _missing else "")
+    "✅ 핵심 상품 성과·조회수·참여수·언급수·지역·오디언스 국가·핵심 키워드는 Supabase에 저장된 "
+    f"실제 TikTok·Instagram UGC/댓글 데이터입니다 ({', '.join(b['name'] for b in _BRANDS)}). "
+    + (f"🚧 {', '.join(_missing)}는 아직 데이터가 없어 화면에 표시되지 않습니다. " if _missing else "")
 )
 
 if not _BRANDS:
-    st.info("아직 랭킹에 표시할 실데이터가 없습니다.")
+    st.info("아직 표시할 실데이터가 없습니다.")
     st.stop()
 
 open_brand = st.session_state.get("rank_open_brand")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 랭킹 목록 뷰
+# 목록 뷰
 # ═══════════════════════════════════════════════════════════════════════════
 
 if not open_brand:
-    st.title("🏆 브랜드 랭킹")
-    st.caption("OWM(오프라인 매장) 입점 브랜드의 글로벌 영향력을 스코어링해 비교합니다.")
+    st.title("📊 브랜드 UGC 현황")
+    st.caption(
+        "OWM(오프라인 매장) 입점 브랜드의 TikTok·Instagram UGC 데이터를 브랜드별로 보여줍니다. "
+        "**순위가 아니라 참고 자료입니다** — 브랜드마다 수집 규모·시점이 달라 총량 지표만으로 "
+        "브랜드 간 우열을 매길 수 없습니다."
+    )
 
-    with st.expander("📐 스코어 산정 기준", expanded=False):
+    with st.expander("📊 데이터 수집 방법", expanded=False):
         st.markdown(
-            "브랜드 스코어(0~100)는 아래 5개 지표를 **현재 추적 중인 브랜드들 사이에서 상대적으로 정규화**"
-            "(최고값=100 기준)한 뒤 가중합해 산출합니다. 브랜드가 추가/제외되면 다른 브랜드의 점수도 "
-            "함께 바뀔 수 있습니다 (절대 점수가 아니라 상대 비교 지표)."
+            "담당자가 Apify를 통해 TikTok·Instagram에서 브랜드 키워드가 캡션·해시태그에 정확히 "
+            "포함된 콘텐츠를 수집합니다. **자동/실시간 갱신이 아니라 특정 시점의 스냅샷**이며, "
+            "브랜드마다 수집 시점과 규모가 다릅니다 — 아래 커버리지 표 참고."
         )
-        for name, weight, desc in _SCORE_WEIGHTS:
-            st.markdown(f"- **{name} {weight*100:.0f}%** — {desc}")
         st.caption(
-            "데이터 출처: TikTok 공식 해시태그/UGC 콘텐츠 + 댓글(Apify 수집, Supabase 저장). "
-            "핵심 상품 2개 단위 매칭은 참고용으로만 별도 표시하며 이 스코어 산정에는 포함되지 않습니다."
+            "데이터 출처: TikTok·Instagram UGC 콘텐츠 + 댓글(Apify 수집, Supabase 저장). "
+            "핵심 상품 2개 단위 매칭은 참고용으로만 별도 표시됩니다."
         )
         _render_coverage_table([b["name"] for b in _BRANDS])
 
-    ranked = sorted(_BRANDS, key=lambda b: b["score"], reverse=True)
+    _sort_options = {
+        "총 조회수": lambda b: b["total_views"],
+        "건당 평균 조회수": lambda b: b["avg_views"],
+        "참여율": lambda b: b["engagement_rate"],
+        "언급 건수": lambda b: b["mentions"],
+        "최근 수집일": lambda b: b["last_collected"] or "",
+    }
+    sort_label = st.selectbox("정렬 기준", list(_sort_options.keys()), key="ugc_sort")
+    ordered = sorted(_BRANDS, key=_sort_options[sort_label], reverse=True)
 
-    # ── Share of Voice ────────────────────────────────────────────────────
-    st.markdown("##### 📣 Share of Voice")
-    total_eng = sum(b["total_engagement"] for b in ranked) or 1
+    # ── 브랜드별 참여수 비중 ─────────────────────────────────────────────
+    st.markdown("##### 📣 브랜드별 참여수 비중")
+    total_eng = sum(b["total_engagement"] for b in ordered) or 1
     sov_bar = "".join(
         f"<div style='width:{b['total_engagement']/total_eng*100:.1f}%;background:{b['color']};"
         f"height:28px;display:flex;align-items:center;justify-content:center;"
         f"color:#fff;font-size:11px;font-weight:600;overflow:hidden;white-space:nowrap;'>"
         f"{b['total_engagement']/total_eng*100:.0f}%</div>"
-        for b in ranked
+        for b in ordered
     )
     st.markdown(
         f"<div style='display:flex;width:100%;border-radius:6px;overflow:hidden;margin-bottom:6px;'>{sov_bar}</div>",
@@ -421,28 +398,30 @@ if not open_brand:
     )
     legend = "".join(
         f"<span style='margin-right:16px;font-size:12px;color:#374151;'>{_dot(b['color'])}{b['name']}</span>"
-        for b in ranked
+        for b in ordered
     )
     st.markdown(f"<div>{legend}</div>", unsafe_allow_html=True)
 
     st.divider()
 
-    # ── 랭킹 테이블 ──────────────────────────────────────────────────────
-    hc = st.columns([1, 3, 2, 2, 2, 2, 1])
-    for col, label in zip(hc, ["순위", "브랜드", "스코어", "조회수", "참여수", "언급 영상", ""]):
-        col.markdown(f"**{label}**")
-
-    for rank, b in enumerate(ranked, 1):
-        c = st.columns([1, 3, 2, 2, 2, 2, 1])
-        c[0].markdown(f"**{rank}**")
-        c[1].markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
-        c[2].markdown(f"**{b['score']:.1f}**")
-        c[3].markdown(_fmt_num(b["total_views"]))
-        c[4].markdown(_fmt_num(b["total_engagement"]))
-        c[5].markdown(f"{b['mentions']:,}건")
-        if c[6].button("열기", key=f"rank_open_{b['name']}", use_container_width=True):
-            st.session_state["rank_open_brand"] = b["name"]
-            st.rerun()
+    # ── 브랜드 카드 그리드 (순위 번호 없음) ─────────────────────────────────
+    _CARDS_PER_ROW = 2
+    for i in range(0, len(ordered), _CARDS_PER_ROW):
+        row_brands = ordered[i:i + _CARDS_PER_ROW]
+        cols = st.columns(_CARDS_PER_ROW)
+        for col, b in zip(cols, row_brands):
+            with col, st.container(border=True):
+                st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                mc1.metric("총 조회수", _fmt_num(b["total_views"]))
+                mc2.metric("건당 평균 조회수", _fmt_num(b["avg_views"]))
+                mc3.metric("참여율", f"{b['engagement_rate']:.1f}%")
+                mc4.metric("언급 건수", f"{b['mentions']:,}건")
+                if b.get("last_collected"):
+                    st.caption(f"최근 수집: {b['last_collected'][:10]}")
+                if st.button("자세히 보기", key=f"rank_open_{b['name']}", use_container_width=True):
+                    st.session_state["rank_open_brand"] = b["name"]
+                    st.rerun()
 
     st.divider()
 
@@ -453,7 +432,7 @@ if not open_brand:
         "(위치 태그가 있는 경우 콘텐츠 자체 위치로 보완). "
         "광고 없이 이미 여러 국가에서 유기적으로 반응이 일어나고 있다는 근거로 볼 수 있습니다."
     )
-    for b in ranked:
+    for b in ordered:
         lc, rc = st.columns([1, 5])
         lc.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
         with rc:
@@ -477,7 +456,7 @@ if not open_brand:
     # ── 브랜드별 핵심 키워드 ─────────────────────────────────────────────
     st.markdown("##### 🔑 브랜드별 핵심 키워드")
     st.caption("언급 콘텐츠의 댓글에서 가장 많이 등장한 키워드 (괄호 안은 언급 횟수)")
-    for b in ranked:
+    for b in ordered:
         lc, rc = st.columns([1, 5])
         lc.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
         with rc:
@@ -486,10 +465,10 @@ if not open_brand:
     st.stop()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 브랜드 비교 상세 뷰
+# 브랜드 상세 뷰
 # ═══════════════════════════════════════════════════════════════════════════
 
-if st.button("← 랭킹으로"):
+if st.button("← 목록으로"):
     st.session_state.pop("rank_open_brand", None)
     st.rerun()
 
@@ -501,25 +480,22 @@ with st.expander("➕ 다른 브랜드와 비교하기 (선택사항)", expanded
 selected = [open_brand] + added
 compare = [b for b in _BRANDS if b["name"] in selected] or _BRANDS[:1]
 
-# 비교 중인 브랜드들 사이에서의 순위
-_ranked_all = sorted(_BRANDS, key=lambda x: x["score"], reverse=True)
-_rank_of = {b["name"]: i + 1 for i, b in enumerate(_ranked_all)}
+st.title(f"📊 {open_brand}" if len(compare) == 1 else "📊 브랜드 비교")
 
-st.title(f"🏆 {open_brand}" if len(compare) == 1 else "🏆 브랜드 비교")
-
-with st.expander("📐 스코어 산정 기준", expanded=False):
-    for name, weight, desc in _SCORE_WEIGHTS:
-        st.markdown(f"- **{name} {weight*100:.0f}%** — {desc}")
-    st.caption("현재 추적 중인 브랜드들 사이의 상대 비교 지표이며, 상품 매칭 결과는 반영되지 않습니다.")
+with st.expander("📊 데이터 수집 방법", expanded=False):
+    st.markdown(
+        "담당자가 Apify를 통해 TikTok·Instagram에서 브랜드 키워드가 캡션·해시태그에 정확히 "
+        "포함된 콘텐츠를 수집합니다. 자동/실시간 갱신이 아니라 특정 시점의 스냅샷입니다."
+    )
+    st.caption("아래 지표는 브랜드 간 순위가 아니라 각 브랜드의 실측 데이터입니다.")
     _render_coverage_table([b["name"] for b in compare])
 
-# ── 핵심 상품 성과 (참고용 — 랭킹 스코어에는 반영되지 않음) ─────────────────
+# ── 핵심 상품 성과 (참고용) ────────────────────────────────────────────────
 st.markdown("##### 🔎 핵심 상품 성과")
 st.caption(
     "핵심 상품 2개의 이름이 캡션·해시태그에 언급된 콘텐츠만 집계한 참고용 지표입니다. "
-    "⚠️ 브랜드 랭킹 스코어에는 반영되지 않습니다 — 실제 콘텐츠에서 상품명을 캡션에 "
-    "잘 안 적는 상품은 매칭 건수가 적게 잡힐 뿐 실제로 덜 팔리거나 인기가 낮다는 뜻이 "
-    "아니므로, 상품 간 개수·인게이지먼트를 직접 비교하지 마세요."
+    "⚠️ 실제 콘텐츠에서 상품명을 캡션에 잘 안 적는 상품은 매칭 건수가 적게 잡힐 뿐 실제로 "
+    "덜 팔리거나 인기가 낮다는 뜻이 아니므로, 상품 간 개수·인게이지먼트를 직접 비교하지 마세요."
 )
 pc = st.columns(len(compare))
 for col, b in zip(pc, compare):
@@ -540,10 +516,11 @@ for col, b in zip(cols, compare):
             f"<h3 style='margin:0 0 8px'>{_dot(b['color'])}{b['name']}</h3>",
             unsafe_allow_html=True,
         )
-        st.metric("글로벌 영향력 스코어", f"{b['score']:.1f}")
-        st.caption(f"전체 {_rank_of[b['name']]}위")
+        if b.get("last_collected"):
+            st.caption(f"최근 수집: {b['last_collected'][:10]}")
         st.metric("총 조회수", _fmt_num(b["total_views"]))
-        st.metric("총 참여수", _fmt_num(b["total_engagement"]))
+        st.metric("건당 평균 조회수", _fmt_num(b["avg_views"]))
+        st.metric("참여율", f"{b['engagement_rate']:.1f}%")
         st.metric("언급 영상", f"{b['mentions']:,}건")
         st.metric("고유 크리에이터", f"{b['creators']:,}명")
         st.markdown("**오디언스 지역**")
