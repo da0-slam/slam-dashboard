@@ -14,6 +14,8 @@ import re
 import sys
 import time
 import argparse
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')
@@ -137,10 +139,14 @@ def main():
     parser.add_argument("--limit", type=int, default=2000, help="처리 최대 수 (기본 2000)")
     parser.add_argument("--all", dest="force", action="store_true", help="기존 썸네일도 재스크랩")
     parser.add_argument("--dry-run", action="store_true", help="실제 스크랩 없이 대상 목록만 출력")
+    parser.add_argument("--workers", type=int, default=8, help="TikTok 병렬 워커 수 (기본 8, Instagram은 고정 2)")
+    parser.add_argument("--influencer", help="특정 influencer_id만 처리 (쉼표 구분 가능)")
     args = parser.parse_args()
 
     influencer_ids = None
-    if args.campaign_id or args.campaign:
+    if args.influencer:
+        influencer_ids = [i.strip() for i in args.influencer.split(",") if i.strip()]
+    elif args.campaign_id or args.campaign:
         influencer_ids = get_campaign_influencer_ids(
             campaign_name=args.campaign or "",
             campaign_id=args.campaign_id or "",
@@ -163,45 +169,80 @@ def main():
             print(f"  [{plat}] @{r['influencer_id']}  {r['video_url']}")
         return
 
-    ok = fail = skip = 0
+    # TikTok / Instagram 분리
+    tt_rows = [r for r in rows if "instagram.com" not in r["video_url"]]
+    ig_rows = [r for r in rows if "instagram.com"     in r["video_url"]]
+    print(f"  TikTok {len(tt_rows)}개 (워커 {args.workers}개)  |  Instagram {len(ig_rows)}개 (워커 2개)\n")
 
-    for i, row in enumerate(rows, 1):
+    counters = {"ok": 0, "fail": 0, "skip": 0}
+    lock     = threading.Lock()
+    done_idx = [0]
+
+    def _process(row):
         iid   = row["influencer_id"]
         vurl  = row["video_url"]
         is_ig = "instagram.com" in vurl
 
         post_id = extract_post_id(vurl)
         if not post_id:
-            print(f"[{i}/{total}] @{iid}: post_id 추출 불가 → 스킵")
-            skip += 1
-            continue
+            with lock:
+                counters["skip"] += 1
+                done_idx[0] += 1
+            print(f"@{iid}: post_id 추출 불가 → 스킵")
+            return
 
         plat_tag = "IG" if is_ig else "TT"
-        print(f"[{i}/{total}] [{plat_tag}] @{iid} / {post_id}", end="  ", flush=True)
+        with lock:
+            done_idx[0] += 1
+            idx = done_idx[0]
+        print(f"[{idx}/{total}] [{plat_tag}] @{iid} / {post_id}", end="  ", flush=True)
 
         try:
             saved = fetch_and_upload_thumbnail(vurl, iid, post_id)
         except Exception as e:
             print(f"오류: {e}")
-            fail += 1
-            time.sleep(2 if is_ig else 0.5)
-            continue
+            with lock:
+                counters["fail"] += 1
+            time.sleep(1.5 if is_ig else 0.3)
+            return
 
         if saved:
             if update_row(vurl, saved):
                 print("OK")
-                ok += 1
+                with lock:
+                    counters["ok"] += 1
             else:
                 print("WARN DB 업데이트 실패")
-                fail += 1
+                with lock:
+                    counters["fail"] += 1
         else:
             print("FAIL")
-            fail += 1
+            with lock:
+                counters["fail"] += 1
 
-        time.sleep(3 if is_ig else 0.5)
+        # Instagram은 rate limit 주의, TikTok은 빠르게
+        time.sleep(1.5 if is_ig else 0.3)
+
+    # TikTok: 병렬 처리
+    if tt_rows:
+        with ThreadPoolExecutor(max_workers=args.workers) as ex:
+            futs = {ex.submit(_process, r): r for r in tt_rows}
+            for f in as_completed(futs):
+                if f.exception():
+                    with lock:
+                        counters["fail"] += 1
+
+    # Instagram: 실패 최소화를 위해 2개 워커로 제한
+    if ig_rows:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            futs = {ex.submit(_process, r): r for r in ig_rows}
+            for f in as_completed(futs):
+                if f.exception():
+                    with lock:
+                        counters["fail"] += 1
 
     print(f"\n{'-'*40}")
-    print(f"완료: OK {ok}  FAIL {fail}  스킵 {skip}  / 전체 {total}")
+    print(f"완료: OK {counters['ok']}  FAIL {counters['fail']}  스킵 {counters['skip']}  / 전체 {total}")
 
 
 if __name__ == "__main__":
