@@ -1,4 +1,5 @@
 import io
+import os as _os
 import re
 from datetime import date
 
@@ -6,7 +7,10 @@ import pandas as pd
 import streamlit as st
 
 from utils.auth import require_auth, sidebar_user_info, get_active_brand_id
-from utils.storage_client import fetch_and_upload_thumbnail, upload_thumbnail
+from utils.storage_client import (
+    fetch_and_upload_thumbnail, upload_thumbnail,
+    create_content_report_token, revoke_content_report_token,
+)
 from utils.supabase_client import (
     bulk_upsert_post_comments,
     create_campaign_post,
@@ -497,6 +501,37 @@ with tab1:
                             _load_campaigns.clear()
                             st.success("보정을 해제했습니다.")
                             st.rerun()
+
+            with st.expander("🔗 웹 리포트 공유 링크"):
+                st.caption(
+                    "로그인 없이 열람 가능한 읽기 전용 성과 리포트 링크입니다 (성과 KPI·인플루언서 "
+                    "요약·우수 콘텐츠 포함, 게시물 관리/댓글 편집 기능은 제외). "
+                    "데이터가 갱신되면 같은 링크에서 항상 최신 내용을 볼 수 있습니다."
+                )
+                _site = (_os.environ.get("SITE_URL") or "").rstrip("/")
+                _report_token_key = f"content_report_token_{filter_campaign_id}"
+
+                rc_btn, rc_del = st.columns([3, 1])
+                if rc_btn.button("🔗 공유 링크 생성 (새 링크)", key="report_share_gen", type="primary", use_container_width=True):
+                    with st.spinner("링크 생성 중..."):
+                        _tok = create_content_report_token(brand_id, filter_campaign_id)
+                    if _tok:
+                        st.session_state[_report_token_key] = _tok
+                    else:
+                        st.error("링크 생성 실패. Supabase Storage `strategy-files` 버킷을 확인하세요.")
+
+                _cur_report_token = st.session_state.get(_report_token_key)
+                if _cur_report_token:
+                    if rc_del.button("🔌 링크 연결 끊기", key="report_share_del", use_container_width=True):
+                        revoke_content_report_token(_cur_report_token)
+                        del st.session_state[_report_token_key]
+                        st.rerun()
+                    _report_url = (
+                        f"{_site}/content_report_view?token={_cur_report_token}" if _site
+                        else f"/content_report_view?token={_cur_report_token}"
+                    )
+                    st.code(_report_url, language=None)
+                    st.caption("⚠️ 이 링크를 가진 누구나 로그인 없이 열람 가능합니다. '링크 연결 끊기'로 즉시 차단할 수 있습니다.")
 
             if p_count:
                 u_count = total_influencers

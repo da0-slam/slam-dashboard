@@ -698,6 +698,55 @@ def resolve_strategy_token(token: str) -> dict | None:
     return None
 
 
+def create_content_report_token(brand_id: str, campaign_id: str) -> str | None:
+    """콘텐츠 성과 리포트용 공유 토큰 생성 (strategy-files 버킷 재사용, 별도 경로).
+    content_tokens/{token}.json → {"brand_id": "...", "campaign_id": "..."}"""
+    import uuid as _uuid, json as _json
+    token = str(_uuid.uuid4())
+    path = f"content_tokens/{token}.json"
+    ensure_strategy_bucket()
+    try:
+        resp = requests.post(
+            f"{_sb_storage_url()}/object/{_STRATEGY_BUCKET}/{path}",
+            headers={**_headers(), "Content-Type": "application/json", "x-upsert": "true"},
+            data=_json.dumps({"brand_id": brand_id, "campaign_id": campaign_id}).encode("utf-8"),
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            return token
+        return None
+    except Exception as e:
+        print(f"[storage] content report token create failed: {e}")
+        return None
+
+
+def revoke_content_report_token(token: str) -> bool:
+    """콘텐츠 리포트 토큰 삭제 → 링크 즉시 무효화."""
+    try:
+        resp = requests.delete(
+            f"{_sb_storage_url()}/object/{_STRATEGY_BUCKET}/content_tokens/{token}.json",
+            headers=_headers(),
+            timeout=10,
+        )
+        return resp.status_code in (200, 204)
+    except Exception:
+        return False
+
+
+def resolve_content_report_token(token: str) -> dict | None:
+    """토큰으로 {"brand_id", "campaign_id"} 조회. 유효하지 않으면 None 반환."""
+    url = get_public_url(_STRATEGY_BUCKET, f"content_tokens/{token}.json")
+    try:
+        resp = requests.get(url, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("brand_id") and data.get("campaign_id"):
+                return {"brand_id": data["brand_id"], "campaign_id": data["campaign_id"]}
+    except Exception:
+        pass
+    return None
+
+
 def upload_strategy_file(
     brand_id: str,
     file_bytes: bytes,
