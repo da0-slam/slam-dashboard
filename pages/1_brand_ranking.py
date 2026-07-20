@@ -379,8 +379,19 @@ if not open_brand:
         "언급 건수": lambda b: b["mentions"],
         "최근 수집일": lambda b: b["last_collected"] or "",
     }
-    sort_label = st.selectbox("정렬 기준", list(_sort_options.keys()), key="ugc_sort")
+    sc1, sc2 = st.columns([2, 1])
+    with sc1:
+        search = st.text_input(
+            "🔍 브랜드 검색", placeholder="브랜드명으로 검색", key="ugc_search",
+            label_visibility="collapsed",
+        )
+    with sc2:
+        sort_label = st.selectbox(
+            "정렬 기준", list(_sort_options.keys()), key="ugc_sort", label_visibility="collapsed",
+        )
     ordered = sorted(_BRANDS, key=_sort_options[sort_label], reverse=True)
+    if search.strip():
+        ordered = [b for b in ordered if search.strip().lower() in b["name"].lower()]
 
     # ── 브랜드별 참여수 비중 ─────────────────────────────────────────────
     st.markdown("##### 📣 브랜드별 참여수 비중")
@@ -404,22 +415,23 @@ if not open_brand:
 
     st.divider()
 
-    # ── 브랜드 카드 그리드 (순위 번호 없음) ─────────────────────────────────
-    _CARDS_PER_ROW = 2
-    for i in range(0, len(ordered), _CARDS_PER_ROW):
-        row_brands = ordered[i:i + _CARDS_PER_ROW]
-        cols = st.columns(_CARDS_PER_ROW)
-        for col, b in zip(cols, row_brands):
-            with col, st.container(border=True):
-                st.markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
-                mc1, mc2, mc3, mc4 = st.columns(4)
-                mc1.metric("총 조회수", _fmt_num(b["total_views"]))
-                mc2.metric("건당 평균 조회수", _fmt_num(b["avg_views"]))
-                mc3.metric("참여율", f"{b['engagement_rate']:.1f}%")
-                mc4.metric("언급 건수", f"{b['mentions']:,}건")
-                if b.get("last_collected"):
-                    st.caption(f"최근 수집: {b['last_collected'][:10]}")
-                if st.button("자세히 보기", key=f"rank_open_{b['name']}", use_container_width=True):
+    # ── 브랜드 목록 (검색·정렬 반영, 순위 번호 없음) ─────────────────────────
+    if not ordered:
+        st.caption(f"'{search}'와 일치하는 브랜드가 없습니다.")
+    else:
+        hc = st.columns([3, 2, 2, 2, 2, 2, 1])
+        for col, label in zip(hc, ["브랜드", "총 조회수", "건당 평균", "참여율", "언급 건수", "최근 수집", ""]):
+            col.markdown(f"**{label}**")
+        for b in ordered:
+            with st.container(border=True):
+                c = st.columns([3, 2, 2, 2, 2, 2, 1])
+                c[0].markdown(f"{_dot(b['color'])}**{b['name']}**", unsafe_allow_html=True)
+                c[1].markdown(_fmt_num(b["total_views"]))
+                c[2].markdown(_fmt_num(b["avg_views"]))
+                c[3].markdown(f"{b['engagement_rate']:.1f}%")
+                c[4].markdown(f"{b['mentions']:,}건")
+                c[5].markdown(b["last_collected"][:10] if b.get("last_collected") else "-")
+                if c[6].button("보기", key=f"rank_open_{b['name']}", use_container_width=True):
                     st.session_state["rank_open_brand"] = b["name"]
                     st.rerun()
 

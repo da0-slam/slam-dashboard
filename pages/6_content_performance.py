@@ -431,8 +431,16 @@ with tab1:
             df["influencer_name"].str.strip().str.lower()
             .apply(lambda x: x not in _HDR and x != "")
         ]
-        # 게시물(URL)이 있는 사람 = 참여(업로드)한 인플루언서
-        total_influencers = _df_valid["influencer_name"].nunique()
+        # 게시물(URL)이 있는 사람 = 참여(업로드)한 인플루언서.
+        # influencer_id/participant_id가 연결 안 된 채 이름 문자열로만 집계되다 보니
+        # 같은 사람이 다른 표기로 여러 번 잡혀 실제 인원보다 부풀려질 수 있음
+        # (uploaded_count_override로 수동 보정 가능 — 아래 "업로드 인원 수정" 참고).
+        _computed_influencers = _df_valid["influencer_name"].nunique()
+        _uploaded_override = None
+        if filter_campaign_id:
+            _camp_data_early = next((c for c in campaigns if c["id"] == filter_campaign_id), {})
+            _uploaded_override = _camp_data_early.get("uploaded_count_override")
+        total_influencers = _uploaded_override if _uploaded_override is not None else _computed_influencers
         total_posts       = len(df)
         ig_posts          = int((df["platform"] == "instagram").sum())
         tt_posts          = int((df["platform"] == "tiktok").sum())
@@ -462,15 +470,35 @@ with tab1:
                     st.success("발송 인원이 저장되었습니다.")
                     st.rerun()
 
+            with st.expander(
+                f"📤 업로드 인원 수동 보정 (계산값: {_computed_influencers}명"
+                + (f", 현재 보정값: {_uploaded_override}명)" if _uploaded_override is not None else ")")
+            ):
+                st.caption(
+                    "이름 문자열만으로 집계돼 같은 사람이 다른 표기로 여러 번 잡히면 "
+                    "실제 인원보다 많이 나올 수 있습니다. 실제 확인한 인원으로 보정하세요."
+                )
+                new_u_override = st.number_input(
+                    "업로드 인원 (직접 확인한 값)", min_value=0, step=1,
+                    value=int(_uploaded_override if _uploaded_override is not None else _computed_influencers),
+                    key="cp_edit_u_override",
+                )
+                oc1, oc2 = st.columns(2)
+                with oc1:
+                    if st.button("저장", key="cp_save_u_override"):
+                        update_campaign(filter_campaign_id, {"uploaded_count_override": int(new_u_override)})
+                        _load_campaigns.clear()
+                        st.success("업로드 인원이 저장되었습니다.")
+                        st.rerun()
+                with oc2:
+                    if _uploaded_override is not None and st.button("보정 해제(계산값 사용)", key="cp_clear_u_override"):
+                        update_campaign(filter_campaign_id, {"uploaded_count_override": None})
+                        _load_campaigns.clear()
+                        st.success("보정을 해제했습니다.")
+                        st.rerun()
+
             if p_count:
-                _HEADER_NAMES = {
-                    "name", "full name", "인플루언서", "인플루언서명", "influencer",
-                    "influencer_name", "이름", "계정", "아이디", "id",
-                }
-                u_count = df[
-                    df["influencer_name"].str.strip().str.lower()
-                    .apply(lambda x: x not in _HEADER_NAMES and x != "")
-                ]["influencer_name"].nunique()
+                u_count = total_influencers
                 if p_count < u_count:
                     st.warning(
                         f"발송 인원({p_count:,}명)이 업로드 인원({u_count:,}명)보다 적습니다. "
