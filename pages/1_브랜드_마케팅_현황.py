@@ -1,4 +1,4 @@
-"""브랜드 UGC 현황 — OWM 입점 브랜드의 TikTok·Instagram UGC 데이터 대시보드.
+"""브랜드 마케팅 현황 — OWM 입점 브랜드의 TikTok·Instagram UGC 데이터 대시보드.
 
 2026-07-16 개편: 브랜드 스코어(0~100)로 순위를 매기던 방식을 제거했다.
     표본 크기가 브랜드마다 크게 달라(수백~수천 건) 조회수·참여수 등 합계
@@ -32,7 +32,7 @@ from utils.supabase_client import (
     get_brand_ranking_import_stats,
 )
 
-st.set_page_config(page_title="브랜드 UGC", page_icon="📊", layout="wide")
+st.set_page_config(page_title="브랜드 마케팅 현황", page_icon="📊", layout="wide")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -353,7 +353,7 @@ open_brand = st.session_state.get("rank_open_brand")
 # ═══════════════════════════════════════════════════════════════════════════
 
 if not open_brand:
-    st.title("📊 브랜드 UGC 현황")
+    st.title("📊 브랜드 마케팅 현황")
     st.caption(
         "OWM(오프라인 매장) 입점 브랜드의 TikTok·Instagram UGC 데이터를 브랜드별로 보여줍니다. "
         "**순위가 아니라 참고 자료입니다** — 브랜드마다 수집 규모·시점이 달라 총량 지표만으로 "
