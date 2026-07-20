@@ -4,3 +4,11 @@ __pycache__/
 .DS_Store
 .streamlit/secrets.toml
 .claude/
+
+# 로컬 전용 메모/스크래치 파일 (커밋 대상 아님)
+docs/
+scripts/.scrape_skip.txt
+scripts/_check_campaigns.py
+scripts/_check_thumbnails.py
+scripts/_test_embed.py
+scripts/_test_embed2.py
