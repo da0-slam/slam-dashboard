@@ -459,43 +459,44 @@ with tab1:
             camp_data = next((c for c in campaigns if c["id"] == filter_campaign_id), {})
             p_count = camp_data.get("participant_count")
 
-            with st.expander(f"📦 발송 인원 수정 (현재: {p_count or 0}명)"):
-                new_p_count = st.number_input(
-                    "발송 인원", min_value=0, step=1,
-                    value=int(p_count or 0), key="cp_edit_p_count",
-                )
-                if st.button("저장", key="cp_save_p_count"):
-                    update_campaign(filter_campaign_id, {"participant_count": int(new_p_count)})
-                    _load_campaigns.clear()
-                    st.success("발송 인원이 저장되었습니다.")
-                    st.rerun()
+            if is_admin:
+                with st.expander(f"📦 발송 인원 수정 (현재: {p_count or 0}명)"):
+                    new_p_count = st.number_input(
+                        "발송 인원", min_value=0, step=1,
+                        value=int(p_count or 0), key="cp_edit_p_count",
+                    )
+                    if st.button("저장", key="cp_save_p_count"):
+                        update_campaign(filter_campaign_id, {"participant_count": int(new_p_count)})
+                        _load_campaigns.clear()
+                        st.success("발송 인원이 저장되었습니다.")
+                        st.rerun()
 
-            with st.expander(
-                f"📤 업로드 인원 수동 보정 (계산값: {_computed_influencers}명"
-                + (f", 현재 보정값: {_uploaded_override}명)" if _uploaded_override is not None else ")")
-            ):
-                st.caption(
-                    "이름 문자열만으로 집계돼 같은 사람이 다른 표기로 여러 번 잡히면 "
-                    "실제 인원보다 많이 나올 수 있습니다. 실제 확인한 인원으로 보정하세요."
-                )
-                new_u_override = st.number_input(
-                    "업로드 인원 (직접 확인한 값)", min_value=0, step=1,
-                    value=int(_uploaded_override if _uploaded_override is not None else _computed_influencers),
-                    key="cp_edit_u_override",
-                )
-                oc1, oc2 = st.columns(2)
-                with oc1:
-                    if st.button("저장", key="cp_save_u_override"):
-                        update_campaign(filter_campaign_id, {"uploaded_count_override": int(new_u_override)})
-                        _load_campaigns.clear()
-                        st.success("업로드 인원이 저장되었습니다.")
-                        st.rerun()
-                with oc2:
-                    if _uploaded_override is not None and st.button("보정 해제(계산값 사용)", key="cp_clear_u_override"):
-                        update_campaign(filter_campaign_id, {"uploaded_count_override": None})
-                        _load_campaigns.clear()
-                        st.success("보정을 해제했습니다.")
-                        st.rerun()
+                with st.expander(
+                    f"📤 업로드 인원 수동 보정 (계산값: {_computed_influencers}명"
+                    + (f", 현재 보정값: {_uploaded_override}명)" if _uploaded_override is not None else ")")
+                ):
+                    st.caption(
+                        "이름 문자열만으로 집계돼 같은 사람이 다른 표기로 여러 번 잡히면 "
+                        "실제 인원보다 많이 나올 수 있습니다. 실제 확인한 인원으로 보정하세요."
+                    )
+                    new_u_override = st.number_input(
+                        "업로드 인원 (직접 확인한 값)", min_value=0, step=1,
+                        value=int(_uploaded_override if _uploaded_override is not None else _computed_influencers),
+                        key="cp_edit_u_override",
+                    )
+                    oc1, oc2 = st.columns(2)
+                    with oc1:
+                        if st.button("저장", key="cp_save_u_override"):
+                            update_campaign(filter_campaign_id, {"uploaded_count_override": int(new_u_override)})
+                            _load_campaigns.clear()
+                            st.success("업로드 인원이 저장되었습니다.")
+                            st.rerun()
+                    with oc2:
+                        if _uploaded_override is not None and st.button("보정 해제(계산값 사용)", key="cp_clear_u_override"):
+                            update_campaign(filter_campaign_id, {"uploaded_count_override": None})
+                            _load_campaigns.clear()
+                            st.success("보정을 해제했습니다.")
+                            st.rerun()
 
             if p_count:
                 u_count = total_influencers
