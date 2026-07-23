@@ -463,6 +463,17 @@ with tab1:
             camp_data = next((c for c in campaigns if c["id"] == filter_campaign_id), {})
             p_count = camp_data.get("participant_count")
 
+            _addr_sheet = camp_data.get("address_sheet_url") or ""
+            if _addr_sheet:
+                st.markdown(
+                    f'<a href="{_addr_sheet}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;'
+                    f'padding:10px 22px;background:#16a34a;color:#fff;border-radius:8px;text-decoration:none;'
+                    f'font-weight:700;font-size:15px;box-shadow:0 2px 8px rgba(22,163,74,.35);">'
+                    f'📋 시트에서 보기 &nbsp;↗</a>',
+                    unsafe_allow_html=True,
+                )
+                st.write("")
+
             if is_admin:
                 with st.expander(f"📦 발송 인원 수정 (현재: {p_count or 0}명)"):
                     new_p_count = st.number_input(
