@@ -1771,10 +1771,15 @@ with tab4:
                     # 이름이 빈 행(구분용 공백 행 등)은 발송 인원 집계에서 제외
                     rows_to_migrate = [r for r in rows_to_migrate if _clean(r.get("name", ""))]
 
-                    # ── 업로드율 미리보기 (upload_day 기준) ───────────────
+                    # ── 업로드율 미리보기 (URL 존재 여부 기준) ───────────────
+                    # upload_day만으로 판단하면 안 됨: TT/IG 둘 다 있는 시트는
+                    # pandas가 중복 헤더를 "upload day"/"upload day.1"로 분리하는데
+                    # 별칭 매칭이 첫 번째("upload day"=TT)만 잡아서, IG만 올린 사람이
+                    # 업로드 안 한 것으로 잘못 집계됨.
                     uploaded_cnt = sum(
                         1 for r in rows_to_migrate
-                        if _clean(r.get("upload_day", ""))
+                        if _clean(r.get("tt_url", "")) or _clean(r.get("ig_url", ""))
+                        or _clean(r.get("x_url", "")) or _clean(r.get("lips_url", ""))
                     )
                     no_url_cnt   = len(rows_to_migrate) - uploaded_cnt
                     u_rate       = round(uploaded_cnt / len(rows_to_migrate) * 100, 1) if rows_to_migrate else 0
