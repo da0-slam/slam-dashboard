@@ -5,6 +5,13 @@ import pandas as pd
 
 st.set_page_config(page_title="콘텐츠 성과 리포트", page_icon="📊", layout="wide")
 
+# 비로그인 공개 리포트 — 내부 앱 메뉴 대신 페이지 내 목차만 노출
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"] { display:none!important; }
+</style>
+""", unsafe_allow_html=True)
+
 from utils.storage_client import resolve_content_report_token  # noqa: E402
 from utils.supabase_client import (  # noqa: E402
     get_brands, get_campaigns, get_campaign_posts, get_influencer_cover_map,
@@ -75,6 +82,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.title(f"📊 {brand_name} · {camp['name']}")
+
+# ── 목차 (비로그인 공개 페이지 — 사이드바 내부 메뉴 대신 페이지 내 이동용) ──────
+with st.sidebar:
+    st.markdown(f"**{brand_name}**")
+    st.caption(camp["name"])
+    st.markdown("#### 목차")
+    st.markdown("""
+<a href="#sec-kpi" style="display:block;padding:6px 0;text-decoration:none;">📊 요약 지표</a>
+<a href="#sec-chart" style="display:block;padding:6px 0;text-decoration:none;">📈 차트</a>
+<a href="#sec-posts" style="display:block;padding:6px 0;text-decoration:none;">🖼️ 게시물</a>
+<a href="#sec-summary" style="display:block;padding:6px 0;text-decoration:none;">👥 인플루언서 요약</a>
+<a href="#sec-top" style="display:block;padding:6px 0;text-decoration:none;">⭐ 우수 콘텐츠</a>
+""", unsafe_allow_html=True)
+
 st.divider()
 
 if df.empty:
@@ -82,6 +103,8 @@ if df.empty:
     st.stop()
 
 # ── KPI ───────────────────────────────────────────────────────────────────
+st.markdown('<div id="sec-kpi"></div>', unsafe_allow_html=True)
+
 _HDR = {
     "name", "full name", "인플루언서", "인플루언서명", "influencer",
     "influencer_name", "이름", "계정", "아이디", "id",
@@ -97,6 +120,9 @@ total_influencers = _override if _override is not None else _computed_influencer
 total_posts    = len(df)
 ig_posts       = int((df["platform"] == "instagram").sum())
 tt_posts       = int((df["platform"] == "tiktok").sum())
+x_posts        = int((df["platform"] == "x").sum())
+xhs_posts      = int((df["platform"] == "xiaohongshu").sum())
+other_posts    = int((df["platform"] == "other").sum())
 total_views    = int(df["views"].sum())
 total_likes    = int(df["likes"].sum())
 total_comments = int(df["comments"].sum())
@@ -104,31 +130,33 @@ total_saves    = int(df["saves"].sum())
 total_shares   = int(df["shares"].sum())
 avg_er         = round(float(df["engagement_rate"].mean()), 2)
 
+p_count = camp.get("participant_count")
+if p_count:
+    u_rate = round(total_influencers / p_count * 100, 1)
+    ur1, ur2, ur3 = st.columns(3)
+    ur1.metric("📦 발송 인원", f"{p_count:,}명")
+    ur2.metric("📤 업로드 인원", f"{total_influencers:,}명")
+    ur3.metric("📊 업로드율", f"{u_rate:.1f}%")
+    st.divider()
+
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("참여 인플루언서", f"{total_influencers:,}")
 c2.metric("총 게시물", f"{total_posts:,}")
 c3.metric("Instagram", f"{ig_posts:,}")
 c4.metric("TikTok", f"{tt_posts:,}")
-c5.metric("평균 참여율", f"{avg_er:.1f}%")
+c5.metric("X / 기타", f"{x_posts + xhs_posts + other_posts:,}")
 
-c6, c7, c8, c9 = st.columns(4)
-c6.metric("총 조회수", f"{total_views:,}")
-c7.metric("총 좋아요", f"{total_likes:,}")
-c8.metric("총 댓글", f"{total_comments:,}")
-c9.metric("총 저장", f"{total_saves:,}")
-
-p_count = camp.get("participant_count")
-if p_count:
-    u_rate = round(total_influencers / p_count * 100, 1)
-    st.divider()
-    ur1, ur2, ur3 = st.columns(3)
-    ur1.metric("📦 발송 인원", f"{p_count:,}명")
-    ur2.metric("📤 업로드 인원", f"{total_influencers:,}명")
-    ur3.metric("📊 업로드율", f"{u_rate:.1f}%")
+c6, c7, c8, c9, c10 = st.columns(5)
+c6.metric("평균 참여율", f"{avg_er:.1f}%")
+c7.metric("총 조회수", f"{total_views:,}")
+c8.metric("총 좋아요", f"{total_likes:,}")
+c9.metric("총 댓글", f"{total_comments:,}")
+c10.metric("총 저장", f"{total_saves:,}")
 
 st.divider()
 
 # ── 차트 ──────────────────────────────────────────────────────────────────
+st.markdown('<div id="sec-chart"></div>', unsafe_allow_html=True)
 ch1, ch2 = st.columns(2)
 
 with ch1:
@@ -156,6 +184,7 @@ with ch2:
 
 st.divider()
 
+st.markdown('<div id="sec-posts"></div>', unsafe_allow_html=True)
 # ── 게시물 그리드 / 목록 ────────────────────────────────────────────────────
 
 
@@ -305,6 +334,7 @@ else:
 st.divider()
 
 # ── 인플루언서별 성과 요약 ────────────────────────────────────────────────
+st.markdown('<div id="sec-summary"></div>', unsafe_allow_html=True)
 st.subheader("인플루언서별 성과 요약")
 grp = (
     _df_valid.groupby("influencer_name")
@@ -341,6 +371,7 @@ st.dataframe(
 st.divider()
 
 # ── 우수 콘텐츠 ─────────────────────────────────────────────────────────────
+st.markdown('<div id="sec-top"></div>', unsafe_allow_html=True)
 st.subheader("⭐ 우수 콘텐츠")
 
 
