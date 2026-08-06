@@ -739,10 +739,10 @@ with tab1:
                         rows.append({**_r, "_img": _cv, "_is_cover": True})
                     # 둘 다 없으면 그리드에서 제외
 
-            # X는 항상 마지막에, 나머지는 참여율 내림차순
+            # X는 항상 마지막에, 나머지는 조회수 내림차순
             rows.sort(key=lambda r: (
                 1 if r.get("플랫폼") == "X" else 0,
-                -(r.get("참여율(%)", 0) or 0),
+                -(r.get("조회수", 0) or 0),
             ))
             # 중복 제거: 게시물 URL (쿼리 제거) + 썸네일 URL 둘 다 체크
             _seen_keys: set = set()
@@ -883,7 +883,7 @@ with tab2:
         # 커버 이미지 URL 추가 (influencer_master.cover_url 기반)
         _cover = get_influencer_cover_map()
         grp["커버"] = grp["influencer_name"].apply(
-            lambda n: _cover.get(n.lower())
+            lambda n: _cover.get(n.lower()) or ""
         )
 
         grp = grp.sort_values("총_조회수", ascending=False)
