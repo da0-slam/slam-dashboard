@@ -102,6 +102,94 @@ def _er(p: dict) -> float:
                   p.get("saves", 0) + p.get("shares", 0)) / v * 100, 2)
 
 
+def _build_pdf_bytes() -> bytes:
+    """화면에 보이는 것과 동일한 데이터로 PDF 리포트를 새로 조립한다.
+    (인터랙티브 화면 렌더링과는 별개 경로 — 버튼 클릭 시에만 실행됨)"""
+    from utils.pdf_report import build_content_report_pdf
+
+    _hdr = {
+        "name", "full name", "인플루언서", "인플루언서명", "influencer",
+        "influencer_name", "이름", "계정", "아이디", "id",
+    }
+    valid = df[df["influencer_name"].str.strip().str.lower().apply(lambda x: x not in _hdr and x != "")]
+    total_inf = valid["influencer_name"].nunique()
+    override = camp.get("uploaded_count_override")
+    total_inf = override if override is not None else total_inf
+    p_count = camp.get("participant_count")
+
+    kpi = dict(
+        participant_count=p_count,
+        total_influencers=total_inf,
+        upload_rate=round(total_inf / p_count * 100, 1) if p_count else 0,
+        total_posts=len(df),
+        ig_posts=int((df["platform"] == "instagram").sum()),
+        tt_posts=int((df["platform"] == "tiktok").sum()),
+        x_other_posts=int(df["platform"].isin(["x", "xiaohongshu", "other"]).sum()),
+        avg_er=round(float(df["engagement_rate"].mean()), 2),
+        total_views=int(df["views"].sum()),
+        total_likes=int(df["likes"].sum()),
+        total_comments=int(df["comments"].sum()),
+        total_saves=int(df["saves"].sum()),
+    )
+
+    top_inf_df = (
+        df.groupby("influencer_name")["views"].sum().nlargest(10).reset_index()
+        .rename(columns={"influencer_name": "인플루언서", "views": "총 조회수"})
+        .set_index("인플루언서")
+    )
+    _plat_label_map = {"instagram": "Instagram", "tiktok": "TikTok", "x": "X", "other": "기타"}
+    plat_df = (
+        df[df["platform"].notna() & df["platform"].isin(_plat_label_map)]
+        .groupby("platform").agg(총_조회수=("views", "sum"), 총_좋아요=("likes", "sum")).reset_index()
+    )
+    plat_df["platform"] = plat_df["platform"].map(_plat_label_map)
+    plat_df = plat_df.set_index("platform")
+
+    tt_aweme_ids = [aweme_id_from_url(p.get("post_url", "")) for p in posts if p.get("platform") == "tiktok"]
+    tt_aweme_ids = [a for a in tt_aweme_ids if a]
+    tt_comments = get_post_comments_batch(tt_aweme_ids) if tt_aweme_ids else []
+    from collections import Counter
+    region_counter = Counter(c.get("user_region") or "" for c in tt_comments if c.get("user_region"))
+    lang_counter = Counter((c.get("user_language") or "").upper() for c in tt_comments if c.get("user_language"))
+
+    grp = (
+        valid.groupby("influencer_name").agg(
+            총_게시물=("id", "count"), 총_조회수=("views", "sum"), 총_좋아요=("likes", "sum"),
+            총_댓글=("comments", "sum"), 총_저장=("saves", "sum"), 평균_참여율=("engagement_rate", "mean"),
+        ).reset_index()
+    )
+    grp["평균_참여율"] = grp["평균_참여율"].round(2)
+    grp = grp.sort_values("총_조회수", ascending=False)
+    grp.rename(columns={
+        "influencer_name": "인플루언서", "총_게시물": "총 게시물", "총_조회수": "총 조회수",
+        "총_좋아요": "총 좋아요", "총_댓글": "총 댓글", "총_저장": "총 저장", "평균_참여율": "평균 참여율(%)",
+    }, inplace=True)
+
+    def _top5(col):
+        t = df.nlargest(5, col)[
+            ["influencer_name", "platform", "post_url", "views", "engagement_rate", "saves", "comments"]
+        ].copy()
+        t["platform"] = t["platform"].map({"instagram": "Instagram", "tiktok": "TikTok"})
+        t.rename(columns={
+            "influencer_name": "인플루언서", "platform": "플랫폼", "post_url": "게시물 URL",
+            "views": "조회수", "engagement_rate": "참여율(%)", "saves": "저장", "comments": "댓글",
+        }, inplace=True)
+        return t
+
+    return build_content_report_pdf(
+        brand_name=brand_name,
+        campaign_name=camp["name"],
+        kpi=kpi,
+        top_influencers_df=top_inf_df,
+        platform_df=plat_df,
+        region_counter=region_counter,
+        language_counter=lang_counter,
+        influencer_summary_df=grp.head(30),
+        top_views_df=_top5("views"),
+        top_er_df=_top5("engagement_rate"),
+    )
+
+
 raw = _posts(campaign_id)
 posts = [{**p, "engagement_rate": _er(p)} for p in raw]
 df = pd.DataFrame(posts) if posts else pd.DataFrame(columns=[
@@ -115,6 +203,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.title(f"📊 {brand_name} · {camp['name']}")
+
+if not df.empty:
+    _pdf_col1, _pdf_col2, _ = st.columns([1.4, 1.4, 5])
+    with _pdf_col1:
+        if st.button("📄 PDF 생성", key="crv_pdf_gen", use_container_width=True):
+            with st.spinner("PDF 생성 중..."):
+                st.session_state["crv_pdf_bytes"] = _build_pdf_bytes()
+    with _pdf_col2:
+        if st.session_state.get("crv_pdf_bytes"):
+            st.download_button(
+                "⬇️ 다운로드", data=st.session_state["crv_pdf_bytes"],
+                file_name=f"{camp['name']}_콘텐츠성과리포트.pdf".replace("/", "_"),
+                mime="application/pdf", key="crv_pdf_dl", use_container_width=True,
+            )
 
 # ── 목차 (비로그인 공개 페이지 — 사이드바 내부 메뉴 대신 페이지 내 이동용) ──────
 with st.sidebar:
