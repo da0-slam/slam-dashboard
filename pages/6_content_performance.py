@@ -82,8 +82,8 @@ def _load_participants(campaign_id: str, brand_id: str):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _load_all(brand_id: str) -> list[dict]:
-    return get_campaign_posts(brand_id=brand_id)
+def _load_all(brand_id: str, campaign_id: str | None = None) -> list[dict]:
+    return get_campaign_posts(brand_id=brand_id, campaign_id=campaign_id)
 
 
 campaigns = _load_campaigns(brand_id)
@@ -320,16 +320,14 @@ sort_by = sort_options[sort_label]
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 
-all_posts_raw = _load_all(brand_id)
+all_posts_raw = _load_all(brand_id, filter_campaign_id)
 
 # 삭제된 캠페인의 포스트 제외 (campaign_id가 현재 캠페인 목록에 없는 것)
 _valid_campaign_ids = {c["id"] for c in campaigns}
 all_posts_raw = [p for p in all_posts_raw if p.get("campaign_id") in _valid_campaign_ids]
 
-# Python-side 필터링 (DB 재쿼리 없이 처리)
+# 캠페인은 DB 조회에서 이미 필터링됨 — 나머지만 Python-side 필터링
 raw = all_posts_raw
-if filter_campaign_id:
-    raw = [p for p in raw if p.get("campaign_id") == filter_campaign_id]
 if filter_platform:
     raw = [p for p in raw if p.get("platform") == filter_platform]
 if filter_start:

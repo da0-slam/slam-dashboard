@@ -27,12 +27,21 @@ import streamlit as st
 import pandas as pd
 from collections import Counter
 
+from utils.auth import require_auth, sidebar_user_info
 from utils.supabase_client import (
     get_brand_ranking_content, get_brand_ranking_comments, get_brand_ranking_names,
-    get_brand_ranking_import_stats,
+    get_brand_ranking_import_stats, get_user_profile,
 )
 
 st.set_page_config(page_title="브랜드 마케팅 현황", page_icon="📊", layout="wide")
+
+user = require_auth()
+sidebar_user_info()
+
+profile = get_user_profile(user.id)
+if not profile or profile.get("role") != "admin":
+    st.error("관리자 전용 페이지입니다.")
+    st.stop()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
