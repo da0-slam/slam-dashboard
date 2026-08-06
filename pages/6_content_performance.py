@@ -12,6 +12,7 @@ from utils.storage_client import (
     create_content_report_token, revoke_content_report_token,
 )
 from utils.supabase_client import (
+    aweme_id_from_url as _aweme_id_from_url,
     bulk_upsert_post_comments,
     create_campaign_post,
     delete_campaign_post,
@@ -30,6 +31,12 @@ from utils.supabase_client import (
     update_campaign,
     update_campaign_post,
     update_campaign_post_thumbnail,
+)
+from utils.comment_ui import (
+    fmt_time as _fmt_time,
+    comment_avatar_color as _comment_avatar_color,
+    render_comment_summary as _render_comment_summary,
+    render_comments as _render_comments,
 )
 
 st.set_page_config(page_title="콘텐츠 성과 관리", page_icon="📊", layout="wide")
@@ -108,24 +115,6 @@ def _sanitize_storage_key(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", (value or "unknown")).strip("_")[:60]
 
 
-def _aweme_id_from_url(url: str) -> str | None:
-    m = re.search(r"/video/(\d+)", url or "")
-    return m.group(1) if m else None
-
-def _fmt_time(ts: str) -> str:
-    if not ts:
-        return ""
-    try:
-        from datetime import datetime as _dt
-        dt = _dt.fromisoformat(ts.replace("Z", "+00:00"))
-        return dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return ts[:16]
-
-def _comment_avatar_color(name: str) -> str:
-    colors = ["#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6","#ef4444","#8b5cf6","#14b8a6"]
-    return colors[sum(ord(c) for c in (name or "?")) % len(colors)]
-
 @st.cache_data(ttl=60, show_spinner=False)
 def _load_comments_tt(aweme_id: str) -> list[dict]:
     return get_post_comments(aweme_id=aweme_id)
@@ -133,80 +122,6 @@ def _load_comments_tt(aweme_id: str) -> list[dict]:
 @st.cache_data(ttl=60, show_spinner=False)
 def _load_comments_ig(post_url: str) -> list[dict]:
     return get_post_comments(post_url=post_url)
-
-def _render_comment_summary(comments: list[dict]) -> None:
-    from collections import Counter
-    r_cnt = Counter(c.get("user_region")   or "" for c in comments if c.get("user_region"))
-    l_cnt = Counter(c.get("user_language") or "" for c in comments if c.get("user_language"))
-    if not r_cnt and not l_cnt:
-        return
-    sc1, sc2 = st.columns(2)
-    with sc1:
-        if r_cnt:
-            st.markdown("**🌍 댓글 작성 지역 TOP 5**")
-            total = sum(r_cnt.values())
-            tags = "".join(
-                f"<span style='background:#f3f4f6;border-radius:6px;padding:3px 10px;margin:2px;"
-                f"font-size:12px;font-weight:600;color:#374151;display:inline-block;'>"
-                f"{r} <span style='color:#6b7280;font-weight:400'>{c/total*100:.0f}%</span></span>"
-                for r, c in r_cnt.most_common(5)
-            )
-            st.markdown(f"<div style='margin-bottom:8px'>{tags}</div>", unsafe_allow_html=True)
-    with sc2:
-        if l_cnt:
-            st.markdown("**🗣 사용자 언어 TOP 5**")
-            total = sum(l_cnt.values())
-            tags = "".join(
-                f"<span style='background:#eff6ff;border-radius:6px;padding:3px 10px;margin:2px;"
-                f"font-size:12px;font-weight:600;color:#1d4ed8;display:inline-block;'>"
-                f"{l.upper()} <span style='color:#6b7280;font-weight:400'>{c/total*100:.0f}%</span></span>"
-                for l, c in l_cnt.most_common(5)
-            )
-            st.markdown(f"<div style='margin-bottom:8px'>{tags}</div>", unsafe_allow_html=True)
-    st.divider()
-
-def _render_comments(comments: list[dict]) -> None:
-    _render_comment_summary(comments)
-    st.markdown("""
-    <style>
-    .cmt-card{padding:10px 12px;border-radius:8px;margin-bottom:6px;background:#f9fafb;}
-    .cmt-av{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;
-            justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;
-            vertical-align:top;margin-right:9px;}
-    .cmt-body{display:inline-block;vertical-align:top;max-width:calc(100% - 48px);}
-    .cmt-user{font-size:12px;font-weight:700;color:#111;margin:0 0 1px;}
-    .cmt-meta{font-size:11px;color:#9ca3af;margin:0 0 4px;}
-    .cmt-text{font-size:13px;color:#374151;margin:0;word-break:break-word;}
-    .cmt-like{font-size:11px;color:#6b7280;margin-top:4px;}
-    </style>
-    """, unsafe_allow_html=True)
-    for cmt in comments:
-        uname     = cmt.get("username") or cmt.get("display_name") or "?"
-        dname     = cmt.get("display_name") or uname
-        initial   = uname[0].upper() if uname != "?" else "?"
-        color     = _comment_avatar_color(uname)
-        time_str  = _fmt_time(cmt.get("created_at") or "")
-        text      = (cmt.get("text") or "").replace("<","&lt;").replace(">","&gt;")
-        likes     = cmt.get("like_count") or 0
-        region    = cmt.get("user_region") or ""
-        user_lang = (cmt.get("user_language") or "").upper()
-        badge_html = ""
-        if region:
-            badge_html += f"<span style='background:#f3f4f6;border-radius:4px;padding:1px 6px;font-size:10px;color:#374151;margin-right:3px;'>🌍 {region}</span>"
-        if user_lang:
-            badge_html += f"<span style='background:#eff6ff;border-radius:4px;padding:1px 6px;font-size:10px;color:#1d4ed8;'>🗣 {user_lang}</span>"
-        st.markdown(
-            f"""<div class='cmt-card'>
-                <span class='cmt-av' style='background:{color};'>{initial}</span>
-                <span class='cmt-body'>
-                    <p class='cmt-user'>@{uname} <span style='font-weight:400;color:#6b7280;'>· {dname}</span>{"&nbsp;&nbsp;" + badge_html if badge_html else ""}</p>
-                    <p class='cmt-meta'>{time_str}</p>
-                    <p class='cmt-text'>{text}</p>
-                    <p class='cmt-like'>❤️ {likes:,}</p>
-                </span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
 
 @st.dialog("💬 댓글", width="large")
 def _show_comments_dialog(orig_post: dict) -> None:
@@ -1981,7 +1896,10 @@ with tab5:
                     and "cmt_fetched_df" in st.session_state
                 ):
                     cmt_raw = pd.DataFrame(st.session_state["cmt_fetched_df"])
-                    cmt_raw.columns = [c.strip().lower().replace(".", "_") for c in cmt_raw.columns]
+                    cmt_raw.columns = [
+                        c.strip().lower().replace(".", "_").replace("/", "_")
+                        for c in cmt_raw.columns
+                    ]
 
                     def _fc(aliases):
                         for a in aliases:

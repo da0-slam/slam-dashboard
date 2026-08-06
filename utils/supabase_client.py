@@ -1750,3 +1750,45 @@ def bulk_upsert_post_comments(rows: list[dict]) -> tuple[int, list[str]]:
         except Exception as e:
             errors.append(str(e))
     return created, errors
+
+
+def get_post_comments_batch(aweme_ids: list[str]) -> list[dict]:
+    """여러 aweme_id의 댓글을 한 번에 조회 (캠페인 단위 집계용, 좋아요 순)."""
+    aweme_ids = list({a for a in aweme_ids if a})
+    if not aweme_ids:
+        return []
+    return (
+        get_supabase()
+        .table("post_comments")
+        .select("id, text, created_at, like_count, reply_count, language, platform, "
+                "username, display_name, avatar_url, user_region, user_language, aweme_id")
+        .in_("aweme_id", aweme_ids)
+        .order("like_count", desc=True)
+        .limit(3000)
+        .execute()
+    ).data or []
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _resolve_tiktok_redirect(url: str) -> str:
+    """vt.tiktok.com/, tiktok.com/t/ 같은 단축 링크를 실제 /video/<id> URL로 리다이렉트 해석."""
+    try:
+        resp = _req.head(url, allow_redirects=True, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        return resp.url
+    except Exception:
+        return url
+
+
+def aweme_id_from_url(url: str) -> str | None:
+    """TikTok 게시물 URL에서 aweme_id(영상 ID) 추출.
+    vt.tiktok.com/ 이나 tiktok.com/t/ 같은 단축 링크는 /video/<id> 형태가 아니라서
+    바로 정규식 매칭이 안 되므로, 리다이렉트를 따라가 실제 URL을 얻은 뒤 추출한다."""
+    m = re.search(r"/video/(\d+)", url or "")
+    if m:
+        return m.group(1)
+    if url and ("vt.tiktok.com" in url or "/t/" in url):
+        resolved = _resolve_tiktok_redirect(url)
+        m2 = re.search(r"/video/(\d+)", resolved or "")
+        if m2:
+            return m2.group(1)
+    return None

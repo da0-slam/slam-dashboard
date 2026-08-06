@@ -14,7 +14,11 @@ st.markdown("""
 
 from utils.storage_client import resolve_content_report_token  # noqa: E402
 from utils.supabase_client import (  # noqa: E402
-    get_brands, get_campaigns, get_campaign_posts, get_influencer_cover_map,
+    aweme_id_from_url, get_brands, get_campaigns, get_campaign_posts,
+    get_influencer_cover_map, get_post_comments, get_post_comments_batch,
+)
+from utils.comment_ui import (  # noqa: E402
+    render_comment_distribution_charts, render_comments,
 )
 
 # ── 토큰 검증 ─────────────────────────────────────────────────────────────────
@@ -61,6 +65,35 @@ if not camp:
 brand_name = _brand_name(brand_id)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_comments_tt(aweme_id: str) -> list[dict]:
+    return get_post_comments(aweme_id=aweme_id)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_comments_ig(post_url: str) -> list[dict]:
+    return get_post_comments(post_url=post_url)
+
+
+@st.dialog("💬 댓글", width="large")
+def _show_comments_dialog(orig_post: dict) -> None:
+    is_tt = orig_post.get("platform") == "tiktok"
+    st.caption(f"{'TikTok' if is_tt else 'Instagram'} · {orig_post.get('influencer_name','')} · [게시물 열기]({orig_post.get('post_url','')})")
+    if is_tt:
+        aweme = aweme_id_from_url(orig_post["post_url"])
+        cmts  = _load_comments_tt(aweme) if aweme else []
+    else:
+        cmts = _load_comments_ig(orig_post["post_url"])
+
+    if not cmts:
+        st.info("이 게시물에 수집된 댓글이 없습니다.")
+        return
+
+    st.caption(f"총 {len(cmts)}개")
+    st.divider()
+    render_comments(cmts)
+
+
 def _er(p: dict) -> float:
     v = p.get("views") or 0
     if v <= 0:
@@ -92,6 +125,7 @@ with st.sidebar:
 <a href="#sec-kpi" style="display:block;padding:6px 0;text-decoration:none;">📊 요약 지표</a>
 <a href="#sec-chart" style="display:block;padding:6px 0;text-decoration:none;">📈 차트</a>
 <a href="#sec-posts" style="display:block;padding:6px 0;text-decoration:none;">🖼️ 게시물</a>
+<a href="#sec-comments" style="display:block;padding:6px 0;text-decoration:none;">💬 댓글 분석</a>
 <a href="#sec-summary" style="display:block;padding:6px 0;text-decoration:none;">👥 인플루언서 요약</a>
 <a href="#sec-top" style="display:block;padding:6px 0;text-decoration:none;">⭐ 우수 콘텐츠</a>
 """, unsafe_allow_html=True)
@@ -281,6 +315,10 @@ if view_mode == "그리드":
     if not rows:
         st.info("썸네일이 있는 게시물이 없습니다. 목록 보기를 이용하세요.")
     else:
+        _url_to_post = {
+            (p.get("post_url") or "").split("?")[0].rstrip("/"): p
+            for p in posts
+        }
         for idx, chunk in enumerate([rows[i:i + 4] for i in range(0, len(rows), 4)]):
             cols = st.columns(4)
             for cidx, (col, row) in enumerate(zip(cols, chunk)):
@@ -315,6 +353,15 @@ if view_mode == "그리드":
   </div>
 </a>
 """, unsafe_allow_html=True)
+                _norm_url = url.split("?")[0].rstrip("/")
+                _orig = _url_to_post.get(_norm_url)
+                _has_comments = bool(
+                    (_orig and _orig.get("platform") == "tiktok" and aweme_id_from_url(url))
+                    or (_orig and _orig.get("platform") == "instagram")
+                )
+                if _has_comments and _orig:
+                    if col.button("💬 댓글 보기", key=f"crv_cmt_{idx}_{cidx}", use_container_width=True):
+                        _show_comments_dialog(_orig)
 else:
     st.subheader("게시물 목록")
     list_disp = disp[[c for c in disp.columns if c != "썸네일"]]
@@ -330,6 +377,28 @@ else:
             "참여율(%)":  st.column_config.NumberColumn("참여율(%)", format="%.2f%%"),
         },
     )
+
+st.divider()
+
+# ── 틱톡 댓글 분석 (지역/언어 분포) ──────────────────────────────────────────
+st.markdown('<div id="sec-comments"></div>', unsafe_allow_html=True)
+st.subheader("💬 틱톡 댓글 분석")
+
+_tt_aweme_ids = [
+    aweme_id_from_url(p.get("post_url", ""))
+    for p in posts if p.get("platform") == "tiktok"
+]
+_tt_aweme_ids = [a for a in _tt_aweme_ids if a]
+
+if not _tt_aweme_ids:
+    st.info("분석할 TikTok 게시물이 없습니다.")
+else:
+    _tt_comments = get_post_comments_batch(_tt_aweme_ids)
+    if not _tt_comments:
+        st.info("아직 수집된 TikTok 댓글이 없습니다.")
+    else:
+        st.caption(f"TikTok 게시물 {len(_tt_aweme_ids)}건 · 댓글 {len(_tt_comments):,}개 기준")
+        render_comment_distribution_charts(_tt_comments)
 
 st.divider()
 
