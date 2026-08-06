@@ -124,8 +124,8 @@ with st.sidebar:
     st.markdown("""
 <a href="#sec-kpi" style="display:block;padding:6px 0;text-decoration:none;">📊 요약 지표</a>
 <a href="#sec-chart" style="display:block;padding:6px 0;text-decoration:none;">📈 차트</a>
-<a href="#sec-posts" style="display:block;padding:6px 0;text-decoration:none;">🖼️ 게시물</a>
 <a href="#sec-comments" style="display:block;padding:6px 0;text-decoration:none;">💬 댓글 분석</a>
+<a href="#sec-posts" style="display:block;padding:6px 0;text-decoration:none;">🖼️ 게시물</a>
 <a href="#sec-summary" style="display:block;padding:6px 0;text-decoration:none;">👥 인플루언서 요약</a>
 <a href="#sec-top" style="display:block;padding:6px 0;text-decoration:none;">⭐ 우수 콘텐츠</a>
 """, unsafe_allow_html=True)
@@ -215,6 +215,28 @@ with ch2:
     plat_df["platform"] = plat_df["platform"].map(_plat_label_map)
     plat_df = plat_df.set_index("platform")
     st.bar_chart(plat_df[["총_조회수", "총_좋아요"]])
+
+st.divider()
+
+# ── 틱톡 댓글 분석 (지역/언어 분포) ──────────────────────────────────────────
+st.markdown('<div id="sec-comments"></div>', unsafe_allow_html=True)
+st.subheader("💬 틱톡 댓글 분석")
+
+_tt_aweme_ids = [
+    aweme_id_from_url(p.get("post_url", ""))
+    for p in posts if p.get("platform") == "tiktok"
+]
+_tt_aweme_ids = [a for a in _tt_aweme_ids if a]
+
+if not _tt_aweme_ids:
+    st.info("분석할 TikTok 게시물이 없습니다.")
+else:
+    _tt_comments = get_post_comments_batch(_tt_aweme_ids)
+    if not _tt_comments:
+        st.info("아직 수집된 TikTok 댓글이 없습니다.")
+    else:
+        st.caption(f"TikTok 게시물 {len(_tt_aweme_ids)}건 · 댓글 {len(_tt_comments):,}개 기준")
+        render_comment_distribution_charts(_tt_comments)
 
 st.divider()
 
@@ -377,28 +399,6 @@ else:
             "참여율(%)":  st.column_config.NumberColumn("참여율(%)", format="%.2f%%"),
         },
     )
-
-st.divider()
-
-# ── 틱톡 댓글 분석 (지역/언어 분포) ──────────────────────────────────────────
-st.markdown('<div id="sec-comments"></div>', unsafe_allow_html=True)
-st.subheader("💬 틱톡 댓글 분석")
-
-_tt_aweme_ids = [
-    aweme_id_from_url(p.get("post_url", ""))
-    for p in posts if p.get("platform") == "tiktok"
-]
-_tt_aweme_ids = [a for a in _tt_aweme_ids if a]
-
-if not _tt_aweme_ids:
-    st.info("분석할 TikTok 게시물이 없습니다.")
-else:
-    _tt_comments = get_post_comments_batch(_tt_aweme_ids)
-    if not _tt_comments:
-        st.info("아직 수집된 TikTok 댓글이 없습니다.")
-    else:
-        st.caption(f"TikTok 게시물 {len(_tt_aweme_ids)}건 · 댓글 {len(_tt_comments):,}개 기준")
-        render_comment_distribution_charts(_tt_comments)
 
 st.divider()
 
