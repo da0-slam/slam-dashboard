@@ -50,27 +50,57 @@ def render_comment_summary(comments: list[dict]) -> None:
     st.divider()
 
 
+def _pie_chart(counter: Counter, colors: list[str], top_n: int = 5):
+    """상위 top_n개 + 나머지는 '기타'로 묶은 도넛형 파이차트.
+    슬라이스에는 라벨만 표시하고, 퍼센트·건수는 호버에서만 노출."""
+    import plotly.graph_objects as go
+
+    total = sum(counter.values())
+    top = counter.most_common(top_n)
+    labels = [name for name, _ in top]
+    values = [cnt for _, cnt in top]
+    other = total - sum(values)
+    if other > 0:
+        labels.append("기타")
+        values.append(other)
+
+    hover_text = [f"{l} {v/total*100:.1f}% ({v:,}건)" for l, v in zip(labels, values)]
+
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.4,
+        text=hover_text,
+        hovertemplate="%{text}<extra></extra>",
+        textinfo="label",
+        marker=dict(colors=colors[:len(labels)]),
+    )])
+    fig.update_layout(
+        margin=dict(t=10, b=10, l=10, r=10),
+        showlegend=True,
+        height=320,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def render_comment_distribution_charts(comments: list[dict]) -> None:
-    """지역/언어 분포를 막대 차트로 시각화 (캠페인 단위 집계 섹션용)."""
-    import pandas as pd
+    """지역/언어 분포를 원형 차트로 시각화 (상위 5개 + 기타, 캠페인 단위 집계 섹션용)."""
     r_cnt = Counter(c.get("user_region") or "" for c in comments if c.get("user_region"))
-    l_cnt = Counter(c.get("user_language") or "" for c in comments if c.get("user_language"))
+    l_cnt = Counter((c.get("user_language") or "").upper() for c in comments if c.get("user_language"))
     if not r_cnt and not l_cnt:
         st.info("지역/언어 정보가 있는 댓글이 없습니다.")
         return
+    _region_colors   = ["#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe", "#e0e7ff", "#d1d5db"]
+    _language_colors = ["#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe", "#d1d5db"]
     dc1, dc2 = st.columns(2)
     with dc1:
         if r_cnt:
-            st.markdown("**🌍 지역 분포 TOP 10**")
-            r_df = pd.DataFrame(r_cnt.most_common(10), columns=["지역", "댓글 수"]).set_index("지역")
-            st.bar_chart(r_df, color="#6366f1")
+            st.markdown("**🌍 지역 분포 (TOP 5 + 기타)**")
+            _pie_chart(r_cnt, _region_colors)
     with dc2:
         if l_cnt:
-            st.markdown("**🗣 언어 분포 TOP 10**")
-            l_df = pd.DataFrame(
-                [(l.upper(), c) for l, c in l_cnt.most_common(10)], columns=["언어", "댓글 수"]
-            ).set_index("언어")
-            st.bar_chart(l_df, color="#3b82f6")
+            st.markdown("**🗣 언어 분포 (TOP 5 + 기타)**")
+            _pie_chart(l_cnt, _language_colors)
 
 
 def render_comments(comments: list[dict]) -> None:

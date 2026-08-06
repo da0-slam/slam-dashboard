@@ -25,6 +25,7 @@ from utils.supabase_client import (
     get_campaigns,
     get_influencer_cover_map,
     get_post_comments,
+    get_post_comments_batch,
     get_user_profile,
     migrate_google_sheet_rows,
     post_url_exists,
@@ -37,6 +38,7 @@ from utils.comment_ui import (
     comment_avatar_color as _comment_avatar_color,
     render_comment_summary as _render_comment_summary,
     render_comments as _render_comments,
+    render_comment_distribution_charts as _render_comment_distribution_charts,
 )
 
 st.set_page_config(page_title="콘텐츠 성과 관리", page_icon="📊", layout="wide")
@@ -515,6 +517,23 @@ with tab1:
             plat_df["platform"] = plat_df["platform"].map(_plat_label_map)
             plat_df = plat_df.set_index("platform")
             st.bar_chart(plat_df[["총_조회수", "총_좋아요"]])
+
+        # ── 댓글 분석 (TikTok 지역/언어 분포) ──────────────────────────────
+        st.markdown("#### 💬 댓글 분석")
+        _tt_aweme_ids_cp = [
+            _aweme_id_from_url(p.get("post_url", ""))
+            for p in posts if p.get("platform") == "tiktok"
+        ]
+        _tt_aweme_ids_cp = [a for a in _tt_aweme_ids_cp if a]
+        if not _tt_aweme_ids_cp:
+            st.info("분석할 TikTok 게시물이 없습니다.")
+        else:
+            _tt_comments_cp = get_post_comments_batch(_tt_aweme_ids_cp)
+            if not _tt_comments_cp:
+                st.info("아직 수집된 TikTok 댓글이 없습니다.")
+            else:
+                st.caption(f"TikTok 게시물 {len(_tt_aweme_ids_cp)}건 · 댓글 {len(_tt_comments_cp):,}개 기준")
+                _render_comment_distribution_charts(_tt_comments_cp)
 
         # ── 인플루언서별 TT vs IG 비교 (둘 다 있는 경우) ──────────────────
         dual = df.groupby("influencer_name")["platform"].nunique()
