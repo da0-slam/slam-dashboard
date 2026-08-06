@@ -1883,7 +1883,9 @@ with tab5:
                         import requests as _http2
                         resp2 = _http2.get(cmt_csv_url, timeout=20)
                         resp2.raise_for_status()
-                        cmt_df = pd.read_csv(io.StringIO(resp2.content.decode("utf-8-sig")))
+                        # dtype=str 필수: awemeId/id는 19자리 정수라 float로 읽으면
+                        # 지수 표기(예: 7.665e+18)로 정밀도가 깨져 매칭이 영구히 실패함
+                        cmt_df = pd.read_csv(io.StringIO(resp2.content.decode("utf-8-sig")), dtype=str)
                         st.session_state["cmt_fetched_df"]   = cmt_df.to_dict(orient="list")
                         st.session_state["cmt_fetched_url"]  = cmt_sheets_url
                         st.session_state["cmt_fetched_plat"] = cmt_plat
