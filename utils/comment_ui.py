@@ -56,15 +56,21 @@ def _pie_chart(counter: Counter, colors: list[str], top_n: int = 5):
     import plotly.graph_objects as go
 
     total = sum(counter.values())
-    top = counter.most_common(top_n)
+    ranked = counter.most_common()
+    top, rest = ranked[:top_n], ranked[top_n:]
+
     labels = [name for name, _ in top]
     values = [cnt for _, cnt in top]
-    other = total - sum(values)
-    if other > 0:
-        labels.append("기타")
-        values.append(other)
-
     hover_text = [f"{l} {v/total*100:.1f}% ({v:,}건)" for l, v in zip(labels, values)]
+
+    if rest:
+        other_count = sum(cnt for _, cnt in rest)
+        labels.append("기타")
+        values.append(other_count)
+        _names = ", ".join(name for name, _ in rest[:15])
+        if len(rest) > 15:
+            _names += f" 외 {len(rest) - 15}개"
+        hover_text.append(f"기타 {other_count/total*100:.1f}% ({other_count:,}건)<br>{_names}")
 
     fig = go.Figure(data=[go.Pie(
         labels=labels,
@@ -79,6 +85,8 @@ def _pie_chart(counter: Counter, colors: list[str], top_n: int = 5):
         margin=dict(t=10, b=10, l=10, r=10),
         showlegend=True,
         height=320,
+        # 범례 클릭 시 슬라이스가 사라지는 기본 동작 비활성화 — 여긴 색상 안내용
+        legend=dict(itemclick=False, itemdoubleclick=False),
     )
     st.plotly_chart(fig, use_container_width=True)
 
