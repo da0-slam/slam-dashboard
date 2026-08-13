@@ -1,7 +1,7 @@
 import io
 import os as _os
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -900,6 +900,63 @@ with tab4:
     if not campaigns:
         st.warning("먼저 캠페인을 생성해주세요. (캠페인 메뉴)")
         st.stop()
+
+    # ── 전체 지표 재추적 (Apify, 이미 값이 있어도 최신으로 덮어씀) ────────────
+    if is_admin and filter_campaign_id:
+        with st.expander("🔄 전체 지표 재추적 (Apify)"):
+            st.caption(
+                "선택된 캠페인의 TikTok/Instagram 게시물 전체를 Apify로 다시 조회해서 "
+                "조회수·좋아요·댓글·저장·공유를 최신 값으로 덮어씁니다. "
+                "이미 값이 있는 게시물도 갱신됩니다 (자동 트래킹과 달리 빈 값만 채우지 않음)."
+            )
+            _refresh_targets = [
+                p for p in posts
+                if p.get("platform") in ("tiktok", "instagram") and p.get("post_url")
+            ]
+            st.write(f"대상 게시물: {len(_refresh_targets)}개")
+            if _refresh_targets and st.button("🔄 지금 재추적 시작", key="refresh_apify_start"):
+                st.session_state["refresh_apify_queue"] = [
+                    {
+                        "id": p["id"], "url": p["post_url"], "platform": p["platform"],
+                        "name": p.get("influencer_name") or "",
+                    }
+                    for p in _refresh_targets
+                ]
+                st.session_state["refresh_apify_off"] = 0
+                st.rerun()
+
+    if st.session_state.get("refresh_apify_queue") is not None:
+        _rf_q = st.session_state["refresh_apify_queue"]
+        _rf_off = st.session_state.get("refresh_apify_off", 0)
+        _RF_N = 8
+        _rf_total = len(_rf_q)
+        _rf_chunk = _rf_q[_rf_off:_rf_off + _RF_N]
+        _rf_done = min(_rf_off + _RF_N, _rf_total)
+        st.progress(_rf_done / _rf_total, text=f"전체 지표 재추적 중 (Apify)... ({_rf_done}/{_rf_total})")
+        if _rf_chunk:
+            _rf_batch = fetch_metrics_from_apify_batch(
+                [(rj["url"], rj["platform"]) for rj in _rf_chunk]
+            )
+            for _rj in _rf_chunk:
+                try:
+                    _m, _ = _rf_batch.get(_rj["url"], (None, "알 수 없는 오류"))
+                    if _m:
+                        update_campaign_post(_rj["id"], brand_id, {
+                            "views": _m["views"], "likes": _m["likes"],
+                            "comments": _m["comments"], "saves": _m["saves"],
+                            "shares": _m["shares"],
+                            "last_tracked_at": datetime.now(timezone.utc).isoformat(),
+                        })
+                except Exception:
+                    pass
+            st.session_state["refresh_apify_off"] = _rf_off + _RF_N
+            st.rerun()
+        else:
+            st.session_state.pop("refresh_apify_queue")
+            st.session_state.pop("refresh_apify_off", None)
+            _load_all.clear()
+            st.success("전체 지표 재추적이 완료되었습니다.")
+            st.rerun()
 
     # ── 수정 폼 (상단 고정, 수정 버튼 클릭 시 표시) ─────────────────────────
 
