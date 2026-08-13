@@ -49,6 +49,17 @@ def sidebar_user_info() -> None:
         profile = get_user_profile(user.id)
         is_admin = profile.get("role") == "admin"
 
+        # 브랜드 마케팅 현황 — 속도 이슈로 임시로 전체 사용자에게서 숨김
+        # (href가 원문 한글로 나오는지 퍼센트 인코딩으로 나오는지 확실치 않아 둘 다 매칭)
+        st.markdown("""
+<style>
+[data-testid="stSidebarNav"] a[href*="브랜드_마케팅_현황"],
+[data-testid="stSidebarNav"] li:has(a[href*="브랜드_마케팅_현황"]),
+[data-testid="stSidebarNav"] a[href*="%EB%B8%8C%EB%9E%9C%EB%93%9C_%EB%A7%88%EC%BC%80%ED%8C%85_%ED%98%84%ED%99%A9"],
+[data-testid="stSidebarNav"] li:has(a[href*="%EB%B8%8C%EB%9E%9C%EB%93%9C_%EB%A7%88%EC%BC%80%ED%8C%85_%ED%98%84%ED%99%A9"]) { display:none!important; }
+</style>
+""", unsafe_allow_html=True)
+
         if _is_demo_user(user):
             # 데모 계정: 콘텐츠 성과 관리 외 모든 페이지를 사이드바 네비에서 숨김
             st.markdown("""
@@ -68,9 +79,10 @@ def sidebar_user_info() -> None:
 
         if is_admin:
             st.markdown("**🔧 관리자 메뉴**")
-            st.page_link("pages/_dashboard.py", label="📊 어드민 대시보드", use_container_width=True)
-            st.page_link("pages/_brands.py",   label="🏢 브랜드 관리",     use_container_width=True)
-            st.page_link("pages/7_strategy.py", label="🎯 전략",            use_container_width=True)
+            st.page_link("pages/_dashboard.py",  label="📊 어드민 대시보드",   use_container_width=True)
+            st.page_link("pages/_brands.py",     label="🏢 브랜드 관리",       use_container_width=True)
+            st.page_link("pages/_top_posts.py",  label="⭐ 우수 게시물 취합",  use_container_width=True)
+            st.page_link("pages/7_strategy.py",  label="🎯 전략",              use_container_width=True)
             st.divider()
             # 관리자도 전략 페이지 자동 nav 중복 숨김
             st.markdown("""
@@ -85,6 +97,8 @@ def sidebar_user_info() -> None:
 <style>
 [data-testid="stSidebarNav"] a[href*="_dashboard"],
 [data-testid="stSidebarNav"] li:has(a[href*="_dashboard"]),
+[data-testid="stSidebarNav"] a[href*="_top_posts"],
+[data-testid="stSidebarNav"] li:has(a[href*="_top_posts"]),
 [data-testid="stSidebarNav"] a[href*="7_strategy"],
 [data-testid="stSidebarNav"] li:has(a[href*="7_strategy"]) { display:none!important; }
 </style>

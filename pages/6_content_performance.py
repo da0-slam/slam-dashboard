@@ -13,6 +13,7 @@ from utils.storage_client import (
 )
 from utils.supabase_client import (
     aweme_id_from_url as _aweme_id_from_url,
+    aweme_id_from_url_fast as _aweme_id_from_url_fast,
     bulk_upsert_post_comments,
     create_campaign_post,
     delete_campaign_post,
@@ -521,7 +522,7 @@ with tab1:
         # ── 댓글 분석 (TikTok 지역/언어 분포) ──────────────────────────────
         st.markdown("#### 💬 댓글 분석")
         _tt_aweme_ids_cp = [
-            _aweme_id_from_url(p.get("post_url", ""))
+            _aweme_id_from_url_fast(p.get("post_url", ""))
             for p in posts if p.get("platform") == "tiktok"
         ]
         _tt_aweme_ids_cp = [a for a in _tt_aweme_ids_cp if a]
@@ -750,7 +751,7 @@ with tab1:
                         _norm_url = url.split("?")[0].rstrip("/")
                         _orig = _url_to_post.get(_norm_url)
                         _has_comments = bool(
-                            (_orig and _orig.get("platform") == "tiktok" and _aweme_id_from_url(url))
+                            (_orig and _orig.get("platform") == "tiktok" and _aweme_id_from_url_fast(url))
                             or (_orig and _orig.get("platform") == "instagram")
                         )
                         if _has_comments and _orig:
@@ -1797,7 +1798,7 @@ with tab5:
         # TikTok + Instagram 모두 선택 가능
         viewable_posts = [
             p for p in posts
-            if (p.get("platform") == "tiktok" and _aweme_id_from_url(p.get("post_url","")))
+            if (p.get("platform") == "tiktok" and _aweme_id_from_url_fast(p.get("post_url","")))
             or (p.get("platform") == "instagram" and p.get("post_url",""))
         ]
 
@@ -1808,7 +1809,7 @@ with tab5:
                 plat = "TT" if p.get("platform") == "tiktok" else "IG"
                 name = p.get("influencer_name","")
                 if p.get("platform") == "tiktok":
-                    key = _aweme_id_from_url(p["post_url"]) or p["post_url"]
+                    key = _aweme_id_from_url_fast(p["post_url"]) or p["post_url"]
                 else:
                     key = p["post_url"].split("?")[0].rstrip("/").split("/")[-1]
                 return f"[{plat}] {name} · {key}"

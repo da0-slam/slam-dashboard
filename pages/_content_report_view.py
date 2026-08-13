@@ -14,7 +14,7 @@ st.markdown("""
 
 from utils.storage_client import resolve_content_report_token  # noqa: E402
 from utils.supabase_client import (  # noqa: E402
-    aweme_id_from_url, get_brands, get_campaigns, get_campaign_posts,
+    aweme_id_from_url, aweme_id_from_url_fast, get_brands, get_campaigns, get_campaign_posts,
     get_influencer_cover_map, get_post_comments, get_post_comments_batch,
 )
 from utils.comment_ui import (  # noqa: E402
@@ -145,7 +145,7 @@ def _build_pdf_bytes() -> bytes:
     plat_df["platform"] = plat_df["platform"].map(_plat_label_map)
     plat_df = plat_df.set_index("platform")
 
-    tt_aweme_ids = [aweme_id_from_url(p.get("post_url", "")) for p in posts if p.get("platform") == "tiktok"]
+    tt_aweme_ids = [aweme_id_from_url_fast(p.get("post_url", "")) for p in posts if p.get("platform") == "tiktok"]
     tt_aweme_ids = [a for a in tt_aweme_ids if a]
     tt_comments = get_post_comments_batch(tt_aweme_ids) if tt_aweme_ids else []
     from collections import Counter
@@ -325,7 +325,7 @@ st.markdown('<div id="sec-comments"></div>', unsafe_allow_html=True)
 st.subheader("💬 틱톡 댓글 분석")
 
 _tt_aweme_ids = [
-    aweme_id_from_url(p.get("post_url", ""))
+    aweme_id_from_url_fast(p.get("post_url", ""))
     for p in posts if p.get("platform") == "tiktok"
 ]
 _tt_aweme_ids = [a for a in _tt_aweme_ids if a]
@@ -480,7 +480,7 @@ if view_mode == "그리드":
                 _norm_url = url.split("?")[0].rstrip("/")
                 _orig = _url_to_post.get(_norm_url)
                 _has_comments = bool(
-                    (_orig and _orig.get("platform") == "tiktok" and aweme_id_from_url(url))
+                    (_orig and _orig.get("platform") == "tiktok" and aweme_id_from_url_fast(url))
                     or (_orig and _orig.get("platform") == "instagram")
                 )
                 if _has_comments and _orig:

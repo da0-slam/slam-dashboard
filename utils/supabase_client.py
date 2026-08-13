@@ -1061,6 +1061,44 @@ def get_campaign_post_by_id(post_id: str, brand_id: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def get_all_campaigns(status: str | None = None) -> list[dict]:
+    """브랜드사 상관없이 전체 캠페인 조회 (관리자용 취합 화면용)."""
+    q = get_supabase().table("campaigns").select("*")
+    if status:
+        q = q.eq("status", status)
+    return (q.order("created_at", desc=True).execute()).data or []
+
+
+def get_campaign_posts_for_campaigns(campaign_ids: list[str]) -> list[dict]:
+    """브랜드사 상관없이 여러 캠페인의 게시물을 한 번에 조회 (관리자용 취합 화면용).
+    PostgREST 기본 응답 행 제한(보통 1000)에 걸리지 않도록 페이지네이션한다."""
+    campaign_ids = list({c for c in campaign_ids if c})
+    if not campaign_ids:
+        return []
+    all_rows: list[dict] = []
+    CHUNK = 100
+    PAGE = 1000
+    for i in range(0, len(campaign_ids), CHUNK):
+        chunk = campaign_ids[i : i + CHUNK]
+        offset = 0
+        while True:
+            res = (
+                get_supabase()
+                .table("campaign_posts")
+                .select("id,brand_id,campaign_id,influencer_name,platform,post_url,"
+                        "upload_date,views,likes,comments,saves,shares,thumbnail_url,created_at")
+                .in_("campaign_id", chunk)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+            )
+            page_rows = res.data or []
+            all_rows.extend(page_rows)
+            if len(page_rows) < PAGE:
+                break
+            offset += PAGE
+    return all_rows
+
+
 def post_url_exists(post_url: str, exclude_post_id: str | None = None) -> bool:
     q = get_supabase().table("campaign_posts").select("id").eq("post_url", post_url)
     if exclude_post_id:
@@ -1779,13 +1817,26 @@ def _resolve_tiktok_redirect(url: str) -> str:
         return url
 
 
+def aweme_id_from_url_fast(url: str) -> str | None:
+    """TikTok 게시물 URL에서 aweme_id 추출 — 네트워크 호출 없음, 정규식 매칭만.
+    vt.tiktok.com/ · tiktok.com/t/ 같은 단축 링크는 이 방식으로 못 뽑고 None을 반환한다.
+    여러 게시물을 반복(loop) 처리하는 자동 집계 화면에서 반드시 이걸 써야 한다 —
+    아래 aweme_id_from_url()은 단축 링크마다 실제 네트워크 요청을 보내서, 게시물이
+    많으면(수십 건) 페이지 렌더링마다 수십 초씩 걸리는 원인이 된다."""
+    m = re.search(r"/video/(\d+)", url or "")
+    return m.group(1) if m else None
+
+
 def aweme_id_from_url(url: str) -> str | None:
     """TikTok 게시물 URL에서 aweme_id(영상 ID) 추출.
     vt.tiktok.com/ 이나 tiktok.com/t/ 같은 단축 링크는 /video/<id> 형태가 아니라서
-    바로 정규식 매칭이 안 되므로, 리다이렉트를 따라가 실제 URL을 얻은 뒤 추출한다."""
-    m = re.search(r"/video/(\d+)", url or "")
-    if m:
-        return m.group(1)
+    바로 정규식 매칭이 안 되므로, 리다이렉트를 따라가 실제 URL을 얻은 뒤 추출한다.
+    네트워크 요청이 발생하므로 게시물 1건에 대해 사용자가 직접 트리거하는 동작
+    (댓글 보기 버튼 등)에서만 쓰고, 여러 건을 자동으로 반복 처리하는 곳에서는
+    aweme_id_from_url_fast()를 사용할 것."""
+    fast = aweme_id_from_url_fast(url)
+    if fast:
+        return fast
     if url and ("vt.tiktok.com" in url or "/t/" in url):
         resolved = _resolve_tiktok_redirect(url)
         m2 = re.search(r"/video/(\d+)", resolved or "")
