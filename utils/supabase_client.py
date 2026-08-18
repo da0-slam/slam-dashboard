@@ -1522,7 +1522,64 @@ def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tu
         for u in without_id:
             result[u] = fetch_metrics_from_apify_debug(u, platform)
 
+        # ── Instagram 릴스: 조회수/공유수 2차 조회 (apify/instagram-scraper는
+        # 이 필드를 아예 안 줌 — apify/instagram-reel-scraper가 "계정명 기준
+        # 최근 릴스 목록"으로만 조회수를 주므로, 1차에서 알아낸 소유자 계정명으로
+        # 다시 묶어서 조회하고 shortcode로 매칭한다. 사진 게시물은 대상에서 제외
+        # (조회수 개념 자체가 없음). 직접 릴스 URL을 넣으면 조회수가 안 나오는
+        # 것도 라이브로 확인했음 — 반드시 계정명 기준으로 조회해야 함.)
+        if platform == "instagram":
+            _reel_targets = [
+                (u, sid, result[u][0]["username"])
+                for u, sid in with_id
+                if result.get(u) and result[u][0] and result[u][0].get("username")
+                and ("/reel/" in u or "/tv/" in u)
+            ]
+            if _reel_targets:
+                _reel_map = _fetch_instagram_reel_views(_reel_targets, token)
+                for u, sid, _uname in _reel_targets:
+                    rv = _reel_map.get(sid)
+                    if rv:
+                        if rv.get("views") is not None:
+                            result[u][0]["views"] = rv["views"]
+                        if rv.get("shares") is not None:
+                            result[u][0]["shares"] = rv["shares"]
+
     return result
+
+
+def _fetch_instagram_reel_views(
+    targets: list[tuple[str, str, str]], token: str,
+) -> dict[str, dict]:
+    """(url, shortcode, 계정명) 목록을 계정명 기준으로 묶어 apify/instagram-reel-scraper로
+    조회수·공유수를 가져온다. 이 액터는 프로필의 "최근 릴스 목록"만 내려주므로
+    resultsLimit(계정당) 안에 대상 게시물이 있어야 잡힌다 — 오래된 릴스는 못 찾을 수 있음.
+    returns: {shortcode: {"views": int|None, "shares": int|None}}"""
+    REEL_ACTOR = "apify~instagram-reel-scraper"
+    by_username: dict[str, list[str]] = {}
+    for _, sid, uname in targets:
+        by_username.setdefault(uname, []).append(sid)
+
+    wanted_shortcodes = {sid for _, sid, _ in targets}
+    out: dict[str, dict] = {}
+    usernames = list(by_username.keys())
+    for i in range(0, len(usernames), _APIFY_MAX_BATCH):
+        chunk_users = usernames[i:i + _APIFY_MAX_BATCH]
+        run_input = {"username": chunk_users, "resultsLimit": 50}
+        items, _reason = _run_apify_actor(REEL_ACTOR, run_input, token)
+        if not items:
+            continue
+        for it in items:
+            sc = it.get("shortCode")
+            if not sc or sc not in wanted_shortcodes:
+                continue
+            views = it.get("videoPlayCount")
+            shares = it.get("sharesCount")
+            out[sc] = {
+                "views":  int(views)  if views  is not None else None,
+                "shares": int(shares) if shares is not None else None,
+            }
+    return out
 
 
 def refresh_post_metrics(post_id: str, brand_id: str) -> bool:
