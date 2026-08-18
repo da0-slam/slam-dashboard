@@ -1338,12 +1338,20 @@ def _map_apify_item(item: dict, platform: str) -> dict:
                 post_url = u.split("?")[0].rstrip("/")
                 break
         sc_m = re.search(r"/(?:p|reel|tv)/([^/?#]+)", post_url)
+        # apify~instagram-scraper는 views/saves/shares 필드 자체를 내려주지 않는다
+        # (posts든 details든 동일) — 있으면 숫자로, 없으면 None으로 남겨서 호출부가
+        # "값을 몰라서 0" 과 "실제로 0" 을 구분해 기존 값을 덮어쓰지 않게 한다.
+        _views_raw  = item.get("videoPlayCount")
+        if _views_raw is None:
+            _views_raw = item.get("videoViewCount")
+        _saves_raw  = item.get("savesCount")
+        _shares_raw = item.get("videoShareCount")
         return {
-            "views":    int(item.get("videoPlayCount") or item.get("videoViewCount") or 0),
+            "views":    int(_views_raw)  if _views_raw  is not None else None,
             "likes":    int(item.get("likesCount") or 0),
             "comments": int(item.get("commentsCount") or 0),
-            "saves":    int(item.get("savesCount") or 0),
-            "shares":   int(item.get("videoShareCount") or 0),
+            "saves":    int(_saves_raw)  if _saves_raw  is not None else None,
+            "shares":   int(_shares_raw) if _shares_raw is not None else None,
             "thumbnail_url": (images[0] if images else None) or item.get("displayUrl"),
             "upload_date":   (item.get("timestamp") or "")[:10] or None,
             "username":      (item.get("ownerUsername") or "").lower(),

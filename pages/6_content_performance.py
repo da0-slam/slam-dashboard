@@ -941,12 +941,17 @@ with tab4:
                 try:
                     _m, _ = _rf_batch.get(_rj["url"], (None, "알 수 없는 오류"))
                     if _m:
-                        update_campaign_post(_rj["id"], brand_id, {
-                            "views": _m["views"], "likes": _m["likes"],
-                            "comments": _m["comments"], "saves": _m["saves"],
-                            "shares": _m["shares"],
-                            "last_tracked_at": datetime.now(timezone.utc).isoformat(),
-                        })
+                        # Apify가 해당 필드를 못 주면(예: Instagram views/saves/shares) None이라
+                        # 기존 값을 0으로 덮어쓰지 않도록 None인 키는 페이로드에서 제외한다
+                        _rf_payload = {
+                            k: v for k, v in {
+                                "views": _m["views"], "likes": _m["likes"],
+                                "comments": _m["comments"], "saves": _m["saves"],
+                                "shares": _m["shares"],
+                            }.items() if v is not None
+                        }
+                        _rf_payload["last_tracked_at"] = datetime.now(timezone.utc).isoformat()
+                        update_campaign_post(_rj["id"], brand_id, _rf_payload)
                 except Exception:
                     pass
             st.session_state["refresh_apify_off"] = _rf_off + _RF_N
@@ -1231,10 +1236,14 @@ with tab4:
                         "debug_reason": debug_reason,
                     }
                     if metrics:
+                        # Apify가 못 주는 필드(예: Instagram views/saves/shares)는 None이므로
+                        # 위 기본값(0)을 유지한다
                         row.update({
-                            "views": metrics["views"], "likes": metrics["likes"],
-                            "comments": metrics["comments"], "saves": metrics["saves"],
-                            "shares": metrics["shares"], "thumbnail_url": metrics.get("thumbnail_url"),
+                            "views": metrics["views"] if metrics["views"] is not None else row["views"],
+                            "likes": metrics["likes"], "comments": metrics["comments"],
+                            "saves": metrics["saves"] if metrics["saves"] is not None else row["saves"],
+                            "shares": metrics["shares"] if metrics["shares"] is not None else row["shares"],
+                            "thumbnail_url": metrics.get("thumbnail_url"),
                             "upload_date": metrics.get("upload_date"),
                         })
                         uname = metrics.get("username") or ""
@@ -1652,11 +1661,17 @@ with tab4:
                     try:
                         _m, _ = _av_batch.get(_aj["url"], (None, "알 수 없는 오류"))
                         if _m:
-                            update_campaign_post(_aj["id"], brand_id, {
-                                "views": _m["views"], "likes": _m["likes"],
-                                "comments": _m["comments"], "saves": _m["saves"],
-                                "shares": _m["shares"],
-                            })
+                            # Apify가 못 주는 필드(예: Instagram views/saves/shares)는 None이라
+                            # DB에 NULL로 쓰지 않도록 페이로드에서 제외한다
+                            _av_payload = {
+                                k: v for k, v in {
+                                    "views": _m["views"], "likes": _m["likes"],
+                                    "comments": _m["comments"], "saves": _m["saves"],
+                                    "shares": _m["shares"],
+                                }.items() if v is not None
+                            }
+                            if _av_payload:
+                                update_campaign_post(_aj["id"], brand_id, _av_payload)
                             if _m.get("thumbnail_url"):
                                 _stored = upload_thumbnail(
                                     _m["thumbnail_url"], _aj["name"], _sanitize_storage_key(_aj["id"]),
