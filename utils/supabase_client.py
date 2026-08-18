@@ -1427,13 +1427,20 @@ def fetch_metrics_from_apify(post_url: str, platform: str) -> dict | None:
     return metrics
 
 
-def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tuple[dict | None, str]]:
+def fetch_metrics_from_apify_batch(
+    items: list[tuple[str, str]], deep_instagram: bool = False,
+) -> dict[str, tuple[dict | None, str]]:
     """여러 (url, platform)을 플랫폼별로 묶어 최소 횟수의 Apify 액터 실행으로 조회합니다.
 
     - tiktok: 액터가 결과에 담아 돌려주는 submittedVideoUrl(제출한 URL 그대로 에코)로
       정확히 매칭하므로, 단축 URL(vt.tiktok.com 등)도 포함해 전부 배치 처리합니다.
     - instagram: URL 자체에서 뽑아낸 shortcode로 매칭. 단축/공유 URL처럼 shortcode를
       알 수 없는 경우만 정확도를 위해 1건씩 개별 실행합니다.
+
+    deep_instagram: True면 Instagram 릴스 조회수/공유수를 계정명 기준으로 한 번 더
+      조회합니다(apify/instagram-reel-scraper, 실행 횟수 약 2배). 시트 등록 직후
+      새 게시물을 채우는 자동 트래킹처럼 가볍고 빠르게 돌아야 하는 곳에서는 False로
+      두고, "전체 지표 재추적"처럼 사용자가 명시적으로 누른 경우에만 True로 켭니다.
 
     returns: {url: (metrics_dict_or_None, debug_reason)}
     """
@@ -1527,8 +1534,10 @@ def fetch_metrics_from_apify_batch(items: list[tuple[str, str]]) -> dict[str, tu
         # 최근 릴스 목록"으로만 조회수를 주므로, 1차에서 알아낸 소유자 계정명으로
         # 다시 묶어서 조회하고 shortcode로 매칭한다. 사진 게시물은 대상에서 제외
         # (조회수 개념 자체가 없음). 직접 릴스 URL을 넣으면 조회수가 안 나오는
-        # 것도 라이브로 확인했음 — 반드시 계정명 기준으로 조회해야 함.)
-        if platform == "instagram":
+        # 것도 라이브로 확인했음 — 반드시 계정명 기준으로 조회해야 함.
+        # deep_instagram=False(기본값)면 이 비용 2배짜리 조회를 건너뛰고
+        # 좋아요/댓글만 있는 단순 링크 기반 조회로 끝낸다.)
+        if platform == "instagram" and deep_instagram:
             _reel_targets = [
                 (u, sid, result[u][0]["username"])
                 for u, sid in with_id

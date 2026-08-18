@@ -907,7 +907,9 @@ with tab4:
             st.caption(
                 "선택된 캠페인의 TikTok/Instagram 게시물 전체를 Apify로 다시 조회해서 "
                 "조회수·좋아요·댓글·저장·공유를 최신 값으로 덮어씁니다. "
-                "이미 값이 있는 게시물도 갱신됩니다 (자동 트래킹과 달리 빈 값만 채우지 않음)."
+                "이미 값이 있는 게시물도 갱신됩니다 (자동 트래킹과 달리 빈 값만 채우지 않음). "
+                "Instagram 릴스는 조회수 확보를 위해 계정별로 한 번 더 조회하므로 "
+                "일반 자동 트래킹보다 시간이 더 걸릴 수 있습니다."
             )
             _refresh_targets = [
                 p for p in posts
@@ -935,7 +937,7 @@ with tab4:
         st.progress(_rf_done / _rf_total, text=f"전체 지표 재추적 중 (Apify)... ({_rf_done}/{_rf_total})")
         if _rf_chunk:
             _rf_batch = fetch_metrics_from_apify_batch(
-                [(rj["url"], rj["platform"]) for rj in _rf_chunk]
+                [(rj["url"], rj["platform"]) for rj in _rf_chunk], deep_instagram=True,
             )
             for _rj in _rf_chunk:
                 try:
