@@ -118,6 +118,22 @@ def _sanitize_storage_key(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", (value or "unknown")).strip("_")[:60]
 
 
+def _canon_id(raw: str) -> str:
+    """구글시트에서 큰 정수 ID(댓글 id/aweme_id)가 지수표기(예: 1.8e+16)로 깨져
+    들어와도 항상 같은 정수 문자열로 정규화한다. 같은 값이 다른 표기로 재수입되면
+    post_comments의 PK(id)가 매번 달라져 upsert가 중복을 못 잡는 문제를 막는다."""
+    s = (raw or "").strip()
+    if not s or re.fullmatch(r"[0-9]+", s):
+        return s
+    try:
+        f = float(s)
+        if f.is_integer():
+            return str(int(f))
+    except (ValueError, OverflowError):
+        pass
+    return s
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def _load_comments_tt(aweme_id: str) -> list[dict]:
     return get_post_comments(aweme_id=aweme_id)
@@ -204,6 +220,26 @@ else:
     )
 
 filter_campaign_id: str | None = camp_choices[sel_camp_label]
+
+# 캠페인 전환 시, 진행 중이던 백그라운드 배치 작업(전체 지표 재추적/구글시트 이관 등)을
+# 중단한다. 이 작업들은 세션에 큐가 남아있는 한 어떤 위젯을 클릭해도 매번 st.rerun()을
+# 재호출해서, 캠페인을 바꿔도 화면이 그 루프에 붙잡혀 로딩만 계속되고 넘어가지 않았다.
+if "cp_prev_camp" not in st.session_state:
+    st.session_state.cp_prev_camp = filter_campaign_id
+if st.session_state.cp_prev_camp != filter_campaign_id:
+    st.session_state.cp_prev_camp = filter_campaign_id
+    _BATCH_QUEUE_KEYS = (
+        "refresh_apify_queue", "refresh_apify_off",
+        "mi_pending_rows", "mi_offset", "mi_q_created", "mi_q_errors",
+        "mi_q_campaign", "mi_q_overwrite", "mi_q_p_count",
+        "mi_q_force_p", "mi_q_force_platform", "mi_thumb_camp",
+        "mi_thumb_queue", "mi_thumb_off",
+        "mi_apify_queue", "mi_apify_off",
+    )
+    if any(k in st.session_state for k in _BATCH_QUEUE_KEYS):
+        for _k in _BATCH_QUEUE_KEYS:
+            st.session_state.pop(_k, None)
+        st.toast("캠페인을 전환하여 진행 중이던 배치 작업을 중단했습니다.", icon="⚠️")
 
 # ── 사이드바 필터 ─────────────────────────────────────────────────────────────
 
@@ -944,13 +980,15 @@ with tab4:
                     _m, _ = _rf_batch.get(_rj["url"], (None, "알 수 없는 오류"))
                     if _m:
                         # Apify가 해당 필드를 못 주면(예: Instagram views/saves/shares) None이라
-                        # 기존 값을 0으로 덮어쓰지 않도록 None인 키는 페이로드에서 제외한다
+                        # 기존 값을 0으로 덮어쓰지 않도록 None인 키는 페이로드에서 제외한다.
+                        # Instagram은 작성자가 좋아요 수를 숨기면 likesCount가 -1로 오는데,
+                        # 이 경우도 기존 값을 유지하도록 제외한다.
                         _rf_payload = {
                             k: v for k, v in {
                                 "views": _m["views"], "likes": _m["likes"],
                                 "comments": _m["comments"], "saves": _m["saves"],
                                 "shares": _m["shares"],
-                            }.items() if v is not None
+                            }.items() if v is not None and not (k == "likes" and v == -1)
                         }
                         _rf_payload["last_tracked_at"] = datetime.now(timezone.utc).isoformat()
                         update_campaign_post(_rj["id"], brand_id, _rf_payload)
@@ -1664,13 +1702,14 @@ with tab4:
                         _m, _ = _av_batch.get(_aj["url"], (None, "알 수 없는 오류"))
                         if _m:
                             # Apify가 못 주는 필드(예: Instagram views/saves/shares)는 None이라
-                            # DB에 NULL로 쓰지 않도록 페이로드에서 제외한다
+                            # DB에 NULL로 쓰지 않도록 페이로드에서 제외한다.
+                            # Instagram 좋아요 수 숨김 시 likesCount가 -1로 오는데 이 경우도 제외한다.
                             _av_payload = {
                                 k: v for k, v in {
                                     "views": _m["views"], "likes": _m["likes"],
                                     "comments": _m["comments"], "saves": _m["saves"],
                                     "shares": _m["shares"],
-                                }.items() if v is not None
+                                }.items() if v is not None and not (k == "likes" and v == -1)
                             }
                             if _av_payload:
                                 update_campaign_post(_aj["id"], brand_id, _av_payload)
@@ -2031,8 +2070,8 @@ with tab5:
                         else:
                             rows_cmt = []
                             for _, r in cmt_raw.iterrows():
-                                cmt_id    = str(_sv(r, col_id) or "")
-                                aweme_val = str(_sv(r, col_aweme) or "")
+                                cmt_id    = _canon_id(str(_sv(r, col_id) or ""))
+                                aweme_val = _canon_id(str(_sv(r, col_aweme) or ""))
                                 if not cmt_id or not aweme_val:
                                     continue
                                 rows_cmt.append({
@@ -2079,7 +2118,7 @@ with tab5:
                         else:
                             rows_cmt = []
                             for _, r in cmt_raw.iterrows():
-                                cmt_id   = str(_sv(r, col_id) or "")
+                                cmt_id   = _canon_id(str(_sv(r, col_id) or ""))
                                 post_url_val = str(_sv(r, col_post_url) or "")
                                 if not cmt_id or not post_url_val:
                                     continue
