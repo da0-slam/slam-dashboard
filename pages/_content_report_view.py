@@ -65,12 +65,12 @@ if not camp:
 brand_name = _brand_name(brand_id)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=60, max_entries=300, show_spinner=False)
 def _load_comments_tt(aweme_id: str) -> list[dict]:
     return get_post_comments(aweme_id=aweme_id)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=60, max_entries=300, show_spinner=False)
 def _load_comments_ig(post_url: str) -> list[dict]:
     return get_post_comments(post_url=post_url)
 

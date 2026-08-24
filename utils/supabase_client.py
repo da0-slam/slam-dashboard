@@ -819,7 +819,7 @@ def get_browse_contents(platform: str | None = None) -> list[dict]:
     return all_rows
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=1000, show_spinner=False)
 def get_influencer_contents(influencer_id: str) -> list[dict]:
     rows = (
         get_supabase()
@@ -1903,7 +1903,7 @@ def get_post_comments_batch(aweme_ids: list[str]) -> list[dict]:
     ).data or []
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=500, show_spinner=False)
 def _resolve_tiktok_redirect(url: str) -> str:
     """vt.tiktok.com/, tiktok.com/t/ 같은 단축 링크를 실제 /video/<id> URL로 리다이렉트 해석."""
     try:
