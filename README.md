@@ -140,7 +140,7 @@ slam-dashboard/
 ├── app.py                       # 진입점 — 로그인 · 회원가입 · OAuth 처리
 ├── pages/
 │   ├── 2_influencers.py         # ⭐ 즐겨찾기 (brand_selections)
-│   ├── 4_browse.py              # 🔍 인플루언서 탐색 (썸네일 그리드 + 페이지네이션)
+│   ├── _browse.py               # 🔍 인플루언서 탐색 (썸네일 그리드 + 페이지네이션, 사이드바 비노출)
 │   ├── 5_campaigns.py           # 📋 캠페인 관리 (CRUD + CSV 일괄 등록)
 │   └── 6_content_performance.py # 📊 콘텐츠 성과 관리 (성과 대시보드 + CSV 이관)
 ├── _hidden_pages/

@@ -90,7 +90,7 @@ if st.session_state.user:
         with st.container(border=True):
             st.markdown("### 🎬 탐색")
             st.caption("인플루언서 탐색 및 즐겨찾기")
-            st.page_link("pages/4_browse.py", label="이동 →")
+            st.page_link("pages/_browse.py", label="이동 →")
     with col2:
         with st.container(border=True):
             st.markdown("### 📋 캠페인")
