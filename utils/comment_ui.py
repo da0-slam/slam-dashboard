@@ -2,6 +2,9 @@
 import streamlit as st
 from collections import Counter
 
+# 봇 스팸 댓글이 많이 몰리는 지역 — 지역 분포 집계에서 전체 캠페인 공통으로 제외한다.
+_EXCLUDED_REGIONS = {"PK", "NP"}
+
 
 def fmt_time(ts: str) -> str:
     if not ts:
@@ -20,7 +23,10 @@ def comment_avatar_color(name: str) -> str:
 
 
 def render_comment_summary(comments: list[dict]) -> None:
-    r_cnt = Counter(c.get("user_region") or "" for c in comments if c.get("user_region"))
+    r_cnt = Counter(
+        c.get("user_region") for c in comments
+        if c.get("user_region") and c["user_region"].upper() not in _EXCLUDED_REGIONS
+    )
     l_cnt = Counter(c.get("user_language") or "" for c in comments if c.get("user_language"))
     if not r_cnt and not l_cnt:
         return
@@ -93,7 +99,10 @@ def _pie_chart(counter: Counter, colors: list[str], top_n: int = 5):
 
 def render_comment_distribution_charts(comments: list[dict]) -> None:
     """지역/언어 분포를 원형 차트로 시각화 (상위 5개 + 기타, 캠페인 단위 집계 섹션용)."""
-    r_cnt = Counter(c.get("user_region") or "" for c in comments if c.get("user_region"))
+    r_cnt = Counter(
+        c.get("user_region") for c in comments
+        if c.get("user_region") and c["user_region"].upper() not in _EXCLUDED_REGIONS
+    )
     l_cnt = Counter((c.get("user_language") or "").upper() for c in comments if c.get("user_language"))
     if not r_cnt and not l_cnt:
         st.info("지역/언어 정보가 있는 댓글이 없습니다.")
