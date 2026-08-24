@@ -8,7 +8,8 @@ import os
 from utils.supabase_client import (
     get_brands, get_brand_by_id, get_influencers,
     get_campaigns, create_campaign, update_campaign, delete_campaign,
-    get_campaign_selections, update_campaign_selection, remove_campaign_selection,
+    get_campaign_selections, get_campaign_selection_counts,
+    update_campaign_selection, remove_campaign_selection,
     update_selection_note, get_note_counts,
     get_influencer_thumbnails, get_influencer_contents, get_user_profile,
     get_campaign_if_owned, get_brand_access_password_hash,
@@ -842,12 +843,13 @@ else:
     if not campaigns:
         st.info("아직 캠페인이 없습니다. 새 캠페인을 만들어보세요.")
     else:
+        counts_by_camp = get_campaign_selection_counts([c["id"] for c in campaigns])
         cols = st.columns(3)
         for i, camp in enumerate(campaigns):
             with cols[i % 3]:
-                sels     = get_campaign_selections(camp["id"])
-                cnt_all  = len(sels)
-                cnt_conf = sum(1 for s in sels if s["status"] == "confirmed")
+                _counts  = counts_by_camp.get(camp["id"], {"total": 0, "confirmed": 0})
+                cnt_all  = _counts["total"]
+                cnt_conf = _counts["confirmed"]
                 with st.container(border=True):
                     st.markdown(f"### {camp['name']}")
                     st.caption(CAMP_STATUS.get(camp["status"], camp["status"]))

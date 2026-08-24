@@ -614,6 +614,28 @@ def get_campaign_selections(campaign_id: str, status: str | None = None) -> list
     return (q.order("selected_at", desc=True).execute()).data or []
 
 
+def get_campaign_selection_counts(campaign_ids: list[str]) -> dict[str, dict]:
+    """여러 캠페인의 전체/확정 인원 수를 한 번의 쿼리로 집계합니다.
+    (캠페인 목록 카드에서 캠페인마다 get_campaign_selections를 따로 호출하는
+    N+1 쿼리를 피하기 위한 용도.)"""
+    if not campaign_ids:
+        return {}
+    rows = (
+        get_supabase()
+        .table("campaign_selections")
+        .select("campaign_id,status")
+        .in_("campaign_id", campaign_ids)
+        .execute()
+    ).data or []
+    counts: dict[str, dict] = {cid: {"total": 0, "confirmed": 0} for cid in campaign_ids}
+    for r in rows:
+        c = counts.setdefault(r["campaign_id"], {"total": 0, "confirmed": 0})
+        c["total"] += 1
+        if r.get("status") == "confirmed":
+            c["confirmed"] += 1
+    return counts
+
+
 def add_to_campaign(campaign_id: str, influencer_id: str) -> None:
     get_supabase().table("campaign_selections").upsert(
         {"campaign_id": campaign_id, "influencer_id": influencer_id, "status": "candidate"},
