@@ -13,7 +13,7 @@ except ImportError:
 
 import requests as _req
 import streamlit as st
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from types import SimpleNamespace
 
 
@@ -57,7 +57,11 @@ def get_supabase() -> Client:
     if not url or not key:
         st.error("환경변수 SUPABASE_URL, SUPABASE_KEY를 설정하세요.")
         st.stop()
-    return create_client(url, key)
+    # supabase-py 기본 postgrest_client_timeout(120초)이 너무 길어서, 커넥션 풀의
+    # 죽은(stale) 연결에 걸리면 쿼리 하나가 최대 2분씩 응답 없이 멈춰있었다.
+    # 여러 쿼리를 연달아 호출하는 페이지에서는 이게 누적돼 "영원히 로딩"처럼 보인다.
+    # 타임아웃을 짧게 줘서 죽은 연결이면 빨리 실패하고 다음 재시도/재연결로 넘어가게 한다.
+    return create_client(url, key, options=ClientOptions(postgrest_client_timeout=20))
 
 
 # ─── Auth 헬퍼 (requests 직접 사용 — Railway HTTP/2 우회) ─────────────────────
