@@ -1490,9 +1490,18 @@ with tab4:
 아래에서 플랫폼을 직접 지정하세요.
 """)
 
+        _mi_default_idx = 0
+        if filter_campaign_id:
+            try:
+                _mi_default_idx = next(
+                    i for i, c in enumerate(campaigns) if c["id"] == filter_campaign_id
+                )
+            except StopIteration:
+                pass
         mi_camp_label = st.selectbox(
             "이관 대상 캠페인 *",
             [c["name"] for c in campaigns],
+            index=_mi_default_idx,
             key="mi_camp",
         )
         mi_campaign_id = campaign_name_to_id[mi_camp_label]
