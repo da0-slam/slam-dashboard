@@ -1,7 +1,6 @@
 """공개 전략 문서 뷰어 — 토큰 링크로 로그인 없이 접근 가능."""
 import streamlit as st
 import re
-st.set_page_config(page_title="전략 문서", page_icon="📋", layout="wide")
 
 from utils.storage_client import resolve_strategy_token   # noqa: E402
 from utils.supabase_client import get_brand_strategy_by_id, get_brand_strategies, get_brands  # noqa: E402

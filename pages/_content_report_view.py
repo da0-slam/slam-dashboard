@@ -3,15 +3,6 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="콘텐츠 성과 리포트", page_icon="📊", layout="wide")
-
-# 비로그인 공개 리포트 — 내부 앱 메뉴 대신 페이지 내 목차만 노출
-st.markdown("""
-<style>
-[data-testid="stSidebarNav"] { display:none!important; }
-</style>
-""", unsafe_allow_html=True)
-
 from utils.storage_client import resolve_content_report_token  # noqa: E402
 from utils.supabase_client import (  # noqa: E402
     aweme_id_from_url, aweme_id_from_url_fast, get_brands, get_campaigns, get_campaign_posts,

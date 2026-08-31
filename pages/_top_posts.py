@@ -7,8 +7,6 @@ from utils.supabase_client import (
     get_all_campaigns, get_campaign_posts_for_campaigns, get_brands, get_user_profile,
 )
 
-st.set_page_config(page_title="우수 게시물 취합", page_icon="⭐", layout="wide")
-
 user = require_auth()
 sidebar_user_info()
 

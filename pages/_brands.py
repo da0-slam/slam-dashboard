@@ -5,8 +5,6 @@ from utils.supabase_client import (
     set_brand_access_password,
 )
 
-st.set_page_config(page_title="브랜드사 관리", page_icon="🏢", layout="wide")
-
 user = require_auth()
 block_if_demo()
 sidebar_user_info()

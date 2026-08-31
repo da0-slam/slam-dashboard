@@ -23,8 +23,6 @@ from utils.storage_client import (
     revoke_strategy_token,
 )
 
-st.set_page_config(page_title="전략", page_icon="🎯", layout="wide")
-
 user = require_auth()
 block_if_demo()
 sidebar_user_info()

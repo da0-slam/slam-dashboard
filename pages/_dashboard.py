@@ -8,8 +8,6 @@ from utils.supabase_client import (
     assign_user_to_brand, update_user_role, get_user_profile,
 )
 
-st.set_page_config(page_title="수집 데이터 대시보드", page_icon="📊", layout="wide")
-
 user = require_auth()
 block_if_demo()
 sidebar_user_info()

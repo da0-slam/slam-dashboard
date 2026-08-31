@@ -19,7 +19,6 @@ from utils.supabase_client import (
 )
 from utils.notes_ui import show_notes_dialog
 
-st.set_page_config(page_title="캠페인 관리", page_icon="📋", layout="wide")
 user = require_auth()
 block_if_demo()
 sidebar_user_info()

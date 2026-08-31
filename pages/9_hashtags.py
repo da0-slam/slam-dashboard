@@ -9,7 +9,6 @@ import pandas as pd
 
 from utils.auth import require_auth, sidebar_user_info, block_if_demo
 
-st.set_page_config(page_title="해시태그", page_icon="#️⃣", layout="wide")
 require_auth()
 block_if_demo()
 sidebar_user_info()

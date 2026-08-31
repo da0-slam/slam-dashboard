@@ -16,7 +16,6 @@ from utils.supabase_client import (
 )
 from utils.notes_ui import show_notes_dialog, render_notes_inline, _avatar_color, _time_label
 
-st.set_page_config(page_title="KOC Intelligence Viewer", page_icon="🎬", layout="wide")
 user = require_auth()
 block_if_demo()
 sidebar_user_info()

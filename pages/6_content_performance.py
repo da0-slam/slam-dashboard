@@ -44,7 +44,6 @@ from utils.comment_ui import (
     render_comment_distribution_charts as _render_comment_distribution_charts,
 )
 
-st.set_page_config(page_title="콘텐츠 성과 관리", page_icon="📊", layout="wide")
 require_auth()
 sidebar_user_info()
 

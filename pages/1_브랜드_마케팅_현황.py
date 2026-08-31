@@ -33,8 +33,6 @@ from utils.supabase_client import (
     get_brand_ranking_import_stats, get_user_profile,
 )
 
-st.set_page_config(page_title="브랜드 마케팅 현황", page_icon="📊", layout="wide")
-
 user = require_auth()
 sidebar_user_info()
 

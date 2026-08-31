@@ -26,6 +26,22 @@ init_cookie_controller()
 if "user" not in st.session_state:
     st.session_state.user = None
 
+# ─── 공개 리포트 링크 (토큰 기반, 로그인 여부와 무관하게 바로 진입) ──────────────
+# st.navigation() 도입 전에는 pages/_content_report_view.py 등이 자동 라우팅으로
+# 직접 서빙됐지만, 이제 app.py가 모든 경로의 유일한 진입점이 되므로 여기서
+# 명시적으로 처리해야 한다.
+if st.query_params.get("token"):
+    st.navigation(
+        [
+            st.Page("pages/_content_report_view.py", title="콘텐츠 성과 리포트",
+                    icon="📊", url_path="content_report_view"),
+            st.Page("pages/_strategy_view.py", title="전략 문서",
+                    icon="📋", url_path="strategy_view"),
+        ],
+        position="hidden",
+    ).run()
+    st.stop()
+
 # ─── OAuth 콜백 처리 ──────────────────────────────────────────────────────────
 _oauth_code  = st.query_params.get("code")
 _pkce_tid    = st.query_params.get("_pkce")
@@ -74,56 +90,52 @@ def _oauth_link(provider: str) -> str:
     return st.session_state[key]
 
 
-# ─── 로그인 상태: 홈 화면 ─────────────────────────────────────────────────────
+# ─── 로그인 상태: 네비게이션 구성 ─────────────────────────────────────────────
 if st.session_state.user:
-    from utils.auth import sidebar_user_info, _is_demo_user
-    if _is_demo_user(st.session_state.user):
-        st.switch_page("pages/6_content_performance.py")
-    sidebar_user_info()
-
-    st.title("인플루언서 관리 대시보드")
-    st.markdown("사이드바 메뉴에서 원하는 기능을 선택하세요.")
-    st.divider()
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        with st.container(border=True):
-            st.markdown("### 🎬 탐색")
-            st.caption("인플루언서 탐색 및 즐겨찾기")
-            st.page_link("pages/_browse.py", label="이동 →")
-    with col2:
-        with st.container(border=True):
-            st.markdown("### 📋 캠페인")
-            st.caption("캠페인 생성 및 후보 관리")
-            st.page_link("pages/5_campaigns.py", label="이동 →")
-    with col3:
-        with st.container(border=True):
-            st.markdown("### 👥 즐겨찾기")
-            st.caption("브랜드별 즐겨찾기 인플루언서")
-            st.page_link("pages/2_influencers.py", label="이동 →")
-    with col4:
-        with st.container(border=True):
-            st.markdown("### 📊 콘텐츠 성과")
-            st.caption("게시물별 업로드 성과 관리")
-            st.page_link("pages/6_content_performance.py", label="이동 →")
-
-    # 어드민 전용 카드
+    from utils.auth import _is_demo_user
     from utils.supabase_client import get_user_profile as _gup
+
+    if _is_demo_user(st.session_state.user):
+        # 데모 계정: 콘텐츠 성과 관리 페이지만 라우팅 자체를 허용 (CSS 숨김이 아니라
+        # 아예 다른 페이지가 등록되지 않으므로 URL을 직접 쳐도 접근 불가)
+        st.navigation(
+            [st.Page("pages/6_content_performance.py", title="콘텐츠 성과 관리",
+                     icon="📊", url_path="content_performance", default=True)],
+            position="hidden",
+        ).run()
+        st.stop()
+
     _profile = _gup(st.session_state.user.id)
-    if _profile.get("role") == "admin":
-        st.divider()
-        st.caption("🔧 관리자 전용")
-        ac1, ac2, _ = st.columns([1, 1, 2])
-        with ac1:
-            with st.container(border=True):
-                st.markdown("### 📊 어드민 대시보드")
-                st.caption("수집 현황 및 유저 계정 관리")
-                st.page_link("pages/_dashboard.py", label="이동 →")
-        with ac2:
-            with st.container(border=True):
-                st.markdown("### 🏢 브랜드 관리")
-                st.caption("브랜드 생성 및 설정")
-                st.page_link("pages/_brands.py", label="이동 →")
+    is_admin = _profile.get("role") == "admin"
+
+    _main_pages = [
+        st.Page("pages/_home.py",             title="홈",              icon="🏠", url_path="home", default=True),
+        st.Page("pages/_browse.py",           title="탐색",            icon="🎬", url_path="browse",             visibility="hidden"),
+        st.Page("pages/2_influencers.py",     title="즐겨찾기",         icon="👥", url_path="influencers"),
+        st.Page("pages/5_campaigns.py",       title="캠페인 관리",      icon="📋", url_path="campaigns"),
+        st.Page("pages/6_content_performance.py", title="콘텐츠 성과 관리", icon="📊", url_path="content_performance"),
+        st.Page("pages/7_strategy.py",        title="전략",            icon="🎯", url_path="strategy"),
+        st.Page("pages/9_hashtags.py",        title="해시태그",         icon="#️⃣", url_path="hashtags"),
+        st.Page("pages/8_settings.py",        title="계정 설정",       icon="⚙️", url_path="settings"),
+        # 성능 이슈로 사이드바 노출은 보류하되, 필요 시 직접 링크로는 접근 가능하게 유지
+        st.Page("pages/1_브랜드_마케팅_현황.py", title="브랜드 마케팅 현황", icon="📊",
+                url_path="브랜드_마케팅_현황", visibility="hidden"),
+        # 공개 리포트 — 로그인 상태에서도 관리자가 미리보기로 열어볼 수 있게 등록만 해둔다
+        st.Page("pages/_content_report_view.py", title="콘텐츠 성과 리포트", icon="📊",
+                url_path="content_report_view", visibility="hidden"),
+        st.Page("pages/_strategy_view.py",     title="전략 문서",       icon="📋",
+                url_path="strategy_view", visibility="hidden"),
+    ]
+
+    _pages = {"메인": _main_pages}
+    if is_admin:
+        _pages["🔧 관리자"] = [
+            st.Page("pages/_dashboard.py", title="어드민 대시보드",   icon="📊", url_path="dashboard"),
+            st.Page("pages/_brands.py",    title="브랜드 관리",       icon="🏢", url_path="brands"),
+            st.Page("pages/_top_posts.py", title="우수 게시물 취합", icon="⭐", url_path="top_posts"),
+        ]
+
+    st.navigation(_pages).run()
 
 # ─── 로그아웃 상태: 로그인 / 회원가입 폼 ────────────────────────────────────
 else:
