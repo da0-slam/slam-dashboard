@@ -60,6 +60,7 @@ def _upload_row(c: dict) -> dict:
         "발송 인원":   p_count,
         "업로드 인원": u_count,
         "달성률(%)":  rate,
+        "진행률":      rate,
         "_status_raw": c.get("status"),
     }
 
@@ -71,11 +72,13 @@ _up_closed = [{k: v for k, v in r.items() if k != "_status_raw"}
               for r in _up_rows if r["_status_raw"] == "closed"]
 
 # ProgressColumn은 셀에 숫자를 표시하지 않고 막대만 그려서 퍼센트가 안 보이는
-# 문제가 있었다. 확실하게 보이는 일반 숫자 컬럼(%.1f%%)으로 표시한다.
+# 문제가 있었다. 숫자는 NumberColumn으로, 시각적 막대는 별도 ProgressColumn으로
+# 나란히 보여준다.
 _up_col_config = {
     "발송 인원":   st.column_config.NumberColumn("발송 인원", format="%d명"),
     "업로드 인원": st.column_config.NumberColumn("업로드 인원", format="%d명"),
     "달성률(%)":  st.column_config.NumberColumn("달성률", format="%.1f%%"),
+    "진행률":      st.column_config.ProgressColumn("진행률", min_value=0, max_value=100, format="%.0f%%"),
 }
 
 if _up_active:
