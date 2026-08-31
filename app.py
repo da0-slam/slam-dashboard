@@ -130,9 +130,10 @@ if st.session_state.user:
     _pages = {"메인": _main_pages}
     if is_admin:
         _pages["🔧 관리자"] = [
-            st.Page("pages/_dashboard.py", title="어드민 대시보드",   icon="📊", url_path="dashboard"),
-            st.Page("pages/_brands.py",    title="브랜드 관리",       icon="🏢", url_path="brands"),
-            st.Page("pages/_top_posts.py", title="우수 게시물 취합", icon="⭐", url_path="top_posts"),
+            st.Page("pages/_dashboard.py",      title="어드민 대시보드",     icon="📊", url_path="dashboard"),
+            st.Page("pages/_brands.py",         title="브랜드 관리",         icon="🏢", url_path="brands"),
+            st.Page("pages/_top_posts.py",      title="우수 게시물 취합",   icon="⭐", url_path="top_posts"),
+            st.Page("pages/_upload_status.py",  title="업로드 현황",         icon="📤", url_path="upload_status"),
         ]
 
     st.navigation(_pages).run()
