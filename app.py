@@ -115,7 +115,6 @@ if st.session_state.user:
         st.Page("pages/5_campaigns.py",       title="캠페인 관리",      icon="📋", url_path="campaigns"),
         st.Page("pages/6_content_performance.py", title="콘텐츠 성과 관리", icon="📊", url_path="content_performance"),
         st.Page("pages/7_strategy.py",        title="전략",            icon="🎯", url_path="strategy"),
-        st.Page("pages/9_hashtags.py",        title="해시태그",         icon="#️⃣", url_path="hashtags"),
         st.Page("pages/8_settings.py",        title="계정 설정",       icon="⚙️", url_path="settings"),
         # 성능 이슈로 사이드바 노출은 보류하되, 필요 시 직접 링크로는 접근 가능하게 유지
         st.Page("pages/1_브랜드_마케팅_현황.py", title="브랜드 마케팅 현황", icon="📊",
