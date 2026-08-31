@@ -228,6 +228,7 @@ if "cp_prev_camp" not in st.session_state:
     st.session_state.cp_prev_camp = filter_campaign_id
 if st.session_state.cp_prev_camp != filter_campaign_id:
     st.session_state.cp_prev_camp = filter_campaign_id
+    st.session_state["cp_grid_page"] = 0
     _BATCH_QUEUE_KEYS = (
         "refresh_apify_queue", "refresh_apify_off",
         "mi_pending_rows", "mi_offset", "mi_q_created", "mi_q_errors",
@@ -747,6 +748,43 @@ with tab1:
                     (p.get("post_url") or "").split("?")[0].rstrip("/"): p
                     for p in posts
                 }
+
+                # 카드 하나당 st.markdown/st.button을 개별 렌더링하는 구조라, 게시물이
+                # 많은 캠페인(특히 "전체 캠페인")에서는 수백 개 위젯을 한 번에 그리느라
+                # 로딩이 매우 오래 걸리거나 멈춘 것처럼 보였다. 페이지네이션으로 한 번에
+                # 그리는 카드 수를 제한한다 (browse 페이지와 동일한 방식).
+                _GRID_PAGE_SIZE = 40
+                _grid_total_pages = max(1, (len(rows) + _GRID_PAGE_SIZE - 1) // _GRID_PAGE_SIZE)
+                _grid_page_key = "cp_grid_page"
+                if _grid_page_key not in st.session_state:
+                    st.session_state[_grid_page_key] = 0
+                st.session_state[_grid_page_key] = min(
+                    st.session_state[_grid_page_key], _grid_total_pages - 1
+                )
+
+                if _grid_total_pages > 1:
+                    gp1, gp2, gp3 = st.columns([1, 2, 1])
+                    with gp1:
+                        if st.button("◀ 이전", disabled=(st.session_state[_grid_page_key] <= 0), key="cp_grid_prev"):
+                            st.session_state[_grid_page_key] -= 1
+                            st.rerun()
+                    with gp2:
+                        st.markdown(
+                            f"<div style='text-align:center;padding-top:6px;'>"
+                            f"{st.session_state[_grid_page_key] + 1} / {_grid_total_pages} 페이지 "
+                            f"(총 {len(rows)}개)</div>",
+                            unsafe_allow_html=True,
+                        )
+                    with gp3:
+                        if st.button(
+                            "다음 ▶", disabled=(st.session_state[_grid_page_key] >= _grid_total_pages - 1),
+                            key="cp_grid_next",
+                        ):
+                            st.session_state[_grid_page_key] += 1
+                            st.rerun()
+
+                _grid_offset = st.session_state[_grid_page_key] * _GRID_PAGE_SIZE
+                rows = rows[_grid_offset:_grid_offset + _GRID_PAGE_SIZE]
 
                 for idx, chunk in enumerate([rows[i:i + 4] for i in range(0, len(rows), 4)]):
                     cols = st.columns(4)
