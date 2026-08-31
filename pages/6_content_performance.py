@@ -29,6 +29,7 @@ from utils.supabase_client import (
     get_post_comments_batch,
     get_user_profile,
     migrate_google_sheet_rows,
+    parse_google_sheet_csv,
     post_url_exists,
     update_campaign,
     update_campaign_post,
@@ -1504,6 +1505,56 @@ with tab4:
                         st.session_state[del_key] = True
                         st.rerun()
 
+    # ── 구글시트 자동 동기화 설정 (어드민) ────────────────────────────────────
+    if is_admin:
+        with st.expander("🔄 구글시트 자동 동기화 설정", expanded=False):
+            st.caption(
+                "여기 등록해두면 매일 자동으로 이 캠페인의 구글시트를 다시 가져와 "
+                "빈 값(아직 등록 안 된 지표)만 채웁니다. 이미 저장된 지표는 덮어쓰지 않습니다."
+            )
+            _sync_camp_idx = 0
+            if filter_campaign_id:
+                try:
+                    _sync_camp_idx = next(
+                        i for i, c in enumerate(campaigns) if c["id"] == filter_campaign_id
+                    )
+                except StopIteration:
+                    pass
+            _sync_camp_label = st.selectbox(
+                "설정할 캠페인",
+                [c["name"] for c in campaigns],
+                index=_sync_camp_idx,
+                key="sync_camp_sel",
+            )
+            _sync_camp = next(c for c in campaigns if c["name"] == _sync_camp_label)
+
+            _sync_url = st.text_input(
+                "구글시트 URL",
+                value=_sync_camp.get("google_sheet_url") or "",
+                placeholder="https://docs.google.com/spreadsheets/d/...",
+                key=f"sync_url_{_sync_camp['id']}",
+            )
+            _sync_on = st.checkbox(
+                "매일 자동 동기화 켜기",
+                value=bool(_sync_camp.get("google_sheet_auto_sync")),
+                key=f"sync_on_{_sync_camp['id']}",
+            )
+            _last_synced = _sync_camp.get("google_sheet_last_synced_at")
+            if _last_synced:
+                st.caption(f"마지막 자동 동기화: {_last_synced}")
+
+            if st.button("저장", key=f"sync_save_{_sync_camp['id']}"):
+                if _sync_on and not _sync_url.strip():
+                    st.error("자동 동기화를 켜려면 구글시트 URL을 입력하세요.")
+                else:
+                    update_campaign(_sync_camp["id"], {
+                        "google_sheet_url": _sync_url.strip() or None,
+                        "google_sheet_auto_sync": _sync_on,
+                    })
+                    _load_campaigns.clear()
+                    st.success("저장했습니다.")
+                    st.rerun()
+
     # ── Google Sheet 데이터 이관 ──────────────────────────────────────────────
 
     with st.expander("📥 Google Sheet 데이터 이관", expanded=False):
@@ -1779,89 +1830,12 @@ with tab4:
         # ── 공통 처리 로직 ────────────────────────────────────────────────────
         if raw_csv is not None:
             try:
-                raw_csv.columns = [c.strip().lower() for c in raw_csv.columns]
+                rows_to_migrate, _parse_err = parse_google_sheet_csv(raw_csv)
 
-                col_aliases = {
-                    "name":          ["name", "full name", "인플루언서", "influencer", "influencer_name"],
-                    "ig_url":        ["ig_url", "posting url (ig)", "ig url", "instagram_url", "instagram url"],
-                    "tt_url":        ["tt_url", "posting url (tt)", "tt url", "tiktok_url", "tiktok url",
-                                       "posting url", "post url", "url", "link"],
-                    "x_url":         ["x_url", "posting url (x)", "x url", "twitter_url", "x/twitter url"],
-                    "lips_url":      ["lips_url", "others(lips)", "others(lip)", "lips url", "lips posting url", "other url"],
-                    "upload_day":    ["upload_day", "upload day", "upload day(within the last month)", "uploadday",
-                                       "upload date", "날짜", "date", "visit date"],
-                    "tt_views":      ["tt_views", "views", "view", "조회수", "재생수"],
-                    "tt_likes":      ["tt_likes", "likes", "likes▼", "likes♥", "like", "좋아요"],
-                    "tt_comments":   ["tt_comments", "comments", "comment", "댓글"],
-                    "tt_saves":      ["tt_saves", "saves", "save", "저장"],
-                    "tt_shares":     ["tt_shares", "shares", "share", "공유"],
-                    "ig_views":      ["ig_views", "views(ig)", "views_ig"],
-                    "ig_likes":      ["ig_likes", "likes(ig)", "likes▼(ig)", "likes♥(ig)", "likes_ig"],
-                    "ig_comments":   ["ig_comments", "comments(ig)", "comments_ig"],
-                    "ig_saves":      ["ig_saves", "saves(ig)", "saves_ig"],
-                    "ig_shares":     ["ig_shares", "shares(ig)", "shares_ig"],
-                    "x_views":       ["x_views", "views(x)", "views_x"],
-                    "x_likes":       ["x_likes", "likes(x)", "likes_x"],
-                    "x_comments":    ["x_comments", "comments(x)", "comments_x"],
-                    "x_saves":       ["x_saves", "saves(x)", "saves_x"],
-                    "x_shares":      ["x_shares", "shares(x)", "shares_x"],
-                    "other_views":   ["other_views", "lips_views", "views(lips)", "views(other)"],
-                    "other_likes":   ["other_likes", "lips_likes", "likes(lips)", "likes(other)"],
-                    "other_comments":["other_comments", "lips_comments", "comments(lips)"],
-                    "other_saves":   ["other_saves", "lips_saves", "saves(lips)"],
-                    "other_shares":  ["other_shares", "lips_shares", "shares(lips)"],
-                }
-
-                def _find_col(aliases: list[str]) -> str | None:
-                    for a in aliases:
-                        if a in raw_csv.columns:
-                            return a
-                    return None
-
-                mapped = {field: _find_col(aliases) for field, aliases in col_aliases.items()}
-
-                if not mapped.get("name"):
-                    st.error("필수 컬럼 누락: name (인플루언서명). 헤더를 확인해주세요.")
+                if _parse_err:
+                    st.error(_parse_err)
                 else:
-                    def _val(r, field, default=0):
-                        col = mapped.get(field)
-                        return r[col] if col and col in r.index else default
-
                     def _clean(v): return "" if str(v).strip().lower() in ("","nan","none","-") else str(v).strip()
-
-                    rows_to_migrate = []
-                    for _, r in raw_csv.iterrows():
-                        rows_to_migrate.append({
-                            "name":           str(_val(r, "name", "")),
-                            "ig_url":         str(_val(r, "ig_url", "")),
-                            "tt_url":         str(_val(r, "tt_url", "")),
-                            "x_url":          str(_val(r, "x_url", "")),
-                            "lips_url":       str(_val(r, "lips_url", "")),
-                            "upload_day":     str(_val(r, "upload_day", "")),
-                            "tt_views":       _val(r, "tt_views"),
-                            "tt_likes":       _val(r, "tt_likes"),
-                            "tt_comments":    _val(r, "tt_comments"),
-                            "tt_saves":       _val(r, "tt_saves"),
-                            "tt_shares":      _val(r, "tt_shares"),
-                            "ig_views":       _val(r, "ig_views"),
-                            "ig_likes":       _val(r, "ig_likes"),
-                            "ig_comments":    _val(r, "ig_comments"),
-                            "ig_saves":       _val(r, "ig_saves"),
-                            "ig_shares":      _val(r, "ig_shares"),
-                            "x_views":        _val(r, "x_views"),
-                            "x_likes":        _val(r, "x_likes"),
-                            "x_comments":     _val(r, "x_comments"),
-                            "x_saves":        _val(r, "x_saves"),
-                            "x_shares":       _val(r, "x_shares"),
-                            "other_views":    _val(r, "other_views"),
-                            "other_likes":    _val(r, "other_likes"),
-                            "other_comments": _val(r, "other_comments"),
-                            "other_saves":    _val(r, "other_saves"),
-                            "other_shares":   _val(r, "other_shares"),
-                        })
-
-                    # 이름이 빈 행(구분용 공백 행 등)은 발송 인원 집계에서 제외
-                    rows_to_migrate = [r for r in rows_to_migrate if _clean(r.get("name", ""))]
 
                     # ── 업로드율 미리보기 (URL 존재 여부 기준) ───────────────
                     # upload_day만으로 판단하면 안 됨: TT/IG 둘 다 있는 시트는

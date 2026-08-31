@@ -1642,6 +1642,98 @@ def refresh_campaign_posts(campaign_id: str, brand_id: str) -> int:
 
 # ── Google Sheet 데이터 마이그레이션 ─────────────────────────────────────────
 
+def parse_google_sheet_csv(raw_csv) -> tuple[list[dict], str | None]:
+    """Google Sheet에서 내려받은 CSV(DataFrame)를 migrate_google_sheet_rows()가
+    받는 row 형식(list[dict])으로 변환한다. UI(수동 이관)와 자동 동기화 스크립트가
+    동일한 컬럼명 인식 규칙을 공유하기 위해 분리했다.
+    returns: (rows, error_message) — error_message가 있으면 rows는 빈 리스트."""
+    raw_csv = raw_csv.copy()
+    raw_csv.columns = [c.strip().lower() for c in raw_csv.columns]
+
+    col_aliases = {
+        "name":          ["name", "full name", "인플루언서", "influencer", "influencer_name"],
+        "ig_url":        ["ig_url", "posting url (ig)", "ig url", "instagram_url", "instagram url"],
+        "tt_url":        ["tt_url", "posting url (tt)", "tt url", "tiktok_url", "tiktok url",
+                           "posting url", "post url", "url", "link"],
+        "x_url":         ["x_url", "posting url (x)", "x url", "twitter_url", "x/twitter url"],
+        "lips_url":      ["lips_url", "others(lips)", "others(lip)", "lips url", "lips posting url", "other url"],
+        "upload_day":    ["upload_day", "upload day", "upload day(within the last month)", "uploadday",
+                           "upload date", "날짜", "date", "visit date"],
+        "tt_views":      ["tt_views", "views", "view", "조회수", "재생수"],
+        "tt_likes":      ["tt_likes", "likes", "likes▼", "likes♥", "like", "좋아요"],
+        "tt_comments":   ["tt_comments", "comments", "comment", "댓글"],
+        "tt_saves":      ["tt_saves", "saves", "save", "저장"],
+        "tt_shares":     ["tt_shares", "shares", "share", "공유"],
+        "ig_views":      ["ig_views", "views(ig)", "views_ig"],
+        "ig_likes":      ["ig_likes", "likes(ig)", "likes▼(ig)", "likes♥(ig)", "likes_ig"],
+        "ig_comments":   ["ig_comments", "comments(ig)", "comments_ig"],
+        "ig_saves":      ["ig_saves", "saves(ig)", "saves_ig"],
+        "ig_shares":     ["ig_shares", "shares(ig)", "shares_ig"],
+        "x_views":       ["x_views", "views(x)", "views_x"],
+        "x_likes":       ["x_likes", "likes(x)", "likes_x"],
+        "x_comments":    ["x_comments", "comments(x)", "comments_x"],
+        "x_saves":       ["x_saves", "saves(x)", "saves_x"],
+        "x_shares":      ["x_shares", "shares(x)", "shares_x"],
+        "other_views":   ["other_views", "lips_views", "views(lips)", "views(other)"],
+        "other_likes":   ["other_likes", "lips_likes", "likes(lips)", "likes(other)"],
+        "other_comments":["other_comments", "lips_comments", "comments(lips)"],
+        "other_saves":   ["other_saves", "lips_saves", "saves(lips)"],
+        "other_shares":  ["other_shares", "lips_shares", "shares(lips)"],
+    }
+
+    def _find_col(aliases: list[str]) -> str | None:
+        for a in aliases:
+            if a in raw_csv.columns:
+                return a
+        return None
+
+    mapped = {field: _find_col(aliases) for field, aliases in col_aliases.items()}
+    if not mapped.get("name"):
+        return [], "필수 컬럼 누락: name (인플루언서명). 헤더를 확인해주세요."
+
+    def _val(r, field, default=0):
+        col = mapped.get(field)
+        return r[col] if col and col in r.index else default
+
+    def _clean(v):
+        return "" if str(v).strip().lower() in ("", "nan", "none", "-") else str(v).strip()
+
+    rows: list[dict] = []
+    for _, r in raw_csv.iterrows():
+        rows.append({
+            "name":           str(_val(r, "name", "")),
+            "ig_url":         str(_val(r, "ig_url", "")),
+            "tt_url":         str(_val(r, "tt_url", "")),
+            "x_url":          str(_val(r, "x_url", "")),
+            "lips_url":       str(_val(r, "lips_url", "")),
+            "upload_day":     str(_val(r, "upload_day", "")),
+            "tt_views":       _val(r, "tt_views"),
+            "tt_likes":       _val(r, "tt_likes"),
+            "tt_comments":    _val(r, "tt_comments"),
+            "tt_saves":       _val(r, "tt_saves"),
+            "tt_shares":      _val(r, "tt_shares"),
+            "ig_views":       _val(r, "ig_views"),
+            "ig_likes":       _val(r, "ig_likes"),
+            "ig_comments":    _val(r, "ig_comments"),
+            "ig_saves":       _val(r, "ig_saves"),
+            "ig_shares":      _val(r, "ig_shares"),
+            "x_views":        _val(r, "x_views"),
+            "x_likes":        _val(r, "x_likes"),
+            "x_comments":     _val(r, "x_comments"),
+            "x_saves":        _val(r, "x_saves"),
+            "x_shares":       _val(r, "x_shares"),
+            "other_views":    _val(r, "other_views"),
+            "other_likes":    _val(r, "other_likes"),
+            "other_comments": _val(r, "other_comments"),
+            "other_saves":    _val(r, "other_saves"),
+            "other_shares":   _val(r, "other_shares"),
+        })
+
+    # 이름이 빈 행(구분용 공백 행 등)은 발송 인원 집계에서 제외
+    rows = [r for r in rows if _clean(r.get("name", ""))]
+    return rows, None
+
+
 def migrate_google_sheet_rows(
     campaign_id: str,
     brand_id: str,
